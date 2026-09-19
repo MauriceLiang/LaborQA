@@ -2696,19 +2696,35 @@ input {
   height: 22px;
 }
 
-.primary-button {
+.primary-button.el-button {
   min-height: 44px;
   padding: 0 21px;
   color: #fff;
-  background: #1b6047;
+  background-color: #1b6047;
   border: 1px solid #1b6047;
   border-radius: 9px;
   font-size: 13px;
   font-weight: 650;
 }
 
-.primary-button:hover:not(:disabled) {
-  background: #15503b;
+.primary-button.el-button:hover:not(.is-disabled),
+.primary-button.el-button:focus-visible:not(.is-disabled),
+.primary-button.el-button:active:not(.is-disabled) {
+  color: #fff;
+  background-color: #15503b;
+  border-color: #15503b;
+  box-shadow: 0 6px 14px rgb(18 96 71 / 18%);
+}
+
+.primary-button.el-button.is-disabled,
+.primary-button.el-button.is-disabled:hover,
+.primary-button.el-button.is-disabled:focus,
+.primary-button.el-button.is-disabled:active {
+  color: #6f9584;
+  background-color: #e2eee8;
+  border-color: #c3d9cd;
+  box-shadow: none;
+  opacity: 1;
 }
 
 .stop-button {
