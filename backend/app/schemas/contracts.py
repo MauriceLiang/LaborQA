@@ -283,6 +283,9 @@ class LangChainRuntimeConfig(ApiModel):
     langchain_version: str
     chat_provider: str
     llm_model: str
+    llm_evidence_thinking_enabled: bool
+    llm_answer_thinking_enabled: bool
+    llm_reasoning_effort: Literal["low", "high", "max"]
     embedding_provider: Literal["local", "api"]
     embedding_model: str
     embedding_normalize: bool

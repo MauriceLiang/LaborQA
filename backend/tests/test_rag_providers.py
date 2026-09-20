@@ -5,6 +5,14 @@ from app.rag import providers as providers_module
 from app.rag.providers import build_chat_model, build_embeddings
 
 
+def test_settings_keep_thinking_enabled_by_default() -> None:
+    config = Settings(_env_file=None)
+
+    assert config.llm_evidence_thinking_enabled is True
+    assert config.llm_answer_thinking_enabled is True
+    assert config.llm_reasoning_effort == "high"
+
+
 def test_build_chat_model_maps_existing_openai_compatible_settings() -> None:
     config = Settings(
         _env_file=None,
@@ -20,6 +28,35 @@ def test_build_chat_model_maps_existing_openai_compatible_settings() -> None:
     assert model.openai_api_base == "https://llm.example.test/v1"
     assert model.streaming is True
     assert model.use_responses_api is False
+
+
+def test_build_chat_model_with_thinking_enabled() -> None:
+    config = Settings(
+        _env_file=None,
+        llm_api_key="test-key",
+        llm_base_url="https://llm.example.test/v1",
+        llm_model="test-model",
+        llm_reasoning_effort="max",
+    )
+
+    model = build_chat_model(config, thinking_mode="enabled")
+
+    assert model.reasoning_effort == "max"
+    assert model.extra_body == {"thinking": {"type": "enabled"}}
+
+
+def test_build_chat_model_with_thinking_disabled() -> None:
+    config = Settings(
+        _env_file=None,
+        llm_api_key="test-key",
+        llm_base_url="https://llm.example.test/v1",
+        llm_model="test-model",
+    )
+
+    model = build_chat_model(config, thinking_mode="disabled")
+
+    assert model.reasoning_effort == "none"
+    assert model.extra_body == {"thinking": {"type": "disabled"}}
 
 
 def test_build_local_embeddings_maps_existing_local_settings() -> None:

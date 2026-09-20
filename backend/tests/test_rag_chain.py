@@ -81,6 +81,66 @@ def _config() -> Settings:
     )
 
 
+def test_rag_chain_binds_separate_models_by_role() -> None:
+    base_model = FakeListChatModel(responses=["改写后的问题"])
+    evidence_model = FakeListChatModel(
+        responses=[
+            (
+                '{"decision":"SUFFICIENT","reason":"证据充分",'
+                '"supported_points":["已支持"],"missing_points":[]}'
+            )
+        ]
+    )
+    answer_model = FakeListChatModel(responses=["基于证据的回答"])
+    chain = RagChain(
+        FakeRetrieval(),
+        base_model,
+        _config(),
+        evidence_model=evidence_model,
+        answer_model=answer_model,
+    )
+    evidence = [
+        {
+            "chunk_id": 7,
+            "document_id": 3,
+            "file_name": "劳动合同法.pdf",
+            "chunk_no": 4,
+            "content": "建立劳动关系后，应当订立书面劳动合同。",
+            "score": 0.91,
+            "retrieval_score": 0.91,
+            "rerank_score": None,
+            "rank_no": 1,
+        }
+    ]
+
+    rewritten = asyncio.run(
+        chain.rewrite_question(
+            [{"role": "user", "content": "前一个问题"}], "当前问题"
+        )
+    )
+    judgement, refusal_reason = asyncio.run(
+        chain.judge_evidence("当前问题", evidence, strict=True)
+    )
+    answer = asyncio.run(
+        chain.complete_answer(
+            AnswerStyle.PLAIN,
+            "当前问题",
+            rewritten,
+            evidence,
+            False,
+            None,
+        )
+    )
+
+    assert chain.chat_model is base_model
+    assert chain.evidence_model is evidence_model
+    assert chain.answer_model is answer_model
+    assert rewritten == "改写后的问题"
+    assert judgement.decision is EvidenceDecision.SUFFICIENT
+    assert refusal_reason is None
+    assert answer == "基于证据的回答"
+
+
 def test_rag_chain_uses_domain_retrieval_service_fallback() -> None:
     retrieval = FakeRetrieval()
     chain = RagChain(retrieval, AsyncClientChatModel(FakeLlm()), _config())

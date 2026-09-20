@@ -50,6 +50,9 @@ class RagChain:
         retrieval_service: RetrievalService,
         chat_model: BaseChatModel,
         config: Settings = settings,
+        *,
+        evidence_model: BaseChatModel | None = None,
+        answer_model: BaseChatModel | None = None,
     ) -> None:
         self.retrieval_service = retrieval_service
         self.retriever = getattr(retrieval_service, "retriever", None)
@@ -58,25 +61,37 @@ class RagChain:
         self.answer_prompt = _answer_prompt()
         self.rewrite_prompt = _rewrite_prompt()
         self.evidence_prompt = _evidence_prompt()
-        self._set_chat_model(self.chat_model)
+        self._set_chat_models(
+            chat_model,
+            evidence_model=evidence_model,
+            answer_model=answer_model,
+        )
 
-    def _set_chat_model(self, model: BaseChatModel) -> None:
+    def _set_chat_models(
+        self,
+        model: BaseChatModel,
+        *,
+        evidence_model: BaseChatModel | None = None,
+        answer_model: BaseChatModel | None = None,
+    ) -> None:
         self.chat_model = model
-        self.rewrite_chain = self.rewrite_prompt | model | StrOutputParser()
+        self.evidence_model = evidence_model or model
+        self.answer_model = answer_model or model
+        self.rewrite_chain = self.rewrite_prompt | self.chat_model | StrOutputParser()
         self.evidence_chain = (
             self.evidence_prompt
-            | model.bind(response_format={"type": "json_object"})
+            | self.evidence_model.bind(response_format={"type": "json_object"})
             | JsonOutputParser()
         )
         self.answer_chain = RunnableBranch(
             (lambda state: bool(state["refused"]), RunnableLambda(_refusal)),
-            self.answer_prompt | model | StrOutputParser(),
+            self.answer_prompt | self.answer_model | StrOutputParser(),
         )
 
     def set_chat_model(self, model: BaseChatModel) -> None:
-        """Keep all chains bound to the current ChatModel instance."""
+        """Bind all RAG roles to one model for compatibility and tests."""
 
-        self._set_chat_model(model)
+        self._set_chat_models(model, evidence_model=model, answer_model=model)
 
     async def rewrite_question(
         self, history: list[dict[str, Any]], question: str

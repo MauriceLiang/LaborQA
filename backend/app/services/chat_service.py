@@ -92,11 +92,36 @@ class ChatService:
         self.config = config
         if chat_model is not None:
             self.chat_model = chat_model
+            self.evidence_chat_model = chat_model
+            self.answer_chat_model = chat_model
         elif all((config.llm_api_key, config.llm_base_url, config.llm_model)):
             self.chat_model = build_chat_model(config)
+            self.evidence_chat_model = build_chat_model(
+                config,
+                thinking_mode=(
+                    "enabled"
+                    if config.llm_evidence_thinking_enabled
+                    else "disabled"
+                ),
+            )
+            self.answer_chat_model = build_chat_model(
+                config,
+                thinking_mode=(
+                    "enabled" if config.llm_answer_thinking_enabled else "disabled"
+                ),
+            )
         else:
-            self.chat_model = _UnavailableChatModel()
-        self.rag_chain = RagChain(retrieval_service, self.chat_model, config)
+            unavailable = _UnavailableChatModel()
+            self.chat_model = unavailable
+            self.evidence_chat_model = unavailable
+            self.answer_chat_model = unavailable
+        self.rag_chain = RagChain(
+            retrieval_service,
+            self.chat_model,
+            config,
+            evidence_model=self.evidence_chat_model,
+            answer_model=self.answer_chat_model,
+        )
         self.tool_decision_service = ToolDecisionService()
         self.material_checklist_tool = MaterialChecklistTool()
         self.compliance_rule_service = ComplianceRuleService()
@@ -462,6 +487,9 @@ class ChatService:
                     "history_turns": len(history),
                     "answer_mode": answer_mode.value,
                     "evidence_count": len(evidence),
+                    "evidence_thinking": self.config.llm_evidence_thinking_enabled,
+                    "answer_thinking": self.config.llm_answer_thinking_enabled,
+                    "reasoning_effort": self.config.llm_reasoning_effort,
                     **latency,
                 },
                 ensure_ascii=False,

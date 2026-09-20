@@ -15,6 +15,7 @@ from app.core.error_codes import ErrorCode
 from app.core.errors import AppError
 from app.main import app
 from app.rag.errors import ModelUnavailableError
+from app.rag.runtime_config import runtime_config_snapshot
 from app.schemas.contracts import (
     EvaluationCaseCreate,
     EvaluationCaseUpdate,
@@ -189,6 +190,48 @@ def _create_database(database_path: Path) -> None:
     schema = Path(__file__).parents[1] / "app" / "core" / "schema.sql"
     with sqlite3.connect(database_path) as connection:
         connection.executescript(schema.read_text(encoding="utf-8"))
+
+
+def test_evaluation_judge_uses_the_base_chat_model() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        database_path = Path(directory) / "eval.db"
+        _create_database(database_path)
+        chat = FakeChat()
+        alternate = FakeJudge(answer='{"correct":false,"reason":"不应使用此模型"}')
+        chat.answer_chat_model = AsyncClientChatModel(alternate)
+        service = _service(database_path, chat)
+
+        judgement = asyncio.run(
+            service.judge_answer(
+                {
+                    "turns": ["劳动合同需要签订吗？"],
+                    "expected_points": ["应当订立书面劳动合同"],
+                },
+                {
+                    "rewritten_question": "劳动合同需要签订吗？",
+                    "answer": "应当订立书面劳动合同。",
+                },
+            )
+        )
+
+        assert judgement["correct"] is True
+        assert len(chat.judge.calls) == 1
+        assert alternate.calls == []
+
+
+def test_runtime_snapshot_records_thinking_profile() -> None:
+    config = Settings(
+        _env_file=None,
+        llm_evidence_thinking_enabled=False,
+        llm_answer_thinking_enabled=False,
+        llm_reasoning_effort="max",
+    )
+
+    snapshot = runtime_config_snapshot(config)
+
+    assert snapshot["llm_evidence_thinking_enabled"] is False
+    assert snapshot["llm_answer_thinking_enabled"] is False
+    assert snapshot["llm_reasoning_effort"] == "max"
 
 
 def test_fixed_cases_have_the_documented_distribution_and_json_arrays() -> None:

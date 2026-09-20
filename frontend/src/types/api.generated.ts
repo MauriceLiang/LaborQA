@@ -1078,6 +1078,12 @@ export interface components {
             chat_provider: string;
             /** Llm Model */
             llm_model: string;
+            /** Llm Evidence Thinking Enabled */
+            llm_evidence_thinking_enabled: boolean;
+            /** Llm Answer Thinking Enabled */
+            llm_answer_thinking_enabled: boolean;
+            /** Llm Reasoning Effort */
+            llm_reasoning_effort: "low" | "high" | "max";
             /**
              * Embedding Provider
              * @enum {string}
@@ -1401,6 +1407,12 @@ export interface components {
             chat_provider: string;
             /** Llm Model */
             llm_model: string;
+            /** Llm Evidence Thinking Enabled */
+            llm_evidence_thinking_enabled: boolean;
+            /** Llm Answer Thinking Enabled */
+            llm_answer_thinking_enabled: boolean;
+            /** Llm Reasoning Effort */
+            llm_reasoning_effort: "low" | "high" | "max";
             /**
              * Embedding Provider
              * @enum {string}
