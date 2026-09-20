@@ -58,6 +58,7 @@ _ANSWER_STYLE_INSTRUCTIONS = ANSWER_STYLE_INSTRUCTIONS
 class PreparedAnswerDecision:
     evidence: list[dict[str, Any]]
     retrieval_ms: int
+    evidence_judge_ms: int
     judgement: EvidenceJudgement
     refusal_reason: MissingKnowledgeReason | None
     answer_mode: AnswerMode
@@ -139,13 +140,33 @@ class ChatService:
     ):
         if execution_mode != ExecutionMode.PRODUCTION:
             raise ValueError("stream_chat only supports PRODUCTION mode")
+        request_started = perf_counter()
+        session_ms = 0
+        rewrite_ms = 0
+        retrieval_ms = 0
+        evidence_judge_ms = 0
+        pre_answer_ms = 0
+        ttft_ms: int | None = None
+        answer_generation_ms = 0
+        persist_ms = 0
         session_id = payload.session_id
         question = payload.question
+
+        yield _sse(
+            "status",
+            {
+                "stage": "understanding",
+                "message": "正在理解问题…",
+            },
+        )
+
+        session_started = perf_counter()
         try:
             history = self.session_service.get_recent_context(session_id, turns=3)
             user_message = self.session_service.create_user_message(
                 session_id, question
             )
+            session_ms = round((perf_counter() - session_started) * 1000)
         except AppError as exc:
             yield _sse("error", {"code": int(exc.code), "message": exc.message})
             return
@@ -157,7 +178,9 @@ class ChatService:
             )
             return
 
+        rewrite_started = perf_counter()
         rewritten_question = await self._rewrite_question(history, question)
+        rewrite_ms = round((perf_counter() - rewrite_started) * 1000)
         try:
             self.session_service.set_rewritten_question(
                 int(user_message["id"]), rewritten_question
@@ -170,9 +193,40 @@ class ChatService:
             )
             return
 
+        yield _sse(
+            "status",
+            {
+                "stage": "retrieving",
+                "message": "正在检索劳动法规…",
+            },
+        )
         try:
-            prepared = await self._prepare_answer_decision(
-                question, rewritten_question, strict=False
+            tool_input = self.tool_decision_service.decide(
+                question, rewritten_question
+            )
+            evidence, retrieval_ms = await self._retrieve_for_decision(
+                rewritten_question
+            )
+            yield _sse(
+                "status",
+                {
+                    "stage": "verifying",
+                    "message": "正在核验证据…",
+                },
+            )
+            judgement, refusal_reason, evidence_judge_ms = (
+                await self._judge_for_decision(
+                    rewritten_question, evidence, strict=False
+                )
+            )
+            prepared = PreparedAnswerDecision(
+                evidence=evidence,
+                retrieval_ms=retrieval_ms,
+                evidence_judge_ms=evidence_judge_ms,
+                judgement=judgement,
+                refusal_reason=refusal_reason,
+                answer_mode=self._decide_answer_mode(judgement, tool_input),
+                tool_input=tool_input,
             )
         except EmbeddingUnavailableError:
             yield _sse(
@@ -248,6 +302,17 @@ class ChatService:
             except Exception:
                 logger.exception("Failed to record a production evidence-gate refusal")
 
+        answer_started = perf_counter()
+        pre_answer_ms = round((answer_started - request_started) * 1000)
+        first_token_received = False
+        yield _sse(
+            "status",
+            {
+                "stage": "generating",
+                "message": "正在生成回答…",
+            },
+        )
+
         if prepared.tool_input is not None and answer_mode is not AnswerMode.REFUSAL:
             try:
                 execution = self.material_checklist_tool.execute(prepared.tool_input)
@@ -277,6 +342,8 @@ class ChatService:
                 )
                 return
             answer_parts.append(render_material_checklist(tool_executions[0]))
+            ttft_ms = round((perf_counter() - request_started) * 1000)
+            first_token_received = True
             yield _sse("token", {"content": answer_parts[0]})
         else:
             try:
@@ -294,6 +361,9 @@ class ChatService:
                 ):
                     if await request.is_disconnected():
                         return
+                    if not first_token_received:
+                        ttft_ms = round((perf_counter() - request_started) * 1000)
+                        first_token_received = True
                     answer_parts.append(token)
                     yield _sse("token", {"content": token})
             except ModelUnavailableError:
@@ -336,7 +406,11 @@ class ChatService:
             if compliance_required and COMPLIANCE_NOTICE not in completed_answer:
                 notice = f"\n\n{COMPLIANCE_NOTICE}"
                 answer_parts.append(notice)
+                if not first_token_received:
+                    ttft_ms = round((perf_counter() - request_started) * 1000)
+                    first_token_received = True
                 yield _sse("token", {"content": notice})
+        answer_generation_ms = round((perf_counter() - answer_started) * 1000)
         if await request.is_disconnected():
             return
 
@@ -349,6 +423,7 @@ class ChatService:
         if await request.is_disconnected():
             return
 
+        persist_started = perf_counter()
         try:
             assistant_message = self.session_service.persist_assistant(
                 session_id=session_id,
@@ -358,6 +433,7 @@ class ChatService:
                 citations=citations,
                 tool_executions=tool_executions,
             )
+            persist_ms = round((perf_counter() - persist_started) * 1000)
         except Exception:
             logger.exception("Could not persist completed assistant response")
             yield _sse(
@@ -366,12 +442,38 @@ class ChatService:
             )
             return
 
+        total_ms = round((perf_counter() - request_started) * 1000)
+        latency = {
+            "session_ms": session_ms,
+            "rewrite_ms": rewrite_ms,
+            "retrieval_ms": retrieval_ms,
+            "evidence_judge_ms": evidence_judge_ms,
+            "pre_answer_ms": pre_answer_ms,
+            "ttft_ms": ttft_ms,
+            "answer_generation_ms": answer_generation_ms,
+            "persist_ms": persist_ms,
+            "total_ms": total_ms,
+        }
+        logger.info(
+            "chat_latency %s",
+            json.dumps(
+                {
+                    "session_id": str(session_id),
+                    "history_turns": len(history),
+                    "answer_mode": answer_mode.value,
+                    "evidence_count": len(evidence),
+                    **latency,
+                },
+                ensure_ascii=False,
+            ),
+        )
         yield _sse(
             "done",
             {
                 "message_id": int(assistant_message["id"]),
                 "answer_style": payload.answer_style.value,
                 "refused": refused,
+                "timings": latency,
             },
         )
 
@@ -464,6 +566,31 @@ class ChatService:
     async def _retrieve_evidence(self, question: str) -> list[dict[str, Any]]:
         return await self.rag_chain.retrieve(question)
 
+    async def _retrieve_for_decision(
+        self,
+        rewritten_question: str,
+    ) -> tuple[list[dict[str, Any]], int]:
+        started = perf_counter()
+        evidence = await self._retrieve_evidence(rewritten_question)
+        elapsed_ms = round((perf_counter() - started) * 1000)
+        return evidence, elapsed_ms
+
+    async def _judge_for_decision(
+        self,
+        rewritten_question: str,
+        evidence: list[dict[str, Any]],
+        *,
+        strict: bool,
+    ) -> tuple[EvidenceJudgement, MissingKnowledgeReason | None, int]:
+        started = perf_counter()
+        judgement, refusal_reason = await self._judge_evidence(
+            rewritten_question,
+            evidence,
+            strict=strict,
+        )
+        elapsed_ms = round((perf_counter() - started) * 1000)
+        return judgement, refusal_reason, elapsed_ms
+
     async def _prepare_answer_decision(
         self,
         question: str,
@@ -472,15 +599,16 @@ class ChatService:
         strict: bool,
     ) -> PreparedAnswerDecision:
         tool_input = self.tool_decision_service.decide(question, rewritten_question)
-        retrieval_started = perf_counter()
-        evidence = await self._retrieve_evidence(rewritten_question)
-        retrieval_ms = round((perf_counter() - retrieval_started) * 1000)
-        judgement, refusal_reason = await self._judge_evidence(
-            rewritten_question, evidence, strict=strict
+        evidence, retrieval_ms = await self._retrieve_for_decision(rewritten_question)
+        judgement, refusal_reason, evidence_judge_ms = await self._judge_for_decision(
+            rewritten_question,
+            evidence,
+            strict=strict,
         )
         return PreparedAnswerDecision(
             evidence=evidence,
             retrieval_ms=retrieval_ms,
+            evidence_judge_ms=evidence_judge_ms,
             judgement=judgement,
             refusal_reason=refusal_reason,
             answer_mode=self._decide_answer_mode(judgement, tool_input),

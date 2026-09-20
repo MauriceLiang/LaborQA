@@ -9,5 +9,6 @@ export interface UiMessage {
   toolExecutions: ToolExecutionItem[]
   answerStyle: AnswerStyle | null
   refused: boolean
+  progressText: string | null
   status: 'complete' | 'streaming' | 'stopped' | 'error'
 }

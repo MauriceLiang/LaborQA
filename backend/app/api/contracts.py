@@ -312,7 +312,8 @@ def list_session_messages(
     responses={
         200: {
             "description": (
-                "SSE events: optional tool, one or more token events, sources, then done; "
+                "SSE events: status stages, optional tool, one or more token events, "
+                "sources, then done; "
                 "errors use a terminal error event."
             ),
             "content": {"text/event-stream": {"schema": {"type": "string"}}},

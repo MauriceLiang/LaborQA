@@ -39,7 +39,9 @@ defineProps<{
         <div class="message-bubble" :class="{ 'message-bubble-streaming': message.status === 'streaming' }">
           <MarkdownContent v-if="message.content && message.role === 'assistant'" :content="message.content" />
           <p v-else-if="message.content" class="message-text">{{ message.content }}</p>
-          <p v-else-if="message.status === 'streaming'" class="message-pending">正在整理资料并生成回答…</p>
+          <p v-else-if="message.status === 'streaming'" class="message-pending" role="status">
+            {{ message.progressText || '正在准备回答…' }}
+          </p>
         </div>
         <p v-if="message.refused" class="message-refusal-note">
           当前资料不足以支持可靠判断。

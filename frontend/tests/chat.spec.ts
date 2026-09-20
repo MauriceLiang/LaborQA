@@ -36,6 +36,7 @@ const citation: CitationItem = {
 }
 
 const handlers: ChatStreamHandlers = {
+  onStatus: vi.fn(),
   onTool: vi.fn(),
   onToken: vi.fn(),
   onSources: vi.fn(),
@@ -56,6 +57,7 @@ describe('streamChat', () => {
       output: { materials: ['工资流水'], note: '仅供整理材料。' },
     }
     const stream = [
+      'event: status\ndata: {"stage":"retrieving","message":"正在检索劳动法规…"}\n\n',
       `event: tool\ndata: ${JSON.stringify(tool)}\r\n\r\n`,
       'event: token\ndata: {"content":"工资被拖欠"}\n\n',
       `event: sources\ndata: ${JSON.stringify({ items: [citation] })}\n\n`,
@@ -76,6 +78,10 @@ describe('streamChat', () => {
       'http://127.0.0.1:8000/api/chat/stream',
       expect.objectContaining({ method: 'POST', body: JSON.stringify(request) }),
     )
+    expect(handlers.onStatus).toHaveBeenCalledWith({
+      stage: 'retrieving',
+      message: '正在检索劳动法规…',
+    })
     expect(handlers.onTool).toHaveBeenCalledWith(tool)
     expect(handlers.onToken).toHaveBeenCalledWith({ content: '工资被拖欠' })
     expect(handlers.onSources).toHaveBeenCalledWith({ items: [citation] })

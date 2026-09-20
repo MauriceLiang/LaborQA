@@ -98,6 +98,7 @@ async function restoreSession(sessionId: string, requestId: number) {
       toolExecutions: message.tool_executions,
       answerStyle: message.answer_style,
       refused: message.refused ?? false,
+      progressText: null,
       status: 'complete',
     }))
   } catch (error) {
@@ -140,6 +141,13 @@ async function sendQuestion() {
   const content = question.value.trim()
   if (!content || content.length > 2000 || streaming.value || historyLoading.value) return
 
+  const clientStarted = performance.now()
+  let firstStatusReceived = false
+  let firstTokenReceived = false
+  let sessionCreateMs = 0
+  let clientFirstStatusMs: number | null = null
+  let clientTtftMs: number | null = null
+
   chatError.value = ''
   question.value = ''
   const requestId = ++activeRequestId
@@ -152,6 +160,7 @@ async function sendQuestion() {
     toolExecutions: [],
     answerStyle: null,
     refused: false,
+    progressText: null,
     status: 'complete',
   }
   const assistantMessage = reactive<UiMessage>({
@@ -163,6 +172,7 @@ async function sendQuestion() {
     toolExecutions: [],
     answerStyle: sessionStore.answerStyle,
     refused: false,
+    progressText: '正在准备回答…',
     status: 'streaming',
   })
   messages.value.push(userMessage, assistantMessage)
@@ -175,7 +185,9 @@ async function sendQuestion() {
   try {
     let sessionId = sessionStore.sessionId
     if (!sessionId) {
+      const sessionStarted = performance.now()
       const session = await createSession(content.slice(0, 100))
+      sessionCreateMs = Math.round(performance.now() - sessionStarted)
       if (requestId !== activeRequestId) return
       sessionId = session.id
       skipSessionRestoreFor = sessionId
@@ -193,25 +205,49 @@ async function sendQuestion() {
         answer_style: sessionStore.answerStyle,
       },
       {
+        onStatus: ({ message }) => {
+          if (requestId !== activeRequestId) return
+          if (!firstStatusReceived) {
+            firstStatusReceived = true
+            clientFirstStatusMs = Math.round(performance.now() - clientStarted)
+          }
+          assistantMessage.progressText = message
+        },
         onTool: (execution) => {
           if (requestId === activeRequestId) assistantMessage.toolExecutions.push(execution)
         },
         onToken: ({ content: token }) => {
-          if (requestId === activeRequestId) assistantMessage.content += token
+          if (requestId !== activeRequestId) return
+          if (!firstTokenReceived) {
+            firstTokenReceived = true
+            clientTtftMs = Math.round(performance.now() - clientStarted)
+          }
+          assistantMessage.progressText = null
+          assistantMessage.content += token
         },
         onSources: ({ items }) => {
           if (requestId === activeRequestId) assistantMessage.citations = items
         },
-        onDone: ({ message_id, answer_style, refused }) => {
+        onDone: ({ message_id, answer_style, refused, timings }) => {
           if (requestId !== activeRequestId) return
           assistantMessage.id = message_id
           assistantMessage.answerStyle = answer_style
           assistantMessage.refused = refused
+          assistantMessage.progressText = null
           assistantMessage.status = 'complete'
+          if (import.meta.env.DEV) {
+            console.info('[chat-performance]', {
+              sessionCreateMs,
+              clientFirstStatusMs,
+              clientTtftMs,
+              serverTimings: timings ?? null,
+            })
+          }
         },
         onError: ({ message }) => {
           if (requestId !== activeRequestId) return
           assistantMessage.status = 'error'
+          assistantMessage.progressText = null
           chatError.value = message
         },
       },
@@ -224,10 +260,12 @@ async function sendQuestion() {
     }
     if (requestId === activeRequestId && assistantMessage.status === 'streaming') {
       assistantMessage.status = 'error'
+      assistantMessage.progressText = null
       chatError.value = '回答流未正常结束，请重试。'
     }
   } catch (error) {
     if (requestId !== activeRequestId) return
+    assistantMessage.progressText = null
     if (controller.signal.aborted || (error instanceof Error && error.name === 'AbortError')) {
       if (assistantMessage.content) assistantMessage.status = 'stopped'
       else removeEmptyAssistant(assistantMessage)
@@ -237,6 +275,7 @@ async function sendQuestion() {
     }
   } finally {
     if (requestId === activeRequestId) {
+      assistantMessage.progressText = null
       streaming.value = false
       sessionStore.setStreaming(false)
       activeController = null

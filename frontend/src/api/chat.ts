@@ -75,6 +75,11 @@ function dispatchFrame(frame: string, handlers: ChatStreamHandlers): boolean {
   const payload: unknown = JSON.parse(data)
 
   switch (event) {
+    case 'status':
+      handlers.onStatus?.(
+        payload as Parameters<NonNullable<ChatStreamHandlers['onStatus']>>[0],
+      )
+      return false
     case 'tool':
       handlers.onTool?.(payload as Parameters<NonNullable<ChatStreamHandlers['onTool']>>[0])
       return false

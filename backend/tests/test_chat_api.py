@@ -65,7 +65,11 @@ def test_session_and_chat_routes_use_the_frozen_contract_in_process() -> None:
             assert created.json()["data"]["id"] == session_id
             assert chat.status_code == 200
             assert chat.headers["content-type"].startswith("text/event-stream")
-            assert chat.text.startswith('event: error\ndata: {"code":50301')
+            assert chat.text.startswith(
+                'event: status\ndata: {"stage":"understanding"'
+            )
+            assert 'event: status\ndata: {"stage":"retrieving"' in chat.text
+            assert 'event: error\ndata: {"code":50301' in chat.text
             assert messages.json()["data"][0]["role"] == "user"
             assert messages.json()["data"][0]["content"] == "拖欠工资应该怎么办？"
             assert recent.status_code == 200
