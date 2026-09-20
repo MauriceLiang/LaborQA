@@ -122,11 +122,12 @@ async function startNewConversation() {
           <ElButton
             class="topbar-new-chat"
             text
+            aria-label="新建对话"
             :disabled="sessionStore.streaming"
             @click="startNewConversation"
           >
             <CirclePlus aria-hidden="true" />
-            <span>新建对话</span>
+            <span class="topbar-new-chat-label">新建对话</span>
           </ElButton>
           <span class="knowledge-pill">
             <Document aria-hidden="true" />

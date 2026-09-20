@@ -1,6 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { ElDropdown, ElDropdownItem, ElDropdownMenu, ElMessage } from 'element-plus'
+import {
+  ElDropdown,
+  ElDropdownItem,
+  ElDropdownMenu,
+  ElMessage,
+} from 'element-plus'
 
 import { usePreferencesStore } from '@/stores/preferences'
 import {
@@ -24,11 +29,9 @@ function selectMode(command: string | number | object) {
 </script>
 
 <template>
-  <ElDropdown class="ai-mode-selector" trigger="click" @command="selectMode">
-    <button type="button" class="ai-mode-trigger" aria-label="选择 AI 模式">
-      <span class="ai-mode-trigger-icon" aria-hidden="true">{{ currentOption.icon }}</span>
+  <ElDropdown class="ai-mode-selector" trigger="click" popper-class="ai-mode-popper" @command="selectMode">
+    <button type="button" class="ai-mode-trigger" aria-label="选择 AI 模式" aria-haspopup="menu">
       <span class="ai-mode-trigger-label">{{ currentOption.label }}</span>
-      <span class="ai-mode-trigger-caret" aria-hidden="true">⌄</span>
     </button>
     <template #dropdown>
       <ElDropdownMenu>
@@ -38,14 +41,13 @@ function selectMode(command: string | number | object) {
           :command="option.value"
           :data-mode="option.value"
           class="ai-mode-option"
+          :aria-current="option.value === preferencesStore.aiMode ? 'true' : undefined"
           :class="{ 'ai-mode-option-active': option.value === preferencesStore.aiMode }"
         >
-          <span class="ai-mode-option-icon" aria-hidden="true">{{ option.icon }}</span>
           <span class="ai-mode-option-copy">
             <span class="ai-mode-option-label">{{ option.label }}</span>
             <span class="ai-mode-option-description">{{ option.description }}</span>
           </span>
-          <span v-if="option.value === preferencesStore.aiMode" class="ai-mode-option-check" aria-label="当前模式">✓</span>
         </ElDropdownItem>
       </ElDropdownMenu>
     </template>
