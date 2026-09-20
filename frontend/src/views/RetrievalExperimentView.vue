@@ -713,6 +713,13 @@ function formatDuration(value: number | null | undefined) {
   return value === null || value === undefined ? '—' : value.toFixed(1) + ' ms'
 }
 
+function formatPreviewMode(value: RetrievalPreview['answer_mode']) {
+  if (value === 'RAG_ANSWER') return '完整回答'
+  if (value === 'PARTIAL_ANSWER') return '部分回答'
+  if (value === 'TOOL_ONLY') return '工具回答'
+  return '建议拒答'
+}
+
 function formatCreatedAt(value: string) {
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
@@ -895,7 +902,7 @@ onBeforeUnmount(() => {
         <div id="preview-result-content" v-if="!previewResultCollapsed" class="preview-result-content">
           <p class="experiment-inline-hint">运行限制：{{ previewResult.limitations.join('；') }}</p>
           <div class="preview-answer" :class="{ 'preview-answer-refused': previewResult.refused }">
-            <div class="preview-answer-heading"><strong>{{ previewResult.refused ? '证据门控结果：建议拒答' : '试跑回答' }}</strong><span>{{ previewResult.retrieval_ms }} ms</span></div>
+            <div class="preview-answer-heading"><strong>回答模式：{{ formatPreviewMode(previewResult.answer_mode) }}</strong><span>{{ previewResult.retrieval_ms }} ms</span></div>
             <MarkdownContent class="preview-answer-markdown" :content="previewResult.answer" />
           </div>
           <div class="preview-trace">

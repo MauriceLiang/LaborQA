@@ -8,6 +8,7 @@ from unittest.mock import Mock
 from uuid import UUID
 
 from app.core.config import Settings
+from app.rag.decision import AnswerMode, EvidenceDecision, EvidenceJudgement
 from app.schemas.contracts import AnswerStyle, ChatRequest, MissingKnowledgeQuery
 from app.services.chat_service import ChatService
 from app.services.compliance import COMPLIANCE_NOTICE
@@ -48,7 +49,8 @@ class FakeLlm:
     ) -> str:
         self.completions.append((messages, json_mode))
         if json_mode:
-            return '{"sufficient":true,"reason":"evidence supports the answer"}'
+            return '{"decision":"SUFFICIENT","reason":"evidence supports the answer",' \
+                '"supported_points":["证据支持回答"],"missing_points":[]}'
         return "那公司以不符合录用条件解除劳动关系是否合法？"
 
     async def stream(self, messages: list[dict[str, str]]):
@@ -194,6 +196,98 @@ def test_evaluation_answer_once_reuses_rag_without_production_persistence() -> N
             )
 
 
+def test_answer_once_exposes_answer_modes_and_diagnostics() -> None:
+    class PartialJudge(FakeLlm):
+        async def complete(
+            self, messages: list[dict[str, str]], *, json_mode: bool = False
+        ) -> str:
+            self.completions.append((messages, json_mode))
+            if json_mode:
+                return '{"decision":"PARTIAL","reason":"仅支持部分事实",' \
+                    '"supported_points":["已知事实"],"missing_points":["关键条件"]}'
+            return "仅依据已知事实说明。"
+
+    class InsufficientJudge(FakeLlm):
+        async def complete(
+            self, messages: list[dict[str, str]], *, json_mode: bool = False
+        ) -> str:
+            self.completions.append((messages, json_mode))
+            if json_mode:
+                return '{"decision":"INSUFFICIENT","reason":"证据不足",' \
+                    '"supported_points":[],"missing_points":["关键条件"]}'
+            return "不应生成普通回答。"
+
+    cases = (
+        ("劳动仲裁时效是多少？", 0.82, FakeLlm(), AnswerMode.RAG_ANSWER),
+        ("劳动仲裁时效是多少？", 0.82, PartialJudge(), AnswerMode.PARTIAL_ANSWER),
+        ("劳动仲裁时效是多少？", 0.82, InsufficientJudge(), AnswerMode.REFUSAL),
+        (
+            "公司拖欠工资，我应该准备什么材料？",
+            0.1,
+            FakeLlm(),
+            AnswerMode.TOOL_ONLY,
+        ),
+    )
+
+    for question, score, llm, expected_mode in cases:
+        with tempfile.TemporaryDirectory() as directory:
+            service, _, _, _ = _service(directory, score=score)
+            service.chat_model = AsyncClientChatModel(llm)
+            service.rag_chain.set_chat_model(service.chat_model)
+
+            result = asyncio.run(
+                service.answer_once(
+                    question,
+                    [],
+                    AnswerStyle.PLAIN,
+                    mode=ExecutionMode.EVALUATION,
+                )
+            )
+
+            assert result["answer_mode"] == expected_mode.value
+            assert result["evidence_decision"] in {
+                EvidenceDecision.SUFFICIENT.value,
+                EvidenceDecision.PARTIAL.value,
+                EvidenceDecision.INSUFFICIENT.value,
+            }
+            if expected_mode is AnswerMode.TOOL_ONLY:
+                assert result["refused"] is False
+                assert result["tool_execution"]["tool_name"] == (
+                    "generate_rights_material_checklist"
+                )
+                assert result["citations"] == []
+            elif expected_mode is AnswerMode.REFUSAL:
+                assert result["refused"] is True
+                assert result["tool_execution"] is None
+            else:
+                assert result["refused"] is False
+
+
+def test_answer_mode_mapping_is_pure_and_prioritizes_tool_requests() -> None:
+    sufficient = EvidenceJudgement(
+        decision=EvidenceDecision.SUFFICIENT,
+        reason="完整",
+    )
+    partial = EvidenceJudgement(decision=EvidenceDecision.PARTIAL, reason="部分")
+    insufficient = EvidenceJudgement(
+        decision=EvidenceDecision.INSUFFICIENT,
+        reason="不足",
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        service, _, _, _ = _service(directory)
+        checklist = service.tool_decision_service.decide(
+            "公司拖欠工资，我应该准备什么材料？",
+            "公司拖欠工资，我应该准备什么材料？",
+        )
+        assert checklist is not None
+        assert service._decide_answer_mode(sufficient, checklist) is AnswerMode.RAG_ANSWER
+        assert service._decide_answer_mode(partial, checklist) is AnswerMode.TOOL_ONLY
+        assert service._decide_answer_mode(insufficient, checklist) is AnswerMode.TOOL_ONLY
+        assert service._decide_answer_mode(sufficient, None) is AnswerMode.RAG_ANSWER
+        assert service._decide_answer_mode(partial, None) is AnswerMode.PARTIAL_ANSWER
+        assert service._decide_answer_mode(insufficient, None) is AnswerMode.REFUSAL
+
+
 def test_low_similarity_evidence_is_refused_without_calling_model() -> None:
     with tempfile.TemporaryDirectory() as directory:
         service, sessions, _, llm = _service(directory, score=0.1)
@@ -236,7 +330,8 @@ def test_insufficient_evidence_judgement_is_recorded() -> None:
         async def complete(
             self, messages: list[dict[str, str]], *, json_mode: bool = False
         ) -> str:
-            return '{"sufficient":false,"reason":"not supported"}'
+            return '{"decision":"INSUFFICIENT","reason":"not supported",' \
+                '"supported_points":[],"missing_points":["关键事实"]}'
 
     with tempfile.TemporaryDirectory() as directory:
         service, sessions, _, _ = _service(directory)
@@ -249,6 +344,49 @@ def test_insufficient_evidence_judgement_is_recorded() -> None:
         _events(service, session["id"], question="劳动关系解除后能否获得补偿？")
 
         assert record.call_args.args[1].value == "INSUFFICIENT_EVIDENCE"
+
+
+def test_partial_evidence_generates_scoped_answer_without_missing_record() -> None:
+    class PartialJudge(FakeLlm):
+        async def complete(
+            self, messages: list[dict[str, str]], *, json_mode: bool = False
+        ) -> str:
+            self.completions.append((messages, json_mode))
+            if json_mode:
+                return '{"decision":"PARTIAL","reason":"仅覆盖部分事实",' \
+                    '"supported_points":["已知事实"],"missing_points":["关键条件"]}'
+            return "普通回答不应使用这一路径。"
+
+    with tempfile.TemporaryDirectory() as directory:
+        service, sessions, _, llm = _service(directory)
+        partial_llm = PartialJudge()
+        service.chat_model = AsyncClientChatModel(partial_llm)
+        service.rag_chain.set_chat_model(service.chat_model)
+        record = Mock(wraps=service.missing_knowledge_service.record_refusal)
+        service.missing_knowledge_service.record_refusal = record
+        session = sessions.create_session()
+
+        events = _events(
+            service,
+            session["id"],
+            question="我应该如何保存工资记录？",
+        )
+
+        assert [event.splitlines()[0] for event in events] == [
+            "event: token",
+            "event: token",
+            "event: sources",
+            "event: done",
+        ]
+        prompt = partial_llm.streams[0][0]["content"]
+        assert "回答模式：PARTIAL_ANSWER" in prompt
+        assert '"已知事实"' in prompt
+        assert '"关键条件"' in prompt
+        assert record.call_count == 0
+        assistant = sessions.list_messages(session["id"])[-1]
+        assert assistant["refused"] is False
+        assert assistant["citations"]
+        assert llm.completions == []
 
 
 def test_failure_to_record_does_not_break_refusal_stream() -> None:
@@ -435,9 +573,9 @@ def test_tool_failure_emits_only_terminal_error_without_fabricated_result() -> N
         ] == ["user"]
 
 
-def test_material_checklist_is_not_run_when_evidence_gate_refuses():
+def test_material_checklist_runs_as_tool_only_when_evidence_gate_refuses():
     with tempfile.TemporaryDirectory() as directory:
-        service, sessions, _, _ = _service(directory, score=0.1)
+        service, sessions, _, llm = _service(directory, score=0.1)
         session = sessions.create_session()
 
         events = _events(
@@ -447,11 +585,26 @@ def test_material_checklist_is_not_run_when_evidence_gate_refuses():
         )
 
         assert [event.splitlines()[0] for event in events] == [
+            "event: tool",
             "event: token",
             "event: sources",
             "event: done",
         ]
-        assert sessions.list_messages(session["id"])[-1]["tool_executions"] == []
+        tool_event = json.loads(events[0].splitlines()[1][6:])
+        assert tool_event["tool_name"] == "generate_rights_material_checklist"
+        assert "根据你描述的“欠薪”情况" in json.loads(
+            events[1].splitlines()[1][6:]
+        )["content"]
+        assert '"items":[]' in events[2]
+        assert '"refused":false' in events[3]
+        assert llm.completions == []
+        rows, total = service.missing_knowledge_service.list(MissingKnowledgeQuery())
+        assert rows == []
+        assert total == 0
+        assistant = sessions.list_messages(session["id"])[-1]
+        assert assistant["refused"] is False
+        assert assistant["citations"] == []
+        assert assistant["tool_executions"] == [tool_event]
 
 
 def test_compliance_notice_is_forced_for_both_styles_without_changing_sources():

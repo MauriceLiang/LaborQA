@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
 from uuid import UUID
@@ -19,6 +20,7 @@ from app.rag.chains import (
     REFUSAL_TEXT,
     RagChain,
 )
+from app.rag.decision import AnswerMode, EvidenceDecision, EvidenceJudgement
 from app.rag.errors import EmbeddingUnavailableError, ModelUnavailableError
 from app.rag.providers import build_chat_model
 from app.schemas.contracts import (
@@ -30,7 +32,11 @@ from app.schemas.contracts import (
     ToolExecutionItem,
 )
 from app.services.compliance import COMPLIANCE_NOTICE, ComplianceRuleService
-from app.services.material_checklist import MaterialChecklistTool, ToolDecisionService
+from app.services.material_checklist import (
+    MaterialChecklistTool,
+    ToolDecisionService,
+    render_material_checklist,
+)
 from app.services.missing_knowledge import (
     ExecutionMode,
     MissingKnowledgeReason,
@@ -46,6 +52,16 @@ from app.services.vector_store import (
 logger = logging.getLogger(__name__)
 _REFUSAL = REFUSAL_TEXT
 _ANSWER_STYLE_INSTRUCTIONS = ANSWER_STYLE_INSTRUCTIONS
+
+
+@dataclass(frozen=True)
+class PreparedAnswerDecision:
+    evidence: list[dict[str, Any]]
+    retrieval_ms: int
+    judgement: EvidenceJudgement
+    refusal_reason: MissingKnowledgeReason | None
+    answer_mode: AnswerMode
+    tool_input: MaterialChecklistInput | None
 
 
 class _UnavailableChatModel(BaseChatModel):
@@ -155,7 +171,9 @@ class ChatService:
             return
 
         try:
-            evidence = await self._retrieve_evidence(rewritten_question)
+            prepared = await self._prepare_answer_decision(
+                question, rewritten_question, strict=False
+            )
         except EmbeddingUnavailableError:
             yield _sse(
                 "error",
@@ -200,86 +218,103 @@ class ChatService:
             )
             return
 
-        refused, refusal_reason = await self._judge_evidence(
-            rewritten_question, evidence
-        )
         if await request.is_disconnected():
             return
 
+        evidence = prepared.evidence
+        answer_mode = prepared.answer_mode
+        refused = answer_mode is AnswerMode.REFUSAL
+        refusal_reason = prepared.refusal_reason
         record_missing_knowledge = (
-            refused
+            answer_mode is AnswerMode.REFUSAL
             and refusal_reason is not None
             and execution_mode == ExecutionMode.PRODUCTION
         )
 
-        compliance_required = self.compliance_rule_service.requires_notice(
-            question, rewritten_question
+        compliance_required = (
+            False
+            if answer_mode is AnswerMode.TOOL_ONLY
+            else self.compliance_rule_service.requires_notice(
+                question, rewritten_question
+            )
         )
         answer_parts: list[str] = []
         tool_executions: list[ToolExecutionItem] = []
-        if refused:
-            if record_missing_knowledge and refusal_reason is not None:
-                try:
-                    self.missing_knowledge_service.record_refusal(
-                        rewritten_question, refusal_reason
-                    )
-                except Exception:
-                    logger.exception(
-                        "Failed to record a production evidence-gate refusal",
-                    )
-        else:
-            tool_input = self.tool_decision_service.decide(question, rewritten_question)
-            if tool_input is not None:
-                try:
-                    execution = self.material_checklist_tool.execute(tool_input)
-                except Exception:
-                    logger.exception("Material checklist tool execution failed")
-                    yield _sse(
-                        "error",
-                        {
-                            "code": int(ErrorCode.INTERNAL_ERROR),
-                            "message": "材料清单生成失败",
-                        },
-                    )
-                    return
-                if await request.is_disconnected():
-                    return
-                tool_executions.append(execution)
-                yield _sse("tool", execution.model_dump(mode="json"))
+        if record_missing_knowledge and refusal_reason is not None:
+            try:
+                self.missing_knowledge_service.record_refusal(
+                    rewritten_question, refusal_reason
+                )
+            except Exception:
+                logger.exception("Failed to record a production evidence-gate refusal")
 
-        try:
-            async for token in self.rag_chain.stream_answer(
-                payload.answer_style,
-                question,
-                rewritten_question,
-                evidence,
-                compliance_required,
-                tool_executions[0] if tool_executions else None,
-                refused=refused,
-            ):
-                if await request.is_disconnected():
-                    return
-                answer_parts.append(token)
-                yield _sse("token", {"content": token})
-        except ModelUnavailableError:
-            yield _sse(
-                "error",
-                {
-                    "code": int(ErrorCode.MODEL_UNAVAILABLE),
-                    "message": "模型服务暂不可用",
-                },
-            )
-            return
-        except Exception:
-            logger.exception("LLM response stream failed")
-            yield _sse(
-                "error",
-                {
-                    "code": int(ErrorCode.MODEL_UNAVAILABLE),
-                    "message": "模型服务暂不可用",
-                },
-            )
-            return
+        if prepared.tool_input is not None and answer_mode is not AnswerMode.REFUSAL:
+            try:
+                execution = self.material_checklist_tool.execute(prepared.tool_input)
+            except Exception:
+                logger.exception("Material checklist tool execution failed")
+                yield _sse(
+                    "error",
+                    {
+                        "code": int(ErrorCode.INTERNAL_ERROR),
+                        "message": "材料清单生成失败",
+                    },
+                )
+                return
+            if await request.is_disconnected():
+                return
+            tool_executions.append(execution)
+            yield _sse("tool", execution.model_dump(mode="json"))
+
+        if answer_mode is AnswerMode.TOOL_ONLY:
+            if not tool_executions:
+                yield _sse(
+                    "error",
+                    {
+                        "code": int(ErrorCode.INTERNAL_ERROR),
+                        "message": "材料清单生成失败",
+                    },
+                )
+                return
+            answer_parts.append(render_material_checklist(tool_executions[0]))
+            yield _sse("token", {"content": answer_parts[0]})
+        else:
+            try:
+                async for token in self.rag_chain.stream_answer(
+                    payload.answer_style,
+                    question,
+                    rewritten_question,
+                    evidence,
+                    compliance_required,
+                    tool_executions[0] if tool_executions else None,
+                    answer_mode=answer_mode,
+                    supported_points=prepared.judgement.supported_points,
+                    missing_points=prepared.judgement.missing_points,
+                    refused=refused,
+                ):
+                    if await request.is_disconnected():
+                        return
+                    answer_parts.append(token)
+                    yield _sse("token", {"content": token})
+            except ModelUnavailableError:
+                yield _sse(
+                    "error",
+                    {
+                        "code": int(ErrorCode.MODEL_UNAVAILABLE),
+                        "message": "模型服务暂不可用",
+                    },
+                )
+                return
+            except Exception:
+                logger.exception("LLM response stream failed")
+                yield _sse(
+                    "error",
+                    {
+                        "code": int(ErrorCode.MODEL_UNAVAILABLE),
+                        "message": "模型服务暂不可用",
+                    },
+                )
+                return
 
         if not answer_parts:
             yield _sse(
@@ -291,20 +326,26 @@ class ChatService:
             )
             return
 
-        completed_answer = "".join(answer_parts)
-        compliance_required = compliance_required or (
-            self.compliance_rule_service.requires_notice(
-                question, rewritten_question, completed_answer
+        if answer_mode is not AnswerMode.TOOL_ONLY:
+            completed_answer = "".join(answer_parts)
+            compliance_required = compliance_required or (
+                self.compliance_rule_service.requires_notice(
+                    question, rewritten_question, completed_answer
+                )
             )
-        )
-        if compliance_required and COMPLIANCE_NOTICE not in completed_answer:
-            notice = f"\n\n{COMPLIANCE_NOTICE}"
-            answer_parts.append(notice)
-            yield _sse("token", {"content": notice})
+            if compliance_required and COMPLIANCE_NOTICE not in completed_answer:
+                notice = f"\n\n{COMPLIANCE_NOTICE}"
+                answer_parts.append(notice)
+                yield _sse("token", {"content": notice})
         if await request.is_disconnected():
             return
 
-        yield _sse("sources", {"items": [] if refused else evidence})
+        citations = (
+            []
+            if answer_mode in (AnswerMode.REFUSAL, AnswerMode.TOOL_ONLY)
+            else evidence
+        )
+        yield _sse("sources", {"items": citations})
         if await request.is_disconnected():
             return
 
@@ -314,7 +355,7 @@ class ChatService:
                 content="".join(answer_parts),
                 answer_style=payload.answer_style.value,
                 refused=refused,
-                citations=[] if refused else evidence,
+                citations=citations,
                 tool_executions=tool_executions,
             )
         except Exception:
@@ -347,54 +388,72 @@ class ChatService:
             raise ValueError("answer_once only supports non-production modes")
 
         rewritten_question = await self._rewrite_question(history, question)
-        retrieval_started = perf_counter()
-        evidence = await self._retrieve_evidence(rewritten_question)
-        retrieval_ms = round((perf_counter() - retrieval_started) * 1000)
-        refused, _ = await self._judge_evidence(
-            rewritten_question, evidence, strict=True
+        prepared = await self._prepare_answer_decision(
+            question, rewritten_question, strict=True
         )
-        tool_execution = (
-            self.tool_decision_service.decide(question, rewritten_question)
-            if not refused
-            else None
-        )
+        retrieval_ms = prepared.retrieval_ms
+        answer_mode = prepared.answer_mode
+        refused = answer_mode is AnswerMode.REFUSAL
         tool_result = (
-            self.material_checklist_tool.execute(tool_execution)
-            if tool_execution is not None
+            self.material_checklist_tool.execute(prepared.tool_input)
+            if prepared.tool_input is not None and not refused
             else None
         )
-        compliance_required = self.compliance_rule_service.requires_notice(
-            question, rewritten_question
-        )
-        answer = await self.rag_chain.complete_answer(
-            answer_style,
-            question,
-            rewritten_question,
-            evidence,
-            compliance_required,
-            tool_result,
-            refused=refused,
-        )
+        if answer_mode is AnswerMode.TOOL_ONLY:
+            if tool_result is None:
+                raise ModelUnavailableError("材料清单生成失败")
+            answer = render_material_checklist(tool_result)
+        else:
+            compliance_required = self.compliance_rule_service.requires_notice(
+                question, rewritten_question
+            )
+            answer = await self.rag_chain.complete_answer(
+                answer_style,
+                question,
+                rewritten_question,
+                prepared.evidence,
+                compliance_required,
+                tool_result,
+                answer_mode=answer_mode,
+                supported_points=prepared.judgement.supported_points,
+                missing_points=prepared.judgement.missing_points,
+                refused=refused,
+            )
         if not answer:
             raise ModelUnavailableError("模型未返回回答内容")
-        compliance_required = (
-            compliance_required
-            or self.compliance_rule_service.requires_notice(
-                question, rewritten_question, answer
+        compliance_shown = False
+        if answer_mode is not AnswerMode.TOOL_ONLY:
+            compliance_required = (
+                compliance_required
+                or self.compliance_rule_service.requires_notice(
+                    question, rewritten_question, answer
+                )
             )
-        )
-        if compliance_required and COMPLIANCE_NOTICE not in answer:
-            answer = f"{answer}\n\n{COMPLIANCE_NOTICE}"
+            if compliance_required and COMPLIANCE_NOTICE not in answer:
+                answer = f"{answer}\n\n{COMPLIANCE_NOTICE}"
+            compliance_shown = COMPLIANCE_NOTICE in answer
         return {
             "answer": answer,
             "refused": refused,
-            # Keep the pre-gate candidates available to diagnostics. Production
-            # callers still use `citations`, which remains empty on refusal.
-            "retrieved_sources": evidence,
-            "citations": [] if refused else evidence,
+            # Keep pre-gate candidates available to diagnostics while only
+            # evidence-backed answers expose citations.
+            "retrieved_sources": prepared.evidence,
+            "citations": (
+                []
+                if answer_mode in (AnswerMode.REFUSAL, AnswerMode.TOOL_ONLY)
+                else prepared.evidence
+            ),
             "rewritten_question": rewritten_question,
             "retrieval_ms": retrieval_ms,
-            "compliance_shown": COMPLIANCE_NOTICE in answer,
+            "compliance_shown": compliance_shown,
+            "answer_mode": answer_mode.value,
+            "evidence_decision": prepared.judgement.decision.value,
+            "evidence_reason": prepared.judgement.reason,
+            "supported_points": prepared.judgement.supported_points,
+            "missing_points": prepared.judgement.missing_points,
+            "tool_execution": (
+                tool_result.model_dump(mode="json") if tool_result is not None else None
+            ),
         }
 
     async def _rewrite_question(
@@ -405,13 +464,53 @@ class ChatService:
     async def _retrieve_evidence(self, question: str) -> list[dict[str, Any]]:
         return await self.rag_chain.retrieve(question)
 
+    async def _prepare_answer_decision(
+        self,
+        question: str,
+        rewritten_question: str,
+        *,
+        strict: bool,
+    ) -> PreparedAnswerDecision:
+        tool_input = self.tool_decision_service.decide(question, rewritten_question)
+        retrieval_started = perf_counter()
+        evidence = await self._retrieve_evidence(rewritten_question)
+        retrieval_ms = round((perf_counter() - retrieval_started) * 1000)
+        judgement, refusal_reason = await self._judge_evidence(
+            rewritten_question, evidence, strict=strict
+        )
+        return PreparedAnswerDecision(
+            evidence=evidence,
+            retrieval_ms=retrieval_ms,
+            judgement=judgement,
+            refusal_reason=refusal_reason,
+            answer_mode=self._decide_answer_mode(judgement, tool_input),
+            tool_input=tool_input,
+        )
+
+    @staticmethod
+    def _decide_answer_mode(
+        judgement: EvidenceJudgement,
+        tool_input: MaterialChecklistInput | None,
+    ) -> AnswerMode:
+        if tool_input is not None:
+            return (
+                AnswerMode.RAG_ANSWER
+                if judgement.decision is EvidenceDecision.SUFFICIENT
+                else AnswerMode.TOOL_ONLY
+            )
+        if judgement.decision is EvidenceDecision.SUFFICIENT:
+            return AnswerMode.RAG_ANSWER
+        if judgement.decision is EvidenceDecision.PARTIAL:
+            return AnswerMode.PARTIAL_ANSWER
+        return AnswerMode.REFUSAL
+
     async def _judge_evidence(
         self,
         question: str,
         evidence: list[dict[str, Any]],
         *,
         strict: bool = False,
-    ) -> tuple[bool, MissingKnowledgeReason | None]:
+    ) -> tuple[EvidenceJudgement, MissingKnowledgeReason | None]:
         return await self.rag_chain.judge_evidence(question, evidence, strict=strict)
 
     def _answer_messages(
@@ -422,6 +521,10 @@ class ChatService:
         evidence: list[dict[str, Any]],
         compliance_required: bool,
         tool_execution: ToolExecutionItem | None,
+        *,
+        answer_mode: AnswerMode = AnswerMode.RAG_ANSWER,
+        supported_points: list[str] | None = None,
+        missing_points: list[str] | None = None,
     ) -> list[dict[str, str]]:
         return self.rag_chain.answer_messages(
             answer_style,
@@ -430,6 +533,9 @@ class ChatService:
             evidence,
             compliance_required,
             tool_execution,
+            answer_mode=answer_mode,
+            supported_points=supported_points or [],
+            missing_points=missing_points or [],
         )
 
 

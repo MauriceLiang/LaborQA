@@ -450,9 +450,18 @@ class RetrievalExperimentService:
 
         retrieved_sources = output.get("retrieved_sources", [])
         refused = bool(output["refused"])
+        answer_mode = str(output["answer_mode"])
+        evidence_decision = str(output["evidence_decision"])
+        evidence_reason = str(output["evidence_reason"])
+        supported_points = [str(item) for item in output["supported_points"]]
+        missing_points = [str(item) for item in output["missing_points"]]
+        tool_execution = output.get("tool_execution")
         max_retrieval_score = max(
             (float(item["retrieval_score"]) for item in retrieved_sources),
             default=0.0,
+        )
+        threshold_passed = bool(retrieved_sources) and (
+            max_retrieval_score >= strategy_config.score_threshold
         )
         score_summary = (
             "；".join(
@@ -475,6 +484,12 @@ class RetrievalExperimentService:
             "rewritten_question": output["rewritten_question"],
             "answer": output["answer"],
             "refused": refused,
+            "answer_mode": answer_mode,
+            "evidence_decision": evidence_decision,
+            "evidence_reason": evidence_reason,
+            "supported_points": supported_points,
+            "missing_points": missing_points,
+            "tool_execution": tool_execution,
             "retrieval_ms": output["retrieval_ms"],
             "retrieved_sources": retrieved_sources,
             "citations": output["citations"],
@@ -505,35 +520,42 @@ class RetrievalExperimentService:
                     "duration_ms": None,
                 },
                 {
-                    "stage": "阈值过滤",
+                    "stage": "相似度阈值",
                     "status": "completed" if retrieved_sources else "skipped",
                     "detail": (
                         f"候选分数：{score_summary}；最高分 {max_retrieval_score:.3f}，"
                         f"当前阈值 {strategy_config.score_threshold:.2f}；"
-                        + (
-                            "最高分达到门控阈值，交由证据判断"
-                            if not refused
-                            else "最高分未达到门控阈值或证据判断不足，建议拒答"
-                        )
+                        f"阈值{'通过' if threshold_passed else '未通过'}"
                     ),
                     "duration_ms": None,
                 },
                 {
-                    "stage": "最终上下文",
-                    "status": "completed"
-                    if not refused and retrieved_sources
-                    else "skipped",
+                    "stage": "证据充分性",
+                    "status": "completed" if threshold_passed else "skipped",
                     "detail": (
-                        f"回答生成使用 {len(retrieved_sources)} 个候选片段"
-                        if not refused and retrieved_sources
-                        else "拒答时不会把候选片段交给答案生成"
+                        f"判定 {evidence_decision}；支持要点："
+                        f"{'、'.join(supported_points) or '无'}；缺失要点："
+                        f"{'、'.join(missing_points) or '无'}；{evidence_reason}"
+                        if threshold_passed
+                        else "相似度阈值未通过，未执行模型证据判断"
                     ),
                     "duration_ms": None,
                 },
                 {
-                    "stage": "答案生成",
+                    "stage": "Tool 决策",
+                    "status": "completed" if tool_execution else "skipped",
+                    "detail": (
+                        "命中材料清单工具，争议类型："
+                        f"{tool_execution['input']['dispute_type']}"
+                        if tool_execution
+                        else "未命中材料清单工具"
+                    ),
+                    "duration_ms": None,
+                },
+                {
+                    "stage": "回答模式",
                     "status": "completed",
-                    "detail": "已生成本次试跑回答",
+                    "detail": f"{answer_mode}；已生成本次试跑回答",
                     "duration_ms": None,
                 },
             ],

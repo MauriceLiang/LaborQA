@@ -8,6 +8,8 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from fastapi.testclient import TestClient
+
 from app.api.dependencies import get_retrieval_experiment_service
 from app.core.config import Settings, settings
 from app.core.error_codes import ErrorCode
@@ -37,7 +39,6 @@ from app.services.retrieval_experiment_service import (
 )
 from app.services.session_service import SessionService
 from app.services.vector_store import VectorStoreService
-from fastapi.testclient import TestClient
 from tests.support import AsyncClientChatModel
 
 
@@ -71,7 +72,15 @@ class FakeChatClient:
         if json_mode:
             payload = json.loads(messages[-1]["content"])
             if "question" in payload and "evidence" in payload:
-                return json.dumps({"sufficient": payload["question"] != "reject"})
+                sufficient = payload["question"] != "reject"
+                return json.dumps(
+                    {
+                        "decision": "SUFFICIENT" if sufficient else "INSUFFICIENT",
+                        "reason": "测试证据判定",
+                        "supported_points": ["测试支持点"] if sufficient else [],
+                        "missing_points": [] if sufficient else ["测试缺失点"],
+                    }
+                )
             return json.dumps({"correct": True, "context_retained": True})
         return "劳动关系自用工之日起建立。"
 
@@ -236,6 +245,18 @@ def test_preview_loads_strategy_and_returns_identity(tmp_path: Path) -> None:
     assert result["index_mode"] == "PRODUCTION_INDEX_REUSE"
     assert result["limitations"]
     assert result["config"] == _configs()[1].model_dump(mode="json")
+    assert result["answer_mode"] == "RAG_ANSWER"
+    assert result["evidence_decision"] == "SUFFICIENT"
+    assert result["tool_execution"] is None
+    assert [stage["stage"] for stage in result["trace"]] == [
+        "文本分块",
+        "初步召回",
+        "重排",
+        "相似度阈值",
+        "证据充分性",
+        "Tool 决策",
+        "回答模式",
+    ]
 
 
 def test_preview_rejects_missing_inactive_and_archived_strategies(

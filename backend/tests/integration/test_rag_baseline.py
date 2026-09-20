@@ -123,7 +123,7 @@ def test_refusal_branch_skips_answer_model_for_insufficient_evidence(
         }
     ]
 
-    refused, reason = asyncio.run(
+    judgement, reason = asyncio.run(
         chain.judge_evidence(BASELINE_QUESTION, weak_evidence)
     )
     answer = asyncio.run(
@@ -134,11 +134,11 @@ def test_refusal_branch_skips_answer_model_for_insufficient_evidence(
             weak_evidence,
             False,
             None,
-            refused=refused,
+            refused=judgement.decision.value == "INSUFFICIENT",
         )
     )
 
-    assert refused is True
+    assert judgement.decision.value == "INSUFFICIENT"
     assert reason is not None
     assert answer == REFUSAL_TEXT
     assert llm.completions == []

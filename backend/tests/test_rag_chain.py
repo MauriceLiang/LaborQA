@@ -8,6 +8,7 @@ from langchain_core.language_models.fake_chat_models import FakeListChatModel
 
 from app.core.config import Settings
 from app.rag.chains import REFUSAL_TEXT, RagChain
+from app.rag.decision import EvidenceDecision
 from app.rag.errors import ModelUnavailableError
 from app.schemas.contracts import AnswerStyle
 from tests.support import AsyncClientChatModel
@@ -45,7 +46,14 @@ class FakeLlm:
         if json_mode:
             payload = json.loads(messages[-1]["content"])
             assert payload["question"] == "劳动合同需要签订吗？"
-            return '{"sufficient":true,"reason":"evidence supports the answer"}'
+            return json.dumps(
+                {
+                    "decision": "SUFFICIENT",
+                    "reason": "evidence supports the answer",
+                    "supported_points": ["应当订立书面劳动合同"],
+                    "missing_points": [],
+                }
+            )
         return "请根据材料判断。"
 
     async def stream(self, messages: list[dict[str, str]]):
@@ -158,18 +166,25 @@ def test_evidence_judge_is_a_langchain_prompt_chain() -> None:
         }
     ]
 
-    refused, reason = asyncio.run(
+    judgement, reason = asyncio.run(
         chain.judge_evidence("劳动合同需要签订吗？", evidence, strict=True)
     )
 
-    assert refused is False
+    assert judgement.decision is EvidenceDecision.SUFFICIENT
     assert reason is None
+    assert judgement.supported_points == ["应当订立书面劳动合同"]
     assert llm.completions[-1][1] is True
 
 
 def test_rag_chain_accepts_a_base_chat_model_and_parses_json_judgement() -> None:
     model = FakeListChatModel(
-        responses=['{"sufficient":true,"reason":"evidence supports the answer"}']
+        responses=[
+            (
+                '{"decision":"PARTIAL","reason":"仅覆盖合同订立义务",'
+                '"supported_points":["应当订立书面劳动合同"],'
+                '"missing_points":["具体责任后果"]}'
+            )
+        ]
     )
     chain = RagChain(FakeRetrieval(), model, _config())
     evidence = [
@@ -186,12 +201,13 @@ def test_rag_chain_accepts_a_base_chat_model_and_parses_json_judgement() -> None
         }
     ]
 
-    refused, reason = asyncio.run(
+    judgement, reason = asyncio.run(
         chain.judge_evidence("劳动合同需要签订吗？", evidence, strict=True)
     )
 
-    assert refused is False
+    assert judgement.decision is EvidenceDecision.PARTIAL
     assert reason is None
+    assert judgement.missing_points == ["具体责任后果"]
 
 
 def test_rag_chain_converts_provider_failure_to_model_unavailable() -> None:

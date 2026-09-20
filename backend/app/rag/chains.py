@@ -17,6 +17,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnableBranch, RunnableLambda
 
 from app.core.config import Settings, settings
+from app.rag.decision import AnswerMode, EvidenceDecision, EvidenceJudgement
 from app.rag.errors import ModelUnavailableError
 from app.schemas.contracts import AnswerStyle, ToolExecutionItem
 from app.services.compliance import COMPLIANCE_NOTICE
@@ -118,14 +119,35 @@ class RagChain:
         evidence: list[dict[str, Any]],
         *,
         strict: bool = False,
-    ) -> tuple[bool, MissingKnowledgeReason | None]:
+    ) -> tuple[EvidenceJudgement, MissingKnowledgeReason | None]:
         if not evidence:
-            return True, MissingKnowledgeReason.NO_RETRIEVAL_RESULT
+            return (
+                _evidence_judgement(
+                    EvidenceDecision.INSUFFICIENT,
+                    "没有召回到可用于判断的知识库片段。",
+                    missing_points=["问题对应的知识库证据"],
+                ),
+                MissingKnowledgeReason.NO_RETRIEVAL_RESULT,
+            )
+        max_retrieval_score = max(
+            float(item.get("retrieval_score", item.get("score", 0.0)))
+            for item in evidence
+        )
         if (
-            max(item["retrieval_score"] for item in evidence)
+            max_retrieval_score
             < self.config.rag_score_threshold
         ):
-            return True, MissingKnowledgeReason.LOW_RELEVANCE
+            return (
+                _evidence_judgement(
+                    EvidenceDecision.INSUFFICIENT,
+                    (
+                        f"候选片段最高检索分 {max_retrieval_score:.3f} 低于阈值 "
+                        f"{self.config.rag_score_threshold:.3f}。"
+                    ),
+                    missing_points=["与问题足够相关的知识库证据"],
+                ),
+                MissingKnowledgeReason.LOW_RELEVANCE,
+            )
 
         try:
             judgement = await self.evidence_chain.ainvoke(
@@ -136,26 +158,25 @@ class RagChain:
                     ),
                 }
             )
-            if not isinstance(judgement, dict) or not isinstance(
-                judgement.get("sufficient"), bool
-            ):
-                return True, None
-            if not judgement["sufficient"]:
-                return True, MissingKnowledgeReason.INSUFFICIENT_EVIDENCE
-            return False, None
+            parsed = _parse_evidence_judgement(judgement)
+            if parsed.decision is EvidenceDecision.INSUFFICIENT:
+                return parsed, MissingKnowledgeReason.INSUFFICIENT_EVIDENCE
+            return parsed, None
         except ModelUnavailableError:
             if strict:
                 raise
-            logger.warning("Evidence judge failed; refusing the answer", exc_info=True)
-            return True, None
-        except OutputParserException:
+            logger.warning("Evidence judge failed; failing closed", exc_info=True)
+            return _failed_closed_judgement(), None
+        except OutputParserException as exc:
+            if strict:
+                raise ModelUnavailableError("模型服务暂不可用") from exc
             logger.warning("Evidence judge returned invalid JSON", exc_info=True)
-            return True, None
+            return _failed_closed_judgement(), None
         except Exception as exc:
             if strict:
                 raise ModelUnavailableError("模型服务暂不可用") from exc
-            logger.warning("Evidence judge failed; refusing the answer", exc_info=True)
-            return True, None
+            logger.warning("Evidence judge failed; failing closed", exc_info=True)
+            return _failed_closed_judgement(), None
 
     def answer_prompt_value(
         self,
@@ -165,6 +186,10 @@ class RagChain:
         evidence: list[dict[str, Any]],
         compliance_required: bool,
         tool_execution: ToolExecutionItem | None,
+        *,
+        answer_mode: AnswerMode = AnswerMode.RAG_ANSWER,
+        supported_points: Sequence[str] = (),
+        missing_points: Sequence[str] = (),
     ) -> Any:
         compliance_instruction = (
             f"回答末尾必须逐字包含以下提示：{COMPLIANCE_NOTICE}"
@@ -177,6 +202,9 @@ class RagChain:
                 "answer_style_instructions": ANSWER_STYLE_INSTRUCTIONS[
                     answer_style.value
                 ],
+                "answer_mode": answer_mode.value,
+                "supported_points": _format_points(supported_points),
+                "missing_points": _format_points(missing_points),
                 "compliance_required": str(compliance_required).lower(),
                 "compliance_instruction": compliance_instruction,
                 "tool_result": _tool_result(tool_execution),
@@ -195,7 +223,10 @@ class RagChain:
         compliance_required: bool,
         tool_execution: ToolExecutionItem | None,
         *,
-        refused: bool = False,
+        answer_mode: AnswerMode = AnswerMode.RAG_ANSWER,
+        supported_points: Sequence[str] = (),
+        missing_points: Sequence[str] = (),
+        refused: bool | None = None,
     ) -> str:
         try:
             return (
@@ -207,6 +238,9 @@ class RagChain:
                         evidence,
                         compliance_required,
                         tool_execution,
+                        answer_mode=answer_mode,
+                        supported_points=supported_points,
+                        missing_points=missing_points,
                         refused=refused,
                     )
                 )
@@ -225,7 +259,10 @@ class RagChain:
         compliance_required: bool,
         tool_execution: ToolExecutionItem | None,
         *,
-        refused: bool = False,
+        answer_mode: AnswerMode = AnswerMode.RAG_ANSWER,
+        supported_points: Sequence[str] = (),
+        missing_points: Sequence[str] = (),
+        refused: bool | None = None,
     ) -> AsyncIterator[str]:
         async for token in self.answer_chain.astream(
             _answer_input(
@@ -235,6 +272,9 @@ class RagChain:
                 evidence,
                 compliance_required,
                 tool_execution,
+                answer_mode=answer_mode,
+                supported_points=supported_points,
+                missing_points=missing_points,
                 refused=refused,
             )
         ):
@@ -249,6 +289,10 @@ class RagChain:
         evidence: list[dict[str, Any]],
         compliance_required: bool,
         tool_execution: ToolExecutionItem | None,
+        *,
+        answer_mode: AnswerMode = AnswerMode.RAG_ANSWER,
+        supported_points: Sequence[str] = (),
+        missing_points: Sequence[str] = (),
     ) -> list[dict[str, str]]:
         """Return rendered messages for compatibility with diagnostics and tests."""
 
@@ -259,6 +303,9 @@ class RagChain:
             evidence,
             compliance_required,
             tool_execution,
+            answer_mode=answer_mode,
+            supported_points=supported_points,
+            missing_points=missing_points,
         )
         return _message_dicts(prompt_value.messages)
 
@@ -283,6 +330,9 @@ def _answer_prompt() -> ChatPromptTemplate:
     for name in (
         "answer_style",
         "answer_style_instructions",
+        "answer_mode",
+        "supported_points",
+        "missing_points",
         "compliance_required",
         "compliance_instruction",
         "tool_result",
@@ -342,6 +392,52 @@ def _tool_result(tool_execution: ToolExecutionItem | None) -> str:
     return json.dumps(tool_execution.output.model_dump(mode="json"), ensure_ascii=False)
 
 
+def _format_points(points: Sequence[str]) -> str:
+    return json.dumps(list(points), ensure_ascii=False)
+
+
+def _evidence_judgement(
+    decision: EvidenceDecision,
+    reason: str,
+    *,
+    supported_points: Sequence[str] = (),
+    missing_points: Sequence[str] = (),
+) -> EvidenceJudgement:
+    return EvidenceJudgement(
+        decision=decision,
+        reason=reason,
+        supported_points=list(supported_points),
+        missing_points=list(missing_points),
+    )
+
+
+def _failed_closed_judgement() -> EvidenceJudgement:
+    return _evidence_judgement(
+        EvidenceDecision.INSUFFICIENT,
+        "证据充分性判断未成功，无法安全确认回答范围。",
+        missing_points=["证据充分性判断"],
+    )
+
+
+def _parse_evidence_judgement(value: Any) -> EvidenceJudgement:
+    if not isinstance(value, dict):
+        raise TypeError("evidence judgement must be a JSON object")
+    # Accept the pre-enum shape for old configured providers while all new
+    # prompts and returned values use EvidenceJudgement.
+    if "decision" not in value and isinstance(value.get("sufficient"), bool):
+        value = {
+            "decision": (
+                EvidenceDecision.SUFFICIENT.value
+                if value["sufficient"]
+                else EvidenceDecision.INSUFFICIENT.value
+            ),
+            "reason": str(value.get("reason") or "未提供判断理由"),
+            "supported_points": [],
+            "missing_points": [],
+        }
+    return EvidenceJudgement.model_validate(value)
+
+
 def _message_dicts(messages: Sequence[Any]) -> list[dict[str, str]]:
     result: list[dict[str, str]] = []
     for message in messages:
@@ -361,12 +457,20 @@ def _answer_input(
     compliance_required: bool,
     tool_execution: ToolExecutionItem | None,
     *,
-    refused: bool,
+    answer_mode: AnswerMode,
+    supported_points: Sequence[str],
+    missing_points: Sequence[str],
+    refused: bool | None,
 ) -> dict[str, Any]:
     return {
-        "refused": refused,
+        "refused": (
+            answer_mode is AnswerMode.REFUSAL if refused is None else refused
+        ),
         "answer_style": answer_style.value,
         "answer_style_instructions": ANSWER_STYLE_INSTRUCTIONS[answer_style.value],
+        "answer_mode": answer_mode.value,
+        "supported_points": _format_points(supported_points),
+        "missing_points": _format_points(missing_points),
         "compliance_required": str(compliance_required).lower(),
         "compliance_instruction": (
             f"回答末尾必须逐字包含以下提示：{COMPLIANCE_NOTICE}"
