@@ -119,6 +119,10 @@ def _migrate_evaluation_schema(connection: sqlite3.Connection) -> None:
     result_additions = {
         "answer_mode": "VARCHAR(30)",
         "evidence_decision": "VARCHAR(30)",
+        "judge_reason": "TEXT",
+        "matched_points_json": "TEXT",
+        "missing_points_json": "TEXT",
+        "contradictions_json": "TEXT",
     }
     for column, definition in result_additions.items():
         if column not in result_columns:

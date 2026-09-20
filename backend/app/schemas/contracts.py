@@ -311,6 +311,10 @@ class EvaluationResultItem(ApiModel):
     compliance_hit: bool | None
     answer_mode: Literal["RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"] | None
     evidence_decision: Literal["SUFFICIENT", "PARTIAL", "INSUFFICIENT"] | None
+    judge_reason: str | None = None
+    matched_points: list[str] = Field(default_factory=list)
+    missing_points: list[str] = Field(default_factory=list)
+    contradictions: list[str] = Field(default_factory=list)
     citations: list[CitationItem]
     latency_ms: int | None
     error_message: str | None

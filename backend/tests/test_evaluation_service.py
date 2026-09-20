@@ -1,4 +1,5 @@
 import asyncio
+import json
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -30,7 +31,13 @@ from tests.support import AsyncClientChatModel
 
 class FakeJudge:
     def __init__(
-        self, *, answer: str = '{"correct":true,"context_retained":true}'
+        self,
+        *,
+        answer: str = (
+            '{"correct":true,"context_retained":true,'
+            '"matched_points":[],"missing_points":[],'
+            '"contradictions":[],"reason":"测试通过"}'
+        ),
     ) -> None:
         self.answer = answer
         self.calls: list[dict[str, Any]] = []
@@ -56,8 +63,11 @@ class FakeChat:
         model_failure: bool = False,
         answer_mode: str | None = None,
         evidence_decision: str | None = None,
+        judge_answer: str | None = None,
     ) -> None:
-        self.judge = FakeJudge()
+        self.judge = (
+            FakeJudge() if judge_answer is None else FakeJudge(answer=judge_answer)
+        )
         self.chat_model = AsyncClientChatModel(self.judge)
         self.fail_question = fail_question
         self.model_failure = model_failure
@@ -156,8 +166,7 @@ def test_fixed_cases_have_the_documented_distribution_and_json_arrays() -> None:
         for source in case["expected_sources"]
     )
     assert any(
-        case["topic"] == "欠薪材料" and not case["expected_sources"]
-        for case in cases
+        case["topic"] == "欠薪材料" and not case["expected_sources"] for case in cases
     )
     assert any(case["topic"] == "试用期" for case in cases)
     assert any(len(case["turns"]) > 1 for case in cases)
@@ -203,6 +212,75 @@ def test_run_persists_all_answer_modes(
         assert result["evidence_decision"] == evidence_decision
 
 
+def test_judge_diagnostics_are_returned_and_persisted() -> None:
+    judge_answer = json.dumps(
+        {
+            "correct": False,
+            "context_retained": True,
+            "matched_points": ["已覆盖要点"],
+            "missing_points": ["遗漏要点"],
+            "contradictions": ["冲突内容"],
+            "reason": "遗漏要点且存在冲突",
+        },
+        ensure_ascii=False,
+    )
+    with tempfile.TemporaryDirectory() as directory:
+        database_path = Path(directory) / "eval.db"
+        _create_database(database_path)
+        service = _service(database_path, FakeChat(judge_answer=judge_answer))
+        run = service.create_run(
+            EvaluationRunCreate(
+                name="judge diagnostics", case_ids=[1], answer_style="plain"
+            )
+        )
+
+        asyncio.run(service.execute_run(run["id"]))
+
+        result = service.get_run(run["id"])["results"][0]
+        assert result["correct"] is False
+        assert result["judge_reason"] == "遗漏要点且存在冲突"
+        assert result["matched_points"] == ["已覆盖要点"]
+        assert result["missing_points"] == ["遗漏要点"]
+        assert result["contradictions"] == ["冲突内容"]
+
+
+def test_invalid_judge_diagnostics_fail_the_case() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        database_path = Path(directory) / "eval.db"
+        _create_database(database_path)
+        service = _service(
+            database_path,
+            FakeChat(judge_answer='{"correct":false,"matched_points":"错误类型"}'),
+        )
+        run = service.create_run(
+            EvaluationRunCreate(
+                name="invalid judge", case_ids=[1], answer_style="plain"
+            )
+        )
+
+        asyncio.run(service.execute_run(run["id"]))
+
+        result = service.get_run(run["id"])["results"][0]
+        assert result["status"] == "FAILED"
+        assert "matched_points 列表" in result["error_message"]
+
+
+def test_invalid_judge_json_fails_the_case() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        database_path = Path(directory) / "eval.db"
+        _create_database(database_path)
+        service = _service(database_path, FakeChat(judge_answer="not-json"))
+        run = service.create_run(
+            EvaluationRunCreate(name="invalid json", case_ids=[1], answer_style="plain")
+        )
+
+        asyncio.run(service.execute_run(run["id"]))
+
+        result = service.get_run(run["id"])["results"][0]
+        assert result["status"] == "FAILED"
+        assert "未返回有效 JSON" in result["error_message"]
+
+
 def test_run_executes_subset_calculates_metrics_and_does_not_write_chat_tables() -> (
     None
 ):
@@ -244,6 +322,10 @@ def test_run_executes_subset_calculates_metrics_and_does_not_write_chat_tables()
         assert detail["results"][1]["correct"] is True
         assert detail["results"][1]["answer_mode"] == "REFUSAL"
         assert detail["results"][1]["evidence_decision"] == "INSUFFICIENT"
+        assert detail["results"][1]["judge_reason"] is None
+        assert detail["results"][1]["matched_points"] == []
+        assert detail["results"][1]["missing_points"] == []
+        assert detail["results"][1]["contradictions"] == []
         assert detail["metrics"] == {
             "accuracy": 1.0,
             "reject_rate": 1.0,
@@ -485,7 +567,10 @@ def test_builtin_case_can_be_updated_and_run_scope_is_explicit() -> None:
             service.repository.get_run(baseline["id"])["config"]["case_scope"]
             == "BUILTIN_BASELINE"
         )
-        assert service.repository.get_run(baseline["id"])["config"]["baseline_version"] == 2
+        assert (
+            service.repository.get_run(baseline["id"])["config"]["baseline_version"]
+            == 2
+        )
 
 
 def test_api_lists_seed_cases_and_returns_accepted_run() -> None:

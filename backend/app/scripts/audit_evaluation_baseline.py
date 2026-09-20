@@ -23,9 +23,7 @@ def _audit(cases: Sequence[dict[str, Any]]) -> list[str]:
         question for question, count in Counter(questions).items() if count > 1
     )
     sources = [
-        source.get("file_name")
-        for case in cases
-        for source in case["expected_sources"]
+        source.get("file_name") for case in cases for source in case["expected_sources"]
     ]
     unknown_sources = sorted(
         source for source in sources if source not in BASELINE_SOURCE_FILES
@@ -72,13 +70,9 @@ def main() -> int:
     multi_turn_cases = [case for case in cases if len(case["turns"]) > 1]
     compliance_cases = [case for case in cases if case["should_show_compliance"]]
     source_counts = Counter(
-        source["file_name"]
-        for case in cases
-        for source in case["expected_sources"]
+        source["file_name"] for case in cases for source in case["expected_sources"]
     )
-    answers_without_sources = sum(
-        not case["expected_sources"] for case in answer_cases
-    )
+    answers_without_sources = sum(not case["expected_sources"] for case in answer_cases)
     pinned_chunks = sum(
         source.get("chunk_no") is not None
         for case in cases

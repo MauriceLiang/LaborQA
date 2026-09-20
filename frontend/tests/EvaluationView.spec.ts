@@ -105,6 +105,10 @@ function runDetail(
       compliance_hit: true,
       answer_mode: 'RAG_ANSWER',
       evidence_decision: 'SUFFICIENT',
+      judge_reason: null,
+      matched_points: [],
+      missing_points: [],
+      contradictions: [],
       citations: [{
         chunk_id: 11,
         document_id: 4,
@@ -288,6 +292,34 @@ describe('EvaluationView', () => {
     expect(wrapper.get('.evaluation-metrics').text()).toContain('不适用')
     expect(wrapper.get('.evaluation-metric-note').text()).toContain('没有包含该指标所需的用例')
     expect(wrapper.text()).not.toContain('—')
+    wrapper.unmount()
+  })
+
+  it('shows collapsed judge diagnostics for failed answers', async () => {
+    const detail = runDetail('COMPLETED')
+    detail.results[0].correct = false
+    detail.results[0].judge_reason = '遗漏关键要点且存在冲突'
+    detail.results[0].matched_points = ['已覆盖要点']
+    detail.results[0].missing_points = ['遗漏要点']
+    detail.results[0].contradictions = ['冲突内容']
+    vi.mocked(evaluationsApi.getEvaluationRuns).mockResolvedValue({
+      items: [runSummary('COMPLETED')], page: 1, size: 10, total: 1, pages: 1,
+    })
+    vi.mocked(evaluationsApi.getEvaluationRun).mockResolvedValue(detail)
+
+    const wrapper = shallowMount(EvaluationView)
+    await flushPromises()
+    await wrapper.get('.evaluation-link').trigger('click')
+    await flushPromises()
+
+    const diagnostics = wrapper.get('.evaluation-judge-diagnostics')
+    expect(diagnostics.attributes('open')).toBeUndefined()
+    expect(diagnostics.text()).toContain('评测结论：')
+    expect(diagnostics.text()).toContain('未通过')
+    expect(diagnostics.text()).toContain('已覆盖要点')
+    expect(diagnostics.text()).toContain('遗漏要点')
+    expect(diagnostics.text()).toContain('冲突内容')
+    expect(diagnostics.text()).toContain('遗漏关键要点且存在冲突')
     wrapper.unmount()
   })
 

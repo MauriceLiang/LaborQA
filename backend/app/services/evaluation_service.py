@@ -317,12 +317,20 @@ class EvaluationService:
 
         final = outputs[-1]
         refused = final["refused"]
+        judge_reason: str | None = None
+        matched_points: list[str] = []
+        missing_points: list[str] = []
+        contradictions: list[str] = []
         if case["expected_type"] == "REJECT":
             correct = refused and not final["citations"]
             multi_turn_correct = None
         else:
             judgement = await self.judge_answer(case, final)
             correct = judgement["correct"]
+            judge_reason = judgement["reason"]
+            matched_points = judgement["matched_points"]
+            missing_points = judgement["missing_points"]
+            contradictions = judgement["contradictions"]
             multi_turn_correct = (
                 correct and judgement["context_retained"]
                 if len(case["turns"]) > 1
@@ -354,6 +362,10 @@ class EvaluationService:
             "compliance_hit": compliance_hit,
             "answer_mode": final.get("answer_mode"),
             "evidence_decision": final.get("evidence_decision"),
+            "judge_reason": judge_reason,
+            "matched_points": matched_points,
+            "missing_points": missing_points,
+            "contradictions": contradictions,
             "citations": citations,
             "latency_ms": latency_ms,
             "error_message": None,
@@ -361,7 +373,7 @@ class EvaluationService:
 
     async def judge_answer(
         self, case: dict[str, Any], final: dict[str, Any]
-    ) -> dict[str, bool]:
+    ) -> dict[str, Any]:
         prompt_input = {
             "turns": case["turns"],
             "expected_points": case["expected_points"],
@@ -398,7 +410,26 @@ class EvaluationService:
         context_retained = value.get("context_retained", len(case["turns"]) == 1)
         if not isinstance(context_retained, bool):
             raise TypeError("评测器未返回有效的 context_retained 判断")
-        return {"correct": value["correct"], "context_retained": context_retained}
+        matched_points = _validated_string_list(
+            value.get("matched_points", []), "matched_points"
+        )
+        missing_points = _validated_string_list(
+            value.get("missing_points", []), "missing_points"
+        )
+        contradictions = _validated_string_list(
+            value.get("contradictions", []), "contradictions"
+        )
+        reason = value.get("reason", "")
+        if not isinstance(reason, str):
+            raise TypeError("评测器未返回有效的 reason 判断")
+        return {
+            "correct": value["correct"],
+            "context_retained": context_retained,
+            "matched_points": matched_points,
+            "missing_points": missing_points,
+            "contradictions": contradictions,
+            "reason": reason,
+        }
 
     @staticmethod
     def _system_error_message(exc: Exception) -> str:
@@ -419,6 +450,12 @@ def _escape_fstring_literals(value: str) -> str:
     return value.replace("{", "{{").replace("}", "}}")
 
 
+def _validated_string_list(value: Any, field_name: str) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise TypeError(f"评测器未返回有效的 {field_name} 列表")
+    return value
+
+
 def _failed_result(case_id: int, error_message: str) -> dict[str, Any]:
     return {
         "case_id": case_id,
@@ -431,6 +468,10 @@ def _failed_result(case_id: int, error_message: str) -> dict[str, Any]:
         "compliance_hit": None,
         "answer_mode": None,
         "evidence_decision": None,
+        "judge_reason": None,
+        "matched_points": [],
+        "missing_points": [],
+        "contradictions": [],
         "citations": [],
         "latency_ms": None,
         "error_message": error_message[:500],

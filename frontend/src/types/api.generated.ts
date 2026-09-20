@@ -989,6 +989,14 @@ export interface components {
             answer_mode: "RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL" | null;
             /** Evidence Decision */
             evidence_decision: "SUFFICIENT" | "PARTIAL" | "INSUFFICIENT" | null;
+            /** Judge Reason */
+            judge_reason?: string | null;
+            /** Matched Points */
+            matched_points?: string[];
+            /** Missing Points */
+            missing_points?: string[];
+            /** Contradictions */
+            contradictions?: string[];
             /** Citations */
             citations: components["schemas"]["CitationItem"][];
             /** Latency Ms */

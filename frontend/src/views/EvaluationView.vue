@@ -946,6 +946,43 @@ onBeforeUnmount(() => {
               <span>多轮通过：<b>{{ formatFlag(result.multi_turn_correct) }}</b></span>
               <span>合规提示：<b>{{ formatFlag(result.compliance_hit) }}</b></span>
             </div>
+            <details
+              v-if="result.status === 'COMPLETED' && result.correct !== null"
+              class="evaluation-judge-diagnostics"
+            >
+              <summary>评测诊断</summary>
+              <div class="evaluation-judge-diagnostic-body">
+                <p class="evaluation-judge-conclusion">
+                  评测结论：<b :class="result.correct ? 'evaluation-completed' : 'evaluation-failed'">
+                    {{ result.correct ? '通过' : '未通过' }}
+                  </b>
+                </p>
+                <template v-if="!result.correct">
+                  <div class="evaluation-diagnostic-group">
+                    <strong>已覆盖要点</strong>
+                    <ul v-if="(result.matched_points ?? []).length">
+                      <li v-for="point in result.matched_points ?? []" :key="`matched-${point}`">✓ {{ point }}</li>
+                    </ul>
+                    <p v-else class="evaluation-diagnostic-empty">无</p>
+                  </div>
+                  <div class="evaluation-diagnostic-group">
+                    <strong>缺失要点</strong>
+                    <ul v-if="(result.missing_points ?? []).length">
+                      <li v-for="point in result.missing_points ?? []" :key="`missing-${point}`">✗ {{ point }}</li>
+                    </ul>
+                    <p v-else class="evaluation-diagnostic-empty">无</p>
+                  </div>
+                  <div class="evaluation-diagnostic-group">
+                    <strong>冲突内容</strong>
+                    <ul v-if="(result.contradictions ?? []).length">
+                      <li v-for="point in result.contradictions ?? []" :key="`contradiction-${point}`">! {{ point }}</li>
+                    </ul>
+                    <p v-else class="evaluation-diagnostic-empty">无</p>
+                  </div>
+                  <p class="evaluation-judge-reason">评测原因：{{ result.judge_reason || '未记录' }}</p>
+                </template>
+              </div>
+            </details>
             <details v-if="result.citations.length" class="evaluation-citations">
               <summary>引用来源（{{ result.citations.length }}）</summary>
               <ul>
@@ -1872,6 +1909,45 @@ onBeforeUnmount(() => {
   color: #4e5a6b;
   font-size: 12px;
   line-height: 1.65;
+}
+
+.evaluation-judge-diagnostics {
+  color: #185b44;
+  font-size: 12px;
+}
+
+.evaluation-judge-diagnostic-body {
+  display: grid;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  color: #4e5a6b;
+  background: #f7faf8;
+  border: 1px solid #e0e8e3;
+  border-radius: 6px;
+}
+
+.evaluation-judge-conclusion,
+.evaluation-judge-reason,
+.evaluation-diagnostic-group {
+  margin: 0;
+}
+
+.evaluation-diagnostic-group strong {
+  color: #354257;
+  font-weight: 650;
+}
+
+.evaluation-diagnostic-group ul {
+  display: grid;
+  gap: 4px;
+  margin: 5px 0 0;
+  padding-left: 18px;
+}
+
+.evaluation-diagnostic-empty {
+  margin: 5px 0 0;
+  color: #8a95a5;
 }
 
 .evaluation-citations {

@@ -333,8 +333,10 @@ class EvaluationRepository:
                 INSERT INTO evaluation_result (
                     run_id, case_id, status, answer, refused, correct, source_hit,
                     multi_turn_correct, compliance_hit, answer_mode,
-                    evidence_decision, citations_json, latency_ms, error_message
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    evidence_decision, judge_reason, matched_points_json,
+                    missing_points_json, contradictions_json, citations_json,
+                    latency_ms, error_message
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -348,6 +350,10 @@ class EvaluationRepository:
                     _db_bool(result.get("compliance_hit")),
                     result.get("answer_mode"),
                     result.get("evidence_decision"),
+                    result.get("judge_reason"),
+                    json.dumps(result.get("matched_points") or [], ensure_ascii=False),
+                    json.dumps(result.get("missing_points") or [], ensure_ascii=False),
+                    json.dumps(result.get("contradictions") or [], ensure_ascii=False),
                     json.dumps(result.get("citations", []), ensure_ascii=False),
                     result.get("latency_ms"),
                     result.get("error_message"),
@@ -509,6 +515,10 @@ class EvaluationRepository:
             "evidence_decision": row["evidence_decision"]
             if "evidence_decision" in columns
             else None,
+            "judge_reason": row["judge_reason"] if "judge_reason" in columns else None,
+            "matched_points": _json_list(row, columns, "matched_points_json"),
+            "missing_points": _json_list(row, columns, "missing_points_json"),
+            "contradictions": _json_list(row, columns, "contradictions_json"),
             "citations": json.loads(row["citations_json"]),
             "latency_ms": row["latency_ms"],
             "error_message": row["error_message"],
@@ -532,6 +542,12 @@ def _db_bool(value: bool | None) -> int | None:
 
 def _python_bool(value: int | None) -> bool | None:
     return None if value is None else bool(value)
+
+
+def _json_list(row: sqlite3.Row, columns: set[str], column: str) -> list[Any]:
+    if column not in columns:
+        return []
+    return json.loads(row[column] or "[]")
 
 
 def _case_values(case: dict[str, Any]) -> tuple[Any, ...]:

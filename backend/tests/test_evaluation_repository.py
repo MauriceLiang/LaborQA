@@ -54,9 +54,12 @@ def test_seed_new_baseline_archives_old_builtin_and_preserves_custom() -> None:
         assert custom["origin"] == "CUSTOM"
 
         with sqlite3.connect(database_path) as connection:
-            assert connection.execute(
-                "SELECT COUNT(*) FROM evaluation_case WHERE builtin_key LIKE 'baseline-v2-%'"
-            ).fetchone()[0] == 2
+            assert (
+                connection.execute(
+                    "SELECT COUNT(*) FROM evaluation_case WHERE builtin_key LIKE 'baseline-v2-%'"
+                ).fetchone()[0]
+                == 2
+            )
 
 
 def test_result_round_trip_preserves_answer_mode_and_evidence_decision() -> None:
@@ -65,7 +68,9 @@ def test_result_round_trip_preserves_answer_mode_and_evidence_decision() -> None
         _create_database(database_path)
         repository = EvaluationRepository(database_path)
         repository.seed_cases(fixed_evaluation_cases()[:1], baseline_version=2)
-        run = repository.create_run("mode", repository.get_cases(), {"answer_style": "plain"})
+        run = repository.create_run(
+            "mode", repository.get_cases(), {"answer_style": "plain"}
+        )
         repository.add_result(
             run["id"],
             {
@@ -79,6 +84,10 @@ def test_result_round_trip_preserves_answer_mode_and_evidence_decision() -> None
                 "compliance_hit": None,
                 "answer_mode": "PARTIAL_ANSWER",
                 "evidence_decision": "PARTIAL",
+                "judge_reason": "遗漏关键要点",
+                "matched_points": ["已覆盖要点"],
+                "missing_points": ["遗漏要点"],
+                "contradictions": ["冲突内容"],
                 "citations": [],
                 "latency_ms": 1,
                 "error_message": None,
@@ -88,6 +97,10 @@ def test_result_round_trip_preserves_answer_mode_and_evidence_decision() -> None
         result = repository.get_run(run["id"])["results"][0]
         assert result["answer_mode"] == "PARTIAL_ANSWER"
         assert result["evidence_decision"] == "PARTIAL"
+        assert result["judge_reason"] == "遗漏关键要点"
+        assert result["matched_points"] == ["已覆盖要点"]
+        assert result["missing_points"] == ["遗漏要点"]
+        assert result["contradictions"] == ["冲突内容"]
 
 
 def test_old_evaluation_result_migration_adds_nullable_mode_columns() -> None:
@@ -129,10 +142,20 @@ def test_old_evaluation_result_migration_adds_nullable_mode_columns() -> None:
         _migrate_evaluation_schema(connection)
 
         columns = {
-            row[1]
-            for row in connection.execute("PRAGMA table_info(evaluation_result)")
+            row[1] for row in connection.execute("PRAGMA table_info(evaluation_result)")
         }
-        assert {"answer_mode", "evidence_decision"}.issubset(columns)
+        assert {
+            "answer_mode",
+            "evidence_decision",
+            "judge_reason",
+            "matched_points_json",
+            "missing_points_json",
+            "contradictions_json",
+        }.issubset(columns)
         assert connection.execute(
-            "SELECT answer_mode, evidence_decision FROM evaluation_result WHERE id = 1"
-        ).fetchone() == (None, None)
+            """
+            SELECT answer_mode, evidence_decision, judge_reason,
+                   matched_points_json, missing_points_json, contradictions_json
+            FROM evaluation_result WHERE id = 1
+            """
+        ).fetchone() == (None, None, None, None, None, None)
