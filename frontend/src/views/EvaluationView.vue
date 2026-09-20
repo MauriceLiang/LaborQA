@@ -1150,7 +1150,7 @@ onBeforeUnmount(() => {
   padding: 0;
   background: transparent;
   border: 0;
-  box-shadow: none;
+  box-shadow: none !important;
   font: inherit;
 }
 
@@ -1165,9 +1165,15 @@ onBeforeUnmount(() => {
   color: #9aa5b4;
 }
 
-/* Keep the select's hover state visually aligned with the surrounding filter control. */
+/* Keep filter controls free of the global inset focus ring. */
+.evaluation-filter-input:hover :deep(.el-input__wrapper),
 .evaluation-filter-select:hover :deep(.el-select__wrapper),
-.evaluation-filter-select :deep(.el-select__wrapper:hover) {
+.evaluation-filter-input :deep(.el-input__wrapper:hover),
+.evaluation-filter-select :deep(.el-select__wrapper:hover),
+.evaluation-filter-input :deep(.el-input__wrapper.is-focus),
+.evaluation-filter-select :deep(.el-select__wrapper.is-focused),
+.evaluation-filter-input.is-focus :deep(.el-input__wrapper),
+.evaluation-filter-select.is-focused :deep(.el-select__wrapper) {
   border-color: transparent;
   box-shadow: none !important;
 }
