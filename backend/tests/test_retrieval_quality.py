@@ -7,6 +7,7 @@ from langchain_core.documents import Document
 from langchain_core.runnables import Runnable, RunnableLambda
 
 from app.core.config import Settings
+from app.services.lightweight_rerank import LightweightRerankService
 from app.services.retrieval import RetrievalService
 
 
@@ -215,3 +216,70 @@ def test_legal_query_expansion_covers_golden_retrieval_concepts(
     expanded = LightweightRerankService().expand_query(query)
 
     assert all(term in expanded for term in expected_terms)
+
+
+def test_work_location_expands_to_contract_change_terms() -> None:
+    service = LightweightRerankService()
+    query = "公司能单方面把劳动合同的工作地点改到外省吗？"
+
+    expanded = service.expand_query(query)
+
+    assert all(term in expanded for term in ("工作地点", "变更劳动合同", "协商一致"))
+
+
+def test_wage_arrears_variants_expand() -> None:
+    service = LightweightRerankService()
+    queries = (
+        "公司拖欠工资，我可以解除吗？",
+        "公司拖欠我两个月工资，我可以解除吗？",
+        "单位一直拖欠我的劳动报酬，我能解除合同吗？",
+        "工资已经拖了三个月",
+    )
+
+    for query in queries:
+        expanded = service.expand_query(query)
+        terms = service.terms_for_query(query)
+
+        assert "未及时足额支付劳动报酬" in expanded
+        assert "未及时足额支付劳动报酬" in terms
+        if "解除" in query:
+            assert "解除劳动合同" in expanded
+            assert "解除劳动合同" in terms
+
+
+def test_wage_arrears_compensation_query_expands_both_rules() -> None:
+    service = LightweightRerankService()
+    query = "公司拖欠我两个月工资，我能解除并主张补偿吗？"
+
+    expanded = service.expand_query(query)
+
+    assert "未及时足额支付劳动报酬" in expanded
+    assert "经济补偿" in expanded
+
+
+def test_labor_rule_query_expands_democratic_procedure_terms() -> None:
+    service = LightweightRerankService()
+    query = "公司制定涉及工资和工时的制度，可以老板自己决定吗？"
+
+    expanded = service.expand_query(query)
+
+    assert all(
+        term in expanded
+        for term in (
+            "直接涉及劳动者切身利益",
+            "职工代表大会",
+            "全体职工讨论",
+            "平等协商确定",
+        )
+    )
+    assert "职工代表大会" not in service.expand_query("公司的服务器备份制度怎么设计？")
+
+
+def test_wage_arrears_complaint_expands_general_complaint_rule() -> None:
+    service = LightweightRerankService()
+    query = "单位长期拖欠工资，我应该向劳动监察部门投诉吗？"
+
+    expanded = service.expand_query(query)
+
+    assert "劳动者可以向劳动行政部门投诉" in expanded
+    assert "劳动行政部门应当依法处理" in expanded

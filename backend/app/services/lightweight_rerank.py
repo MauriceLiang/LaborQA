@@ -19,6 +19,7 @@ LEGAL_QUERY_EXPANSIONS: dict[str, tuple[str, ...]] = {
     "合同到期": ("劳动合同期满", "劳动合同终止"),
     "调岗": ("工作岗位", "变更劳动合同"),
     "降薪": ("劳动报酬", "变更劳动合同"),
+    "工作地点": ("变更劳动合同", "协商一致"),
     "社保": ("社会保险",),
     "加班": ("延长工作时间",),
     "工伤": ("工伤认定",),
@@ -29,7 +30,7 @@ LEGAL_QUERY_EXPANSIONS: dict[str, tuple[str, ...]] = {
     "工作时间": ("工作时间",),
     "工作场所": ("工作场所",),
     "因工作": ("工作原因",),
-    "最低工资": ("最低工资标准",),
+    "最低工资": ("最低工资标准", "最低工资保障制度"),
     "加班工资": ("延长工作时间工资", "加班加点工资"),
     "约定不明": ("重新协商", "集体合同", "同工同酬"),
     "仲裁时效": ("申请仲裁的时效期间", "时效期间为一年"),
@@ -54,6 +55,9 @@ _DOMAIN_TERMS = (
 
 _QUERY_KEYWORDS = (
     "最低工资",
+    "工作地点",
+    "变更劳动合同",
+    "协商一致",
     "加班工资",
     "工资",
     "劳动报酬",
@@ -97,21 +101,23 @@ def normalize_text(value: str) -> str:
 class LightweightRerankService:
     """Rank candidates with retrieval, legal-term and source signals only."""
 
-    def expand_query(self, query: str) -> str:
-        normalized_query = normalize_text(query)
-        terms = [query.strip()]
-        for source, expansions in LEGAL_QUERY_EXPANSIONS.items():
-            if normalize_text(source) in normalized_query:
-                terms.extend(expansions)
-        return " ".join(_dedupe(term for term in terms if term))
-
-    def terms_for_query(self, query: str) -> list[str]:
+    def _expansion_terms(self, query: str) -> list[str]:
         normalized_query = normalize_text(query)
         terms: list[str] = []
         for source, expansions in LEGAL_QUERY_EXPANSIONS.items():
             if normalize_text(source) in normalized_query:
-                terms.append(source)
                 terms.extend(expansions)
+        terms.extend(_conditional_expansions(normalized_query))
+        return _dedupe(terms)
+
+    def expand_query(self, query: str) -> str:
+        return " ".join(
+            _dedupe([query.strip(), *self._expansion_terms(query)])
+        )
+
+    def terms_for_query(self, query: str) -> list[str]:
+        normalized_query = normalize_text(query)
+        terms = self._expansion_terms(query)
         terms.extend(
             term for term in _DOMAIN_TERMS if normalize_text(term) in normalized_query
         )
@@ -197,3 +203,73 @@ def _dedupe(values: Sequence[str] | Any) -> list[str]:
             result.append(value)
             seen.add(normalized)
     return result
+
+
+def _conditional_expansions(normalized_query: str) -> list[str]:
+    """Expand reusable legal concepts that require multiple query signals."""
+
+    terms: list[str] = []
+
+    if "工作地点" in normalized_query:
+        terms.extend(("变更劳动合同", "协商一致"))
+
+    has_rule = any(token in normalized_query for token in ("制度", "规章", "规定"))
+    has_labor_interest = any(
+        token in normalized_query
+        for token in (
+            "工资",
+            "劳动报酬",
+            "工时",
+            "工作时间",
+            "休息休假",
+            "考勤",
+            "保险福利",
+            "劳动纪律",
+        )
+    )
+    if has_rule and has_labor_interest:
+        terms.extend(
+            (
+                "直接涉及劳动者切身利益",
+                "职工代表大会",
+                "全体职工讨论",
+                "工会",
+                "职工代表",
+                "平等协商确定",
+            )
+        )
+
+    has_arrears_marker = any(
+        token in normalized_query
+        for token in ("拖欠", "拖了", "欠薪", "未发", "没发")
+    )
+    has_wage_arrears = has_arrears_marker and any(
+        token in normalized_query for token in ("工资", "劳动报酬")
+    )
+    if has_wage_arrears:
+        terms.extend(
+            (
+                "未及时足额支付劳动报酬",
+                "拖欠劳动报酬",
+                "无故拖欠工资",
+            )
+        )
+        if "解除" in normalized_query:
+            terms.extend(("解除劳动合同", "劳动合同法第三十八条"))
+        if any(token in normalized_query for token in ("补偿", "经济补偿")):
+            terms.extend(("经济补偿", "劳动合同法第四十六条"))
+
+    has_complaint_intent = any(
+        token in normalized_query
+        for token in ("投诉", "劳动监察", "劳动行政部门", "有关部门", "反映", "举报")
+    )
+    if has_wage_arrears and has_complaint_intent:
+        terms.extend(
+            (
+                "拖欠或者未足额支付劳动报酬",
+                "劳动者可以向劳动行政部门投诉",
+                "劳动行政部门应当依法处理",
+            )
+        )
+
+    return _dedupe(terms)

@@ -57,9 +57,40 @@ def test_seed_new_baseline_archives_old_builtin_and_preserves_custom() -> None:
             assert (
                 connection.execute(
                     "SELECT COUNT(*) FROM evaluation_case WHERE builtin_key LIKE 'baseline-v2-%'"
-                ).fetchone()[0]
+            ).fetchone()[0]
                 == 2
             )
+
+
+def test_new_baseline_version_archives_previous_builtin_cases() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        database_path = Path(directory) / "evaluation.db"
+        _create_database(database_path)
+        repository = EvaluationRepository(database_path)
+        cases = fixed_evaluation_cases()
+
+        repository.seed_cases(cases, baseline_version=3)
+        with sqlite3.connect(database_path) as connection:
+            assert connection.execute(
+                "SELECT COUNT(*) FROM evaluation_case "
+                "WHERE status = 'ACTIVE' AND builtin_key LIKE 'baseline-v3-%'"
+            ).fetchone()[0] == 60
+
+        repository.seed_cases(cases, baseline_version=4)
+
+        with sqlite3.connect(database_path) as connection:
+            rows = connection.execute(
+                "SELECT builtin_key, status, archived_at "
+                "FROM evaluation_case ORDER BY id"
+            ).fetchall()
+
+        assert len(rows) == 120
+        assert sum(row[0].startswith("baseline-v3-") for row in rows) == 60
+        assert sum(row[0].startswith("baseline-v4-") for row in rows) == 60
+        assert all(row[1] == "ARCHIVED" for row in rows[:60])
+        assert all(row[2] is not None for row in rows[:60])
+        assert all(row[1] == "ACTIVE" for row in rows[60:])
+        assert all(row[2] is None for row in rows[60:])
 
 
 def test_result_round_trip_preserves_answer_mode_and_evidence_decision() -> None:

@@ -228,7 +228,7 @@ def test_fixed_cases_have_the_documented_distribution_and_json_arrays() -> None:
     assert any(case["expected_type"] == "REJECT" for case in cases)
     assert sum(case["should_show_compliance"] for case in cases) == 3
     assert sum(len(case["turns"]) == 3 for case in cases) == 3
-    assert baseline_version() == 3
+    assert baseline_version() == 4
 
 
 @pytest.mark.parametrize(
@@ -692,7 +692,7 @@ def test_builtin_case_can_be_updated_and_run_scope_is_explicit() -> None:
         )
         assert (
             service.repository.get_run(baseline["id"])["config"]["baseline_version"]
-            == 3
+            == 4
         )
 
 

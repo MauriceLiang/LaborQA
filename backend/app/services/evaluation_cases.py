@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-_BASELINE_VERSION = 3
+_BASELINE_VERSION = 4
 
 SOURCE_LABOR_RELATION = "01_劳动关系与劳动合同.md"
 SOURCE_WAGE_OVERTIME = "02_工资支付与加班.md"
@@ -123,7 +123,7 @@ _SINGLE_TURN_CASES = [
         "工资",
         "我的工资低于当地最低工资，最低工资标准由谁确定？",
         ["最低工资的具体标准由省、自治区、直辖市人民政府规定"],
-        [SOURCE_WAGE_OVERTIME],
+        [SOURCE_LABOR_RELATION, SOURCE_WAGE_OVERTIME],
         False,
     ),
     (
