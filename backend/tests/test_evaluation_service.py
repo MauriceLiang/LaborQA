@@ -15,7 +15,10 @@ from app.core.error_codes import ErrorCode
 from app.core.errors import AppError
 from app.main import app
 from app.rag.errors import ModelUnavailableError
+from app.rag.ai_modes import DEFAULT_AI_MODE
+from app.rag.runtime_config import runtime_config_snapshot
 from app.schemas.contracts import (
+    AiMode,
     EvaluationCaseCreate,
     EvaluationCaseUpdate,
     EvaluationRunCreate,
@@ -189,6 +192,46 @@ def _create_database(database_path: Path) -> None:
     schema = Path(__file__).parents[1] / "app" / "core" / "schema.sql"
     with sqlite3.connect(database_path) as connection:
         connection.executescript(schema.read_text(encoding="utf-8"))
+
+
+def test_evaluation_judge_uses_the_base_chat_model() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        database_path = Path(directory) / "eval.db"
+        _create_database(database_path)
+        chat = FakeChat()
+        alternate = FakeJudge(answer='{"correct":false,"reason":"不应使用此模型"}')
+        chat.answer_chat_model = AsyncClientChatModel(alternate)
+        service = _service(database_path, chat)
+
+        judgement = asyncio.run(
+            service.judge_answer(
+                {
+                    "turns": ["劳动合同需要签订吗？"],
+                    "expected_points": ["应当订立书面劳动合同"],
+                },
+                {
+                    "rewritten_question": "劳动合同需要签订吗？",
+                    "answer": "应当订立书面劳动合同。",
+                },
+            )
+        )
+
+        assert judgement["correct"] is True
+        assert len(chat.judge.calls) == 1
+        assert alternate.calls == []
+
+
+def test_runtime_snapshot_records_thinking_profile() -> None:
+    config = Settings(_env_file=None)
+
+    snapshot = runtime_config_snapshot(config, ai_mode=AiMode.SPEED)
+
+    assert snapshot["ai_mode"] == AiMode.SPEED.value
+    assert snapshot["evidence_thinking"] is False
+    assert snapshot["evidence_effort"] is None
+    assert snapshot["answer_thinking"] is False
+    assert snapshot["answer_effort"] is None
+    assert DEFAULT_AI_MODE is AiMode.BALANCED
 
 
 def test_fixed_cases_have_the_documented_distribution_and_json_arrays() -> None:

@@ -1,3 +1,4 @@
+import { createPinia } from 'pinia'
 import axios from 'axios'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import { ElInput, ElSelect } from 'element-plus'
@@ -86,6 +87,11 @@ function experimentDetail(status: experimentsApi.ExperimentDetail['status'] = 'C
       langchain_version: '1.6.3',
       chat_provider: 'langchain_openai.ChatOpenAI',
       llm_model: 'test-model',
+      ai_mode: 'balanced',
+      evidence_thinking: true,
+      evidence_effort: 'low',
+      answer_thinking: false,
+      answer_effort: null,
       embedding_provider: 'local',
       embedding_model: 'test-model',
       embedding_normalize: true,
@@ -205,7 +211,7 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers())
 
 async function mountView() {
-  const wrapper = shallowMount(RetrievalExperimentView)
+  const wrapper = shallowMount(RetrievalExperimentView, { global: { plugins: [createPinia()] } })
   await flushPromises()
   return wrapper
 }
@@ -257,6 +263,7 @@ describe('RetrievalExperimentView', () => {
       case_ids: null,
       case_scope: 'BUILTIN_BASELINE',
       answer_style: 'plain',
+      ai_mode: 'balanced',
     })
     wrapper.unmount()
   })
@@ -289,6 +296,7 @@ describe('RetrievalExperimentView', () => {
       question: '公司拖欠工资，我应该准备什么材料？',
       answer_style: 'plain',
       strategy_id: 6,
+      ai_mode: 'balanced',
     })
     expect(wrapper.text()).toContain('基线 F · 重排 · v1')
     expect(wrapper.text()).toContain('Chunk Size 与 Chunk Overlap 不会重新切分')

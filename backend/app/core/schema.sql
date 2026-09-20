@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS message (
     content TEXT NOT NULL,
     rewritten_question TEXT,
     answer_style VARCHAR(20) CHECK (answer_style IN ('plain', 'legal')),
+    ai_mode VARCHAR(20) CHECK (ai_mode IN ('speed', 'balanced', 'quality')),
     refused INTEGER CHECK (refused IN (0, 1)),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

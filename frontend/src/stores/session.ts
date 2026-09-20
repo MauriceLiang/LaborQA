@@ -12,6 +12,7 @@ export const useSessionStore = defineStore('session', () => {
   const answerStyle = ref<AnswerStyle>('plain')
   const recentSessions = ref<SessionItem[]>([])
   const streaming = ref(false)
+  const historyLoading = ref(false)
   const sessionsError = ref('')
   let refreshPromise: Promise<boolean> | null = null
 
@@ -49,15 +50,21 @@ export const useSessionStore = defineStore('session', () => {
     streaming.value = value
   }
 
+  function setHistoryLoading(value: boolean) {
+    historyLoading.value = value
+  }
+
   return {
     sessionId,
     answerStyle,
     recentSessions,
     streaming,
+    historyLoading,
     sessionsError,
     setSessionId,
     clearSession,
     refreshRecentSessions,
     setStreaming,
+    setHistoryLoading,
   }
 })

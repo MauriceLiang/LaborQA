@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import httpx
 from langchain_core.embeddings import Embeddings
@@ -13,18 +13,54 @@ from pydantic import SecretStr
 
 from app.core.config import Settings, settings
 
+ThinkingMode = Literal["default", "enabled", "disabled"]
+ReasoningEffort = Literal["low", "high", "max"]
 
-def build_chat_model(config: Settings = settings) -> BaseChatModel:
+
+def build_chat_model(
+    config: Settings = settings,
+    *,
+    thinking_mode: ThinkingMode = "default",
+    reasoning_effort: ReasoningEffort | None = None,
+) -> BaseChatModel:
     """Build the configured OpenAI-compatible LangChain chat model."""
     from langchain_openai import ChatOpenAI
 
-    return ChatOpenAI(
-        model=config.llm_model,
-        api_key=config.llm_api_key,
-        base_url=_without_endpoint_suffix(config.llm_base_url, "/chat/completions"),
-        streaming=True,
-        use_responses_api=False,
-    )
+    kwargs: dict[str, Any] = {
+        "model": config.llm_model,
+        "api_key": config.llm_api_key,
+        "base_url": _without_endpoint_suffix(
+            config.llm_base_url, "/chat/completions"
+        ),
+        "streaming": True,
+        "use_responses_api": False,
+    }
+    if thinking_mode != "default":
+        kwargs.update(
+            _deepseek_thinking_options(
+                thinking_mode=thinking_mode,
+                reasoning_effort=reasoning_effort,
+            )
+        )
+    return ChatOpenAI(**kwargs)
+
+
+def _deepseek_thinking_options(
+    *,
+    thinking_mode: ThinkingMode,
+    reasoning_effort: ReasoningEffort | None = None,
+) -> dict[str, Any]:
+    if thinking_mode == "disabled":
+        return {
+            "reasoning_effort": "none",
+            "extra_body": {"thinking": {"type": "disabled"}},
+        }
+    if thinking_mode == "enabled":
+        return {
+            "reasoning_effort": reasoning_effort or "high",
+            "extra_body": {"thinking": {"type": "enabled"}},
+        }
+    return {}
 
 
 def build_embeddings(

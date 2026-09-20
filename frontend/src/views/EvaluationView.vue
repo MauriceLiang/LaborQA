@@ -34,7 +34,10 @@ import {
 } from '@/api/evaluations'
 import { getErrorMessage } from '@/api/http'
 import MarkdownContent from '@/components/chat/MarkdownContent.vue'
+import { usePreferencesStore } from '@/stores/preferences'
+import { aiModeLabel } from '@/types/preferences'
 
+const preferencesStore = usePreferencesStore()
 const cases = ref<EvaluationCase[]>([])
 const casePage = ref(1)
 const caseSize = ref(20)
@@ -454,6 +457,7 @@ async function createRun() {
         : null,
       answer_style: answerStyle.value,
       case_scope: caseScope.value,
+      ai_mode: preferencesStore.aiMode,
     })
     stopPolling()
     selectedRunVersion += 1
@@ -746,6 +750,7 @@ onBeforeUnmount(() => {
           <div>
             <h2 id="evaluation-create-title">创建评测批次</h2>
             <p>选择执行范围后创建后台评测批次；历史批次保留执行时的用例版本</p>
+            <p class="evaluation-mode-hint">当前 AI 模式：{{ aiModeLabel(preferencesStore.aiMode) }}（由顶部全局选择器控制）</p>
           </div>
         </div>
         <form class="evaluation-create-form" @submit.prevent="createRun">
@@ -885,6 +890,7 @@ onBeforeUnmount(() => {
           >
             官方基线 v{{ runDetail.config.baseline_version }}
           </p>
+          <p class="evaluation-detail-run-name">AI 模式：{{ aiModeLabel(runDetail?.config.ai_mode) }}</p>
         </div>
         <span class="evaluation-status" :class="statusClass(displayedStatus)">{{ formatStatus(displayedStatus) }}</span>
       </div>
@@ -1144,7 +1150,7 @@ onBeforeUnmount(() => {
   padding: 0;
   background: transparent;
   border: 0;
-  box-shadow: none;
+  box-shadow: none !important;
   font: inherit;
 }
 
@@ -1159,9 +1165,15 @@ onBeforeUnmount(() => {
   color: #9aa5b4;
 }
 
-/* Keep the select's hover state visually aligned with the surrounding filter control. */
+/* Keep filter controls free of the global inset focus ring. */
+.evaluation-filter-input:hover :deep(.el-input__wrapper),
 .evaluation-filter-select:hover :deep(.el-select__wrapper),
-.evaluation-filter-select :deep(.el-select__wrapper:hover) {
+.evaluation-filter-input :deep(.el-input__wrapper:hover),
+.evaluation-filter-select :deep(.el-select__wrapper:hover),
+.evaluation-filter-input :deep(.el-input__wrapper.is-focus),
+.evaluation-filter-select :deep(.el-select__wrapper.is-focused),
+.evaluation-filter-input.is-focus :deep(.el-input__wrapper),
+.evaluation-filter-select.is-focused :deep(.el-select__wrapper) {
   border-color: transparent;
   box-shadow: none !important;
 }

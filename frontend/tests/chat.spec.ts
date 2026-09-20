@@ -17,6 +17,7 @@ const request: ChatRequest = {
   session_id: '7ad8c9e1-62b2-4d40-9c6f-c48657f901d0',
   question: '公司拖欠工资怎么办？',
   answer_style: 'plain',
+  ai_mode: 'balanced',
 }
 
 const citation: CitationItem = {

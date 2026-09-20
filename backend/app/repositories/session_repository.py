@@ -11,6 +11,7 @@ from typing import Any
 from uuid import uuid4
 
 from app.core.config import settings
+from app.schemas.contracts import AiMode
 
 
 class SessionNotFoundError(LookupError):
@@ -109,7 +110,12 @@ class SessionRepository:
             ).fetchall()
             return self._load_messages(connection, rows)
 
-    def create_user_message(self, session_id: str, question: str) -> dict[str, Any]:
+    def create_user_message(
+        self,
+        session_id: str,
+        question: str,
+        ai_mode: AiMode | str = AiMode.BALANCED,
+    ) -> dict[str, Any]:
         with self._connection() as connection:
             if (
                 connection.execute(
@@ -120,10 +126,12 @@ class SessionRepository:
                 raise SessionNotFoundError(session_id)
             cursor = connection.execute(
                 """
-                INSERT INTO message (session_id, role, content, rewritten_question)
-                VALUES (?, 'user', ?, ?)
+                INSERT INTO message (
+                    session_id, role, content, rewritten_question, ai_mode
+                )
+                VALUES (?, 'user', ?, ?, ?)
                 """,
-                (session_id, question, question),
+                (session_id, question, question, AiMode(ai_mode).value),
             )
             connection.execute(
                 "UPDATE session SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -153,6 +161,7 @@ class SessionRepository:
         refused: bool,
         citations: Sequence[Mapping[str, Any]],
         tool_executions: Sequence[Mapping[str, Any]] = (),
+        ai_mode: AiMode | str = AiMode.BALANCED,
     ) -> dict[str, Any]:
         with self._connection() as connection:
             if (
@@ -165,10 +174,18 @@ class SessionRepository:
 
             cursor = connection.execute(
                 """
-                INSERT INTO message (session_id, role, content, answer_style, refused)
-                VALUES (?, 'assistant', ?, ?, ?)
+                INSERT INTO message (
+                    session_id, role, content, answer_style, ai_mode, refused
+                )
+                VALUES (?, 'assistant', ?, ?, ?, ?)
                 """,
-                (session_id, content, answer_style, int(refused)),
+                (
+                    session_id,
+                    content,
+                    answer_style,
+                    AiMode(ai_mode).value,
+                    int(refused),
+                ),
             )
             message_id = int(cursor.lastrowid)
 
@@ -234,6 +251,7 @@ class SessionRepository:
                 "content": row["content"],
                 "rewritten_question": row["rewritten_question"],
                 "answer_style": row["answer_style"],
+                "ai_mode": row["ai_mode"],
                 "refused": bool(row["refused"]) if row["refused"] is not None else None,
                 "created_at": row["created_at"],
                 "citations": [],

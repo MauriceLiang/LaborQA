@@ -5,12 +5,12 @@ import sqlite3
 import tempfile
 from pathlib import Path
 from typing import Any
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 from uuid import UUID
 
 from app.core.config import Settings
 from app.rag.decision import AnswerMode, EvidenceDecision, EvidenceJudgement
-from app.schemas.contracts import AnswerStyle, ChatRequest, MissingKnowledgeQuery
+from app.schemas.contracts import AiMode, AnswerStyle, ChatRequest, MissingKnowledgeQuery
 from app.services.chat_service import ChatService
 from app.services.compliance import COMPLIANCE_NOTICE
 from app.services.missing_knowledge import ExecutionMode, MissingKnowledgeReason
@@ -178,6 +178,65 @@ def _assert_done_timings(events: list[str]) -> None:
         assert timings["total_ms"] >= timings["ttft_ms"]
 
 
+def test_injected_chat_model_is_used_for_all_rag_roles() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        with patch("app.services.chat_service.build_chat_model") as build_model:
+            service, _, _, _ = _service(directory)
+
+        build_model.assert_not_called()
+        assert service.chat_model is service.evidence_chat_model
+        assert service.chat_model is service.answer_chat_model
+        assert service.rag_chain.chat_model is service.chat_model
+        assert service.rag_chain.evidence_model is service.chat_model
+        assert service.rag_chain.answer_model is service.chat_model
+
+
+def test_configured_chat_service_builds_role_specific_models() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        config = Settings(
+            _env_file=None,
+            database_url=f"sqlite:///{Path(directory) / 'service.db'}",
+            llm_api_key="test-key",
+            llm_base_url="https://llm.example.test/v1",
+            llm_model="test-model",
+        )
+        base_model = AsyncClientChatModel(FakeLlm())
+        evidence_model = AsyncClientChatModel(FakeLlm())
+        answer_model = AsyncClientChatModel(FakeLlm())
+        with patch(
+            "app.services.chat_service.build_chat_model",
+            side_effect=[base_model, evidence_model, answer_model],
+        ) as build_model:
+            service = ChatService(
+                SessionService(database_path=config.database_path),
+                FakeRetrieval(),
+                config,
+            )
+
+        assert build_model.call_count == 3
+        assert build_model.call_args_list[0].args == (config,)
+        assert build_model.call_args_list[0].kwargs == {
+            "thinking_mode": "enabled",
+            "reasoning_effort": "high",
+        }
+        assert build_model.call_args_list[1].kwargs == {"thinking_mode": "disabled"}
+        assert build_model.call_args_list[2].kwargs == {
+            "thinking_mode": "enabled",
+            "reasoning_effort": "low",
+        }
+        assert service.chat_model is base_model
+        assert service.chat_models["off"] is evidence_model
+        assert service.chat_models["low"] is answer_model
+        assert service.evidence_chat_model is answer_model
+        assert service.answer_chat_model is evidence_model
+        assert service.rag_chains[AiMode.SPEED].evidence_model is evidence_model
+        assert service.rag_chains[AiMode.SPEED].answer_model is evidence_model
+        assert service.rag_chains[AiMode.BALANCED].evidence_model is answer_model
+        assert service.rag_chains[AiMode.BALANCED].answer_model is evidence_model
+        assert service.rag_chains[AiMode.QUALITY].evidence_model is base_model
+        assert service.rag_chains[AiMode.QUALITY].answer_model is base_model
+
+
 def test_rag_stream_persists_answer_and_only_retrieved_citations(caplog) -> None:
     with tempfile.TemporaryDirectory() as directory:
         service, sessions, retrieval, llm = _service(directory)
@@ -216,6 +275,12 @@ def test_rag_stream_persists_answer_and_only_retrieved_citations(caplog) -> None
             if record.getMessage().startswith("chat_latency ")
         ]
         assert len(latency_logs) == 1
+        latency_payload = json.loads(latency_logs[0].removeprefix("chat_latency "))
+        assert latency_payload["ai_mode"] == "balanced"
+        assert latency_payload["evidence_thinking"] is True
+        assert latency_payload["evidence_effort"] == "low"
+        assert latency_payload["answer_thinking"] is False
+        assert latency_payload["answer_effort"] is None
         assert "那公司这样解除劳动关系呢？" not in latency_logs[0]
         assert "应结合具体证据判断。建议保留书面材料。" not in latency_logs[0]
         assert "解除劳动合同应符合法定条件。" not in latency_logs[0]

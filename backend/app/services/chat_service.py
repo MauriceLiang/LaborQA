@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass
 from time import perf_counter
 from typing import Any
@@ -20,10 +21,12 @@ from app.rag.chains import (
     REFUSAL_TEXT,
     RagChain,
 )
+from app.rag.ai_modes import AI_MODE_PROFILES, DEFAULT_AI_MODE, ai_mode_profile
 from app.rag.decision import AnswerMode, EvidenceDecision, EvidenceJudgement
 from app.rag.errors import EmbeddingUnavailableError, ModelUnavailableError
 from app.rag.providers import build_chat_model
 from app.schemas.contracts import (
+    AiMode,
     AnswerStyle,
     ChatRequest,
     MaterialChecklistInput,
@@ -85,24 +88,87 @@ class ChatService:
         config: Settings = settings,
         *,
         chat_model: BaseChatModel | None = None,
+        chat_models: Mapping[str, BaseChatModel] | None = None,
         missing_knowledge_service: MissingKnowledgeService | None = None,
     ) -> None:
         self.session_service = session_service
         self.retrieval_service = retrieval_service
         self.config = config
-        if chat_model is not None:
+        if chat_models is not None:
+            self.chat_models = dict(chat_models)
+            self.chat_model = self.chat_models["default"]
+        elif chat_model is not None:
             self.chat_model = chat_model
+            self.chat_models = {
+                "default": chat_model,
+                "off": chat_model,
+                "low": chat_model,
+                "high": chat_model,
+            }
         elif all((config.llm_api_key, config.llm_base_url, config.llm_model)):
-            self.chat_model = build_chat_model(config)
+            high_model = build_chat_model(
+                config, thinking_mode="enabled", reasoning_effort="high"
+            )
+            self.chat_model = high_model
+            self.chat_models = {
+                "default": high_model,
+                "off": build_chat_model(config, thinking_mode="disabled"),
+                "low": build_chat_model(
+                    config, thinking_mode="enabled", reasoning_effort="low"
+                ),
+                "high": high_model,
+            }
         else:
-            self.chat_model = _UnavailableChatModel()
-        self.rag_chain = RagChain(retrieval_service, self.chat_model, config)
+            unavailable = _UnavailableChatModel()
+            self.chat_model = unavailable
+            self.chat_models = {
+                "default": unavailable,
+                "off": unavailable,
+                "low": unavailable,
+                "high": unavailable,
+            }
+        self.evidence_chat_model = self.chat_models["low"]
+        self.answer_chat_model = self.chat_models["off"]
+        self.rag_chains = {
+            mode: self._build_rag_chain(retrieval_service, mode)
+            for mode in AI_MODE_PROFILES
+        }
+        # Keep the historical attribute for callers/tests that customize the
+        # balanced chain with a fake model.
+        self.rag_chain = self.rag_chains[DEFAULT_AI_MODE]
         self.tool_decision_service = ToolDecisionService()
         self.material_checklist_tool = MaterialChecklistTool()
         self.compliance_rule_service = ComplianceRuleService()
         self.missing_knowledge_service = missing_knowledge_service or (
             MissingKnowledgeService(database_path=config.database_path)
         )
+
+    def _build_rag_chain(
+        self, retrieval_service: RetrievalService, mode: AiMode
+    ) -> RagChain:
+        profile = ai_mode_profile(mode)
+        return RagChain(
+            retrieval_service,
+            self.chat_models["default"],
+            self.config,
+            evidence_model=self.chat_models[
+                self._model_key(profile.evidence_thinking, profile.evidence_effort)
+            ],
+            answer_model=self.chat_models[
+                self._model_key(profile.answer_thinking, profile.answer_effort)
+            ],
+        )
+
+    @staticmethod
+    def _model_key(
+        thinking_enabled: bool, reasoning_effort: str | None
+    ) -> str:
+        if not thinking_enabled:
+            return "off"
+        return reasoning_effort or "high"
+
+    def _rag_chain_for(self, ai_mode: AiMode | str) -> RagChain:
+        return self.rag_chains[AiMode(ai_mode)]
 
     def create_session(self, title: str | None) -> dict[str, Any]:
         return self.session_service.create_session(title)
@@ -151,6 +217,8 @@ class ChatService:
         persist_ms = 0
         session_id = payload.session_id
         question = payload.question
+        ai_mode = AiMode(payload.ai_mode)
+        rag_chain = self._rag_chain_for(ai_mode)
 
         yield _sse(
             "status",
@@ -164,7 +232,7 @@ class ChatService:
         try:
             history = self.session_service.get_recent_context(session_id, turns=3)
             user_message = self.session_service.create_user_message(
-                session_id, question
+                session_id, question, ai_mode
             )
             session_ms = round((perf_counter() - session_started) * 1000)
         except AppError as exc:
@@ -179,7 +247,9 @@ class ChatService:
             return
 
         rewrite_started = perf_counter()
-        rewritten_question = await self._rewrite_question(history, question)
+        rewritten_question = await self._rewrite_question(
+            history, question, rag_chain=rag_chain
+        )
         rewrite_ms = round((perf_counter() - rewrite_started) * 1000)
         try:
             self.session_service.set_rewritten_question(
@@ -205,7 +275,7 @@ class ChatService:
                 question, rewritten_question
             )
             evidence, retrieval_ms = await self._retrieve_for_decision(
-                rewritten_question
+                rewritten_question, rag_chain=rag_chain
             )
             yield _sse(
                 "status",
@@ -216,7 +286,10 @@ class ChatService:
             )
             judgement, refusal_reason, evidence_judge_ms = (
                 await self._judge_for_decision(
-                    rewritten_question, evidence, strict=False
+                    rewritten_question,
+                    evidence,
+                    strict=False,
+                    rag_chain=rag_chain,
                 )
             )
             prepared = PreparedAnswerDecision(
@@ -347,7 +420,7 @@ class ChatService:
             yield _sse("token", {"content": answer_parts[0]})
         else:
             try:
-                async for token in self.rag_chain.stream_answer(
+                async for token in rag_chain.stream_answer(
                     payload.answer_style,
                     question,
                     rewritten_question,
@@ -432,6 +505,7 @@ class ChatService:
                 refused=refused,
                 citations=citations,
                 tool_executions=tool_executions,
+                ai_mode=ai_mode,
             )
             persist_ms = round((perf_counter() - persist_started) * 1000)
         except Exception:
@@ -462,6 +536,11 @@ class ChatService:
                     "history_turns": len(history),
                     "answer_mode": answer_mode.value,
                     "evidence_count": len(evidence),
+                    "ai_mode": ai_mode.value,
+                    "evidence_thinking": ai_mode_profile(ai_mode).evidence_thinking,
+                    "evidence_effort": ai_mode_profile(ai_mode).evidence_effort,
+                    "answer_thinking": ai_mode_profile(ai_mode).answer_thinking,
+                    "answer_effort": ai_mode_profile(ai_mode).answer_effort,
                     **latency,
                 },
                 ensure_ascii=False,
@@ -484,14 +563,19 @@ class ChatService:
         answer_style: AnswerStyle,
         *,
         mode: ExecutionMode,
+        ai_mode: AiMode = DEFAULT_AI_MODE,
     ) -> dict[str, Any]:
         """Run the production RAG decision path without persisting chat state."""
         if mode not in (ExecutionMode.EVALUATION, ExecutionMode.EXPERIMENT):
             raise ValueError("answer_once only supports non-production modes")
 
-        rewritten_question = await self._rewrite_question(history, question)
+        ai_mode = AiMode(ai_mode)
+        rag_chain = self._rag_chain_for(ai_mode)
+        rewritten_question = await self._rewrite_question(
+            history, question, rag_chain=rag_chain
+        )
         prepared = await self._prepare_answer_decision(
-            question, rewritten_question, strict=True
+            question, rewritten_question, strict=True, rag_chain=rag_chain
         )
         retrieval_ms = prepared.retrieval_ms
         answer_mode = prepared.answer_mode
@@ -509,7 +593,7 @@ class ChatService:
             compliance_required = self.compliance_rule_service.requires_notice(
                 question, rewritten_question
             )
-            answer = await self.rag_chain.complete_answer(
+            answer = await rag_chain.complete_answer(
                 answer_style,
                 question,
                 rewritten_question,
@@ -559,19 +643,29 @@ class ChatService:
         }
 
     async def _rewrite_question(
-        self, history: list[dict[str, Any]], question: str
+        self,
+        history: list[dict[str, Any]],
+        question: str,
+        *,
+        rag_chain: RagChain | None = None,
     ) -> str:
-        return await self.rag_chain.rewrite_question(history, question)
+        return await (rag_chain or self.rag_chain).rewrite_question(history, question)
 
-    async def _retrieve_evidence(self, question: str) -> list[dict[str, Any]]:
-        return await self.rag_chain.retrieve(question)
+    async def _retrieve_evidence(
+        self, question: str, *, rag_chain: RagChain | None = None
+    ) -> list[dict[str, Any]]:
+        return await (rag_chain or self.rag_chain).retrieve(question)
 
     async def _retrieve_for_decision(
         self,
         rewritten_question: str,
+        *,
+        rag_chain: RagChain | None = None,
     ) -> tuple[list[dict[str, Any]], int]:
         started = perf_counter()
-        evidence = await self._retrieve_evidence(rewritten_question)
+        evidence = await self._retrieve_evidence(
+            rewritten_question, rag_chain=rag_chain
+        )
         elapsed_ms = round((perf_counter() - started) * 1000)
         return evidence, elapsed_ms
 
@@ -581,12 +675,14 @@ class ChatService:
         evidence: list[dict[str, Any]],
         *,
         strict: bool,
+        rag_chain: RagChain | None = None,
     ) -> tuple[EvidenceJudgement, MissingKnowledgeReason | None, int]:
         started = perf_counter()
         judgement, refusal_reason = await self._judge_evidence(
             rewritten_question,
             evidence,
             strict=strict,
+            rag_chain=rag_chain,
         )
         elapsed_ms = round((perf_counter() - started) * 1000)
         return judgement, refusal_reason, elapsed_ms
@@ -597,13 +693,17 @@ class ChatService:
         rewritten_question: str,
         *,
         strict: bool,
+        rag_chain: RagChain | None = None,
     ) -> PreparedAnswerDecision:
         tool_input = self.tool_decision_service.decide(question, rewritten_question)
-        evidence, retrieval_ms = await self._retrieve_for_decision(rewritten_question)
+        evidence, retrieval_ms = await self._retrieve_for_decision(
+            rewritten_question, rag_chain=rag_chain
+        )
         judgement, refusal_reason, evidence_judge_ms = await self._judge_for_decision(
             rewritten_question,
             evidence,
             strict=strict,
+            rag_chain=rag_chain,
         )
         return PreparedAnswerDecision(
             evidence=evidence,
@@ -638,8 +738,11 @@ class ChatService:
         evidence: list[dict[str, Any]],
         *,
         strict: bool = False,
+        rag_chain: RagChain | None = None,
     ) -> tuple[EvidenceJudgement, MissingKnowledgeReason | None]:
-        return await self.rag_chain.judge_evidence(question, evidence, strict=strict)
+        return await (rag_chain or self.rag_chain).judge_evidence(
+            question, evidence, strict=strict
+        )
 
     def _answer_messages(
         self,

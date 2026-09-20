@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from inspect import signature
 from typing import Any
 
 from langchain_core.documents import Document
@@ -10,6 +11,7 @@ from langchain_core.documents import Document
 from app.core.config import Settings, settings
 from app.core.error_codes import ErrorCode
 from app.core.errors import AppError
+from app.rag.ai_modes import DEFAULT_AI_MODE
 from app.rag.embeddings import LangChainEmbeddingService
 from app.rag.errors import (
     EmbeddingDimensionUnknown,
@@ -28,6 +30,7 @@ from app.repositories.retrieval_strategy_repository import (
     RetrievalStrategyRepository,
 )
 from app.schemas.contracts import (
+    AiMode,
     AnswerStyle,
     EmbeddingSignature,
     EvaluationCaseOrigin,
@@ -430,12 +433,21 @@ class RetrievalExperimentService:
             vector_store=self.production_vector_store,
             rerank_service=RerankService(runtime_config),
         )
+        chat_models = getattr(self.chat_service, "chat_models", None)
+        chat_kwargs: dict[str, Any] = {
+            "missing_knowledge_service": self.chat_service.missing_knowledge_service,
+        }
+        if chat_models is not None and self.chat_service.chat_model is chat_models.get(
+            "default"
+        ):
+            chat_kwargs["chat_models"] = chat_models
+        else:
+            chat_kwargs["chat_model"] = self.chat_service.chat_model
         variant_chat = ChatService(
             self.chat_service.session_service,
             retrieval_service,
             runtime_config,
-            chat_model=self.chat_service.chat_model,
-            missing_knowledge_service=self.chat_service.missing_knowledge_service,
+            **chat_kwargs,
         )
         try:
             output = await variant_chat.answer_once(
@@ -443,6 +455,7 @@ class RetrievalExperimentService:
                 [],
                 payload.answer_style,
                 mode=ExecutionMode.EXPERIMENT,
+                ai_mode=payload.ai_mode,
             )
         except ModelUnavailableError as exc:
             raise AppError(
@@ -670,6 +683,7 @@ class RetrievalExperimentService:
         signature = self._embedding_signature()
         snapshot = {
             "answer_style": payload.answer_style.value,
+            "ai_mode": payload.ai_mode.value,
             "case_scope": payload.case_scope.value,
             "case_ids": [case["id"] for case in cases],
             "case_snapshots": [
@@ -687,7 +701,9 @@ class RetrievalExperimentService:
             ],
             "strategy_snapshots": strategy_snapshots,
             "embedding_signature": signature.model_dump(mode="json"),
-            "runtime_config": runtime_config_snapshot(self.config),
+            "runtime_config": runtime_config_snapshot(
+                self.config, ai_mode=payload.ai_mode
+            ),
         }
         return self.repository.create_experiment(
             payload.name,
@@ -782,7 +798,14 @@ class RetrievalExperimentService:
             **experiment,
             "embedding_signature": experiment["snapshot"]["embedding_signature"],
             "runtime_config": {
-                **runtime_config_snapshot(self.config),
+                **runtime_config_snapshot(
+                    self.config,
+                    ai_mode=AiMode(
+                        experiment["snapshot"].get(
+                            "ai_mode", DEFAULT_AI_MODE.value
+                        )
+                    ),
+                ),
                 **experiment["snapshot"].get("runtime_config", {}),
             },
             "case_count": len(cases),
@@ -797,6 +820,7 @@ class RetrievalExperimentService:
             if experiment is None:
                 raise RuntimeError("检索实验不存在")
             snapshot = experiment["snapshot"]
+            ai_mode = AiMode(snapshot.get("ai_mode", DEFAULT_AI_MODE.value))
             cases = _snapshot_cases(snapshot, self.evaluation_service.repository)
             signature = EmbeddingSignature.model_validate(
                 snapshot["embedding_signature"]
@@ -823,6 +847,7 @@ class RetrievalExperimentService:
                             case,
                             config_index,
                             AnswerStyle(snapshot["answer_style"]),
+                            ai_mode,
                         )
                     except (
                         ModelUnavailableError,
@@ -1008,12 +1033,22 @@ class RetrievalExperimentService:
             vector_store=vector_store,
             rerank_service=RerankService(runtime_config),
         )
+        chat_models = getattr(self.chat_service, "chat_models", None)
+        chat_kwargs: dict[str, Any] = {
+            "missing_knowledge_service": self.chat_service.missing_knowledge_service,
+        }
+        if chat_models is not None:
+            if self.chat_service.chat_model is not chat_models.get("default"):
+                chat_kwargs["chat_model"] = self.chat_service.chat_model
+            else:
+                chat_kwargs["chat_models"] = chat_models
+        else:
+            chat_kwargs["chat_model"] = self.chat_service.chat_model
         return ChatService(
             self.chat_service.session_service,
             retrieval_service,
             runtime_config,
-            chat_model=self.chat_service.chat_model,
-            missing_knowledge_service=self.chat_service.missing_knowledge_service,
+            **chat_kwargs,
         )
 
     async def _evaluate_case(
@@ -1022,6 +1057,7 @@ class RetrievalExperimentService:
         case: dict[str, Any],
         config_index: int,
         answer_style: AnswerStyle,
+        ai_mode: AiMode = DEFAULT_AI_MODE,
     ) -> dict[str, Any]:
         history: list[dict[str, str]] = []
         outputs: list[dict[str, Any]] = []
@@ -1029,11 +1065,12 @@ class RetrievalExperimentService:
         seen_chunks: set[int] = set()
         retrieval_ms = 0
         for question in case["turns"]:
-            output = await chat_service.answer_once(
-                question,
-                history,
-                answer_style,
-                mode=ExecutionMode.EXPERIMENT,
+            answer_once = chat_service.answer_once
+            answer_kwargs: dict[str, Any] = {"mode": ExecutionMode.EXPERIMENT}
+            if "ai_mode" in signature(answer_once).parameters:
+                answer_kwargs["ai_mode"] = ai_mode
+            output = await answer_once(
+                question, history, answer_style, **answer_kwargs
             )
             outputs.append(output)
             history.extend(
