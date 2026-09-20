@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 from collections.abc import Mapping
@@ -55,6 +56,29 @@ from app.services.vector_store import (
 logger = logging.getLogger(__name__)
 _REFUSAL = REFUSAL_TEXT
 _ANSWER_STYLE_INSTRUCTIONS = ANSWER_STYLE_INSTRUCTIONS
+_LOCAL_STREAM_CHUNK_SIZE = 8
+_LOCAL_STREAM_DELAY_SECONDS = 0.03
+
+
+async def _stream_local_text(
+    text: str,
+    *,
+    chunk_size: int = _LOCAL_STREAM_CHUNK_SIZE,
+    delay_seconds: float = _LOCAL_STREAM_DELAY_SECONDS,
+):
+    """将本地完整文本拆成小块，用于 SSE 模拟流式展示。"""
+
+    if not text:
+        return
+
+    for start in range(0, len(text), chunk_size):
+        chunk = text[start : start + chunk_size]
+
+        if chunk:
+            yield chunk
+
+        if delay_seconds > 0 and start + chunk_size < len(text):
+            await asyncio.sleep(delay_seconds)
 
 
 @dataclass(frozen=True)
@@ -414,10 +438,15 @@ class ChatService:
                     },
                 )
                 return
-            answer_parts.append(render_material_checklist(tool_executions[0]))
-            ttft_ms = round((perf_counter() - request_started) * 1000)
-            first_token_received = True
-            yield _sse("token", {"content": answer_parts[0]})
+            rendered_answer = render_material_checklist(tool_executions[0])
+            answer_parts.append(rendered_answer)
+            async for chunk in _stream_local_text(rendered_answer):
+                if await request.is_disconnected():
+                    return
+                if not first_token_received:
+                    ttft_ms = round((perf_counter() - request_started) * 1000)
+                    first_token_received = True
+                yield _sse("token", {"content": chunk})
         else:
             try:
                 async for token in rag_chain.stream_answer(
@@ -535,6 +564,11 @@ class ChatService:
                     "session_id": str(session_id),
                     "history_turns": len(history),
                     "answer_mode": answer_mode.value,
+                    "delivery_mode": (
+                        "synthetic_stream"
+                        if answer_mode is AnswerMode.TOOL_ONLY
+                        else "llm_stream"
+                    ),
                     "evidence_count": len(evidence),
                     "ai_mode": ai_mode.value,
                     "evidence_thinking": ai_mode_profile(ai_mode).evidence_thinking,
