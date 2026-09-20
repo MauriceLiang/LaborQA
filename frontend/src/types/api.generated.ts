@@ -1473,6 +1473,18 @@ export interface components {
             answer: string;
             /** Refused */
             refused: boolean;
+            /** Answer Mode */
+            answer_mode: "RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL";
+            /** Evidence Decision */
+            evidence_decision: "SUFFICIENT" | "PARTIAL" | "INSUFFICIENT";
+            /** Evidence Reason */
+            evidence_reason: string;
+            /** Supported Points */
+            supported_points: string[];
+            /** Missing Points */
+            missing_points: string[];
+            /** Tool Execution */
+            tool_execution: components["schemas"]["ToolExecutionItem"] | null;
             /** Retrieval Ms */
             retrieval_ms: number;
             /** Retrieved Sources */

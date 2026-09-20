@@ -103,3 +103,16 @@ class MaterialChecklistTool:
             input=payload,
             output=MaterialChecklistOutput.model_validate(output),
         )
+
+
+def render_material_checklist(execution: ToolExecutionItem) -> str:
+    """Render a tool-only answer without invoking the ordinary answer model."""
+
+    materials = "\n\n".join(
+        f"{index}. {material}"
+        for index, material in enumerate(execution.output.materials, start=1)
+    )
+    return (
+        f"根据你描述的“{execution.input.dispute_type}”情况，可先整理以下材料：\n\n"
+        f"{materials}\n\n{execution.output.note}"
+    )

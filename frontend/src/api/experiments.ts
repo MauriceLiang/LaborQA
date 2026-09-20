@@ -92,6 +92,12 @@ export interface RetrievalPreview {
   rewritten_question: string
   answer: string
   refused: boolean
+  answer_mode: 'RAG_ANSWER' | 'PARTIAL_ANSWER' | 'TOOL_ONLY' | 'REFUSAL'
+  evidence_decision: 'SUFFICIENT' | 'PARTIAL' | 'INSUFFICIENT'
+  evidence_reason: string
+  supported_points: string[]
+  missing_points: string[]
+  tool_execution: components['schemas']['ToolExecutionItem'] | null
   retrieval_ms: number
   retrieved_sources: CitationItem[]
   citations: CitationItem[]

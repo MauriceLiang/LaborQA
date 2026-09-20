@@ -146,15 +146,34 @@ const previewResult: experimentsApi.RetrievalPreview = {
   rewritten_question: '公司拖欠工资需要准备什么材料',
   answer: '**适用情形/简要结论**\n\n请准备劳动合同、工资流水等材料。',
   refused: false,
+  answer_mode: 'TOOL_ONLY',
+  evidence_decision: 'INSUFFICIENT',
+  evidence_reason: '候选片段最高检索分不足。',
+  supported_points: [],
+  missing_points: ['与问题足够相关的知识库证据'],
+  tool_execution: {
+    tool_name: 'generate_rights_material_checklist',
+    input: {
+      dispute_type: '欠薪',
+      description: '公司拖欠工资，我应该准备什么材料？',
+    },
+    output: {
+      materials: ['劳动合同或能够证明劳动关系的材料'],
+      note: '材料清单仅用于信息整理，具体以实际争议和受理机构要求为准。',
+    },
+  },
   retrieval_ms: 120,
   retrieved_sources: [],
   citations: [],
-  trace: [{
-    stage: '文本分块',
-    status: 'completed',
-    detail: '试跑复用生产索引',
-    duration_ms: null,
-  }],
+  trace: [
+    { stage: '文本分块', status: 'completed', detail: '试跑复用生产索引', duration_ms: null },
+    { stage: '初步召回', status: 'skipped', detail: '召回 0 个候选片段', duration_ms: 120 },
+    { stage: '重排', status: 'completed', detail: '已保留重排后的前 5 个片段', duration_ms: null },
+    { stage: '相似度阈值', status: 'skipped', detail: '阈值未通过', duration_ms: null },
+    { stage: '证据充分性', status: 'skipped', detail: '未执行模型证据判断', duration_ms: null },
+    { stage: 'Tool 决策', status: 'completed', detail: '命中材料清单工具', duration_ms: null },
+    { stage: '回答模式', status: 'completed', detail: 'TOOL_ONLY', duration_ms: null },
+  ],
   config: configs[5],
 }
 
@@ -270,6 +289,8 @@ describe('RetrievalExperimentView', () => {
     expect(wrapper.text()).toContain('基线 F · 重排 · v1')
     expect(wrapper.text()).toContain('Chunk Size 与 Chunk Overlap 不会重新切分')
     expect(wrapper.find('.preview-result-toolbar').exists()).toBe(true)
+    expect(wrapper.text()).toContain('回答模式：工具回答')
+    expect(wrapper.text()).toContain('Tool 决策')
     expect(wrapper.findComponent(MarkdownContent).props('content')).toBe(previewResult.answer)
 
     const resultActions = wrapper.findAll('.preview-result-action')

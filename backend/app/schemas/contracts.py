@@ -540,6 +540,14 @@ class RetrievalPreviewResponse(ApiModel):
     rewritten_question: str
     answer: str
     refused: bool
+    answer_mode: Literal[
+        "RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"
+    ]
+    evidence_decision: Literal["SUFFICIENT", "PARTIAL", "INSUFFICIENT"]
+    evidence_reason: str
+    supported_points: list[str]
+    missing_points: list[str]
+    tool_execution: ToolExecutionItem | None
     retrieval_ms: int = Field(ge=0)
     retrieved_sources: list[CitationItem]
     citations: list[CitationItem]
