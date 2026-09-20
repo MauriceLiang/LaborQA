@@ -10,9 +10,16 @@ from uuid import UUID
 
 from app.core.config import Settings
 from app.rag.decision import AnswerMode, EvidenceDecision, EvidenceJudgement
-from app.schemas.contracts import AiMode, AnswerStyle, ChatRequest, MissingKnowledgeQuery
-from app.services.chat_service import ChatService
+from app.schemas.contracts import (
+    AiMode,
+    AnswerStyle,
+    ChatRequest,
+    MissingKnowledgeQuery,
+    ToolExecutionItem,
+)
+from app.services.chat_service import ChatService, _stream_local_text
 from app.services.compliance import COMPLIANCE_NOTICE
+from app.services.material_checklist import render_material_checklist
 from app.services.missing_knowledge import ExecutionMode, MissingKnowledgeReason
 from app.services.session_service import SessionService
 from app.services.vector_store import VectorStoreNotInitialized
@@ -154,6 +161,50 @@ def _event_payload(event: str) -> dict[str, Any]:
     return json.loads(event.splitlines()[1].removeprefix("data: ").strip())
 
 
+def test_stream_local_text_reassembles_original_text() -> None:
+    text = "根据你描述的欠薪情况，可先整理以下材料。"
+
+    chunks = asyncio.run(
+        _collect(
+            _stream_local_text(
+                text,
+                chunk_size=4,
+                delay_seconds=0,
+            )
+        )
+    )
+
+    assert len(chunks) > 1
+    assert "".join(chunks) == text
+
+
+def test_stream_local_text_handles_short_text() -> None:
+    chunks = asyncio.run(
+        _collect(
+            _stream_local_text(
+                "测试",
+                chunk_size=8,
+                delay_seconds=0,
+            )
+        )
+    )
+
+    assert chunks == ["测试"]
+
+
+def test_stream_local_text_handles_empty_text() -> None:
+    chunks = asyncio.run(
+        _collect(
+            _stream_local_text(
+                "",
+                delay_seconds=0,
+            )
+        )
+    )
+
+    assert chunks == []
+
+
 def _assert_done_timings(events: list[str]) -> None:
     timings = _event_payload(events[-1])["timings"]
     expected_keys = {
@@ -277,6 +328,7 @@ def test_rag_stream_persists_answer_and_only_retrieved_citations(caplog) -> None
         assert len(latency_logs) == 1
         latency_payload = json.loads(latency_logs[0].removeprefix("chat_latency "))
         assert latency_payload["ai_mode"] == "balanced"
+        assert latency_payload["delivery_mode"] == "llm_stream"
         assert latency_payload["evidence_thinking"] is True
         assert latency_payload["evidence_effort"] == "low"
         assert latency_payload["answer_thinking"] is False
@@ -728,41 +780,60 @@ def test_tool_failure_emits_only_terminal_error_without_fabricated_result() -> N
         ] == ["user"]
 
 
-def test_material_checklist_runs_as_tool_only_when_evidence_gate_refuses():
+def test_material_checklist_runs_as_tool_only_when_evidence_gate_refuses(caplog):
     with tempfile.TemporaryDirectory() as directory:
         service, sessions, _, llm = _service(directory, score=0.1)
         session = sessions.create_session()
+        caplog.set_level(logging.INFO, logger="app.services.chat_service")
 
-        events = _events(
-            service,
-            session["id"],
-            question="公司拖欠工资，我应该准备什么材料？",
-        )
+        async def should_not_be_called(*args: Any, **kwargs: Any):
+            raise AssertionError("TOOL_ONLY must not invoke answer LLM")
 
-        assert _event_types(events) == [
+        with patch.object(service.rag_chain, "stream_answer", should_not_be_called):
+            events = _events(
+                service,
+                session["id"],
+                question="公司拖欠工资，我应该准备什么材料？",
+            )
+
+        assert _event_types(events)[:5] == [
             "event: status",
             "event: status",
             "event: status",
             "event: status",
             "event: tool",
-            "event: token",
-            "event: sources",
-            "event: done",
         ]
+        assert _event_types(events)[-2:] == ["event: sources", "event: done"]
+        token_events = events[5:-2]
+        assert len(token_events) > 1
+        assert all(event.startswith("event: token") for event in token_events)
         tool_event = json.loads(events[4].splitlines()[1][6:])
         assert tool_event["tool_name"] == "generate_rights_material_checklist"
-        assert "根据你描述的“欠薪”情况" in json.loads(
-            events[5].splitlines()[1][6:]
-        )["content"]
-        assert '"items":[]' in events[6]
-        assert '"refused":false' in events[7]
+        rendered_answer = render_material_checklist(
+            ToolExecutionItem.model_validate(tool_event)
+        )
+        assert "".join(_event_payload(event)["content"] for event in token_events) == (
+            rendered_answer
+        )
+        assert '"items":[]' in events[-2]
+        assert '"refused":false' in events[-1]
         _assert_done_timings(events)
         assert llm.completions == []
+        assert llm.streams == []
+        latency_logs = [
+            record.getMessage()
+            for record in caplog.records
+            if record.getMessage().startswith("chat_latency ")
+        ]
+        assert len(latency_logs) == 1
+        latency_payload = json.loads(latency_logs[0].removeprefix("chat_latency "))
+        assert latency_payload["delivery_mode"] == "synthetic_stream"
         rows, total = service.missing_knowledge_service.list(MissingKnowledgeQuery())
         assert rows == []
         assert total == 0
         assistant = sessions.list_messages(session["id"])[-1]
         assert assistant["refused"] is False
+        assert assistant["content"] == rendered_answer
         assert assistant["citations"] == []
         assert assistant["tool_executions"] == [tool_event]
 
