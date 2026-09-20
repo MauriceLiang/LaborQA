@@ -354,4 +354,19 @@ describe('RetrievalExperimentView', () => {
     expect(wrapper.text()).toContain('当前最优策略：基线 F · 重排 · v1')
     wrapper.unmount()
   })
+
+  it('keeps long strategy labels inspectable in the result table', async () => {
+    const detail = experimentDetail()
+    const longStrategyName = '劳动关系与合同变更高召回及欠薪投诉综合检索策略'
+    detail.strategy_snapshots[0].name = longStrategyName
+    vi.mocked(experimentsApi.getExperiments).mockResolvedValue({
+      items: [summary('COMPLETED')], page: 1, size: 10, total: 1, pages: 1,
+    })
+    vi.mocked(experimentsApi.getExperiment).mockResolvedValue(detail)
+
+    const wrapper = await mountView()
+    expect(wrapper.find('.experiment-results-table .experiment-link').attributes('title'))
+      .toBe(`${longStrategyName} · v1`)
+    wrapper.unmount()
+  })
 })

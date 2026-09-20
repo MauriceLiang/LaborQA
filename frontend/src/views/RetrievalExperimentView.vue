@@ -830,7 +830,7 @@ onBeforeUnmount(() => {
           @keydown.space.prevent="selectPreviewStrategy(strategy)"
         >
           <div class="strategy-card-select">
-            <span>{{ strategy.name }} <em>v{{ strategy.version }}</em><em v-if="strategy.archived_at"> · 已归档</em><em v-else-if="!strategy.is_active"> · 已停用</em></span>
+            <span :title="`${strategy.name} · v${strategy.version}`">{{ strategy.name }} <em>v{{ strategy.version }}</em><em v-if="strategy.archived_at"> · 已归档</em><em v-else-if="!strategy.is_active"> · 已停用</em></span>
           </div>
           <p>{{ strategy.description }}</p>
           <dl class="strategy-card-meta">
@@ -907,7 +907,7 @@ onBeforeUnmount(() => {
       <template v-if="previewResult">
         <div class="preview-result-toolbar">
           <div class="preview-result-identity">
-            <strong>{{ previewResult.strategy_name }} · v{{ previewResult.strategy_version }}</strong>
+            <strong :title="`${previewResult.strategy_name} · v${previewResult.strategy_version}`">{{ previewResult.strategy_name }} · v{{ previewResult.strategy_version }}</strong>
             <span>{{ previewResult.index_mode }}</span>
           </div>
           <div class="preview-result-actions">
@@ -1204,7 +1204,13 @@ onBeforeUnmount(() => {
                 @click="chooseConfig(index)"
               >
                 <th scope="row">
-                  <button class="experiment-link" type="button" :aria-expanded="index === expandedConfigIndex" @click.stop="chooseConfig(index)">
+                  <button
+                    class="experiment-link"
+                    type="button"
+                    :title="group.label + (index === detail.best_config_index ? ' · 最优' : '')"
+                    :aria-expanded="index === expandedConfigIndex"
+                    @click.stop="chooseConfig(index)"
+                  >
                     {{ group.label }}{{ index === detail.best_config_index ? ' · 最优' : '' }}
                   </button>
                 </th>
@@ -1983,6 +1989,19 @@ onBeforeUnmount(() => {
 .experiment-results-table th:nth-child(7),
 .experiment-results-table td:nth-child(7) { width: 12%; }
 
+.experiment-results-table th:first-child,
+.experiment-results-table td:first-child {
+  min-width: 0;
+}
+
+.experiment-results-table .experiment-link {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .experiment-results-table tbody tr {
   cursor: pointer;
 }
@@ -2188,11 +2207,20 @@ onBeforeUnmount(() => {
 
 .strategy-card-select {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 7px;
   color: #20352d;
   font-size: 13px;
   font-weight: 700;
+}
+
+.strategy-card-select > span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .strategy-card-select em {
