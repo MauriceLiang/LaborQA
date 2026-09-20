@@ -103,6 +103,12 @@ class SessionService:
                         "score": citation.score,
                         "retrieval_score": citation.retrieval_score,
                         "rerank_score": citation.rerank_score,
+                        "lexical_score": citation.lexical_score,
+                        "source_score": citation.source_score,
+                        "lightweight_score": citation.lightweight_score,
+                        "evidence_origin": citation.evidence_origin,
+                        "anchor_chunk_id": citation.anchor_chunk_id,
+                        "anchor_retrieval_score": citation.anchor_retrieval_score,
                         "rank_no": citation.rank_no,
                     }
                     for citation in citation_items

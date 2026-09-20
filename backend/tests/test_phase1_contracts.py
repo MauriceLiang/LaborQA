@@ -4,6 +4,9 @@ import unittest
 from pathlib import Path
 
 import httpx
+from fastapi.testclient import TestClient
+from pydantic import ValidationError
+
 from app.core.config import Settings, settings
 from app.core.database import database_is_ready, initialize_database
 from app.core.error_codes import ErrorCode
@@ -23,8 +26,6 @@ from app.schemas.contracts import (
     RetrievalStrategyUpdate,
 )
 from app.services.retrieval_experiment_service import RetrievalExperimentService
-from fastapi.testclient import TestClient
-from pydantic import ValidationError
 
 EXPECTED_OPERATIONS = {
     ("get", "/api/health"),
@@ -233,10 +234,47 @@ class Phase1ContractTests(unittest.TestCase):
                 chunk_size=400,
                 chunk_overlap=400,
                 top_k=5,
+                candidate_k=5,
                 rerank_enabled=True,
                 rerank_top_n=6,
                 score_threshold=0.35,
             )
+
+        valid_config = ExperimentConfig(
+            chunk_size=600,
+            chunk_overlap=100,
+            candidate_k=20,
+            top_k=5,
+            rerank_enabled=False,
+            rerank_top_n=5,
+            score_threshold=0.35,
+            lightweight_rerank_enabled=True,
+            neighbor_expand_top_n=3,
+            neighbor_radius=1,
+            evidence_limit=10,
+        )
+        self.assertEqual(valid_config.candidate_k, 20)
+
+        base_config = {
+            "chunk_size": 600,
+            "chunk_overlap": 100,
+            "candidate_k": 20,
+            "top_k": 5,
+            "rerank_enabled": False,
+            "rerank_top_n": 5,
+            "score_threshold": 0.35,
+            "lightweight_rerank_enabled": True,
+            "neighbor_expand_top_n": 3,
+            "neighbor_radius": 1,
+            "evidence_limit": 10,
+        }
+        for overrides in (
+            {"candidate_k": 5, "top_k": 10},
+            {"top_k": 5, "evidence_limit": 4},
+            {"top_k": 5, "neighbor_expand_top_n": 6},
+        ):
+            with self.assertRaises(ValidationError):
+                ExperimentConfig(**{**base_config, **overrides})
 
         case = EvaluationCase(
             id=1,
@@ -305,6 +343,36 @@ class Phase1ContractTests(unittest.TestCase):
                         "expected_sources_json",
                     }.issubset(columns)
                 )
+
+    def test_database_migrates_old_citation_metadata_columns(self) -> None:
+        with sqlite3.connect(settings.database_path) as connection:
+            connection.execute(
+                """
+                CREATE TABLE citation (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    message_id INTEGER NOT NULL,
+                    chunk_id INTEGER NOT NULL,
+                    score REAL NOT NULL,
+                    retrieval_score REAL NOT NULL,
+                    rerank_score REAL,
+                    rank_no INTEGER NOT NULL,
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+        initialize_database()
+
+        with sqlite3.connect(settings.database_path) as connection:
+            columns = {row[1] for row in connection.execute("PRAGMA table_info('citation')")}
+            self.assertTrue(
+                {
+                    "lexical_score",
+                    "source_score",
+                    "lightweight_score",
+                    "evidence_origin",
+                }.issubset(columns)
+            )
 
     def test_database_migrates_old_document_file_type_constraint(self) -> None:
         database_path = settings.database_path

@@ -491,6 +491,21 @@ function formatFlag(value: boolean | null) {
   return value === null ? '不适用' : value ? '是' : '否'
 }
 
+function formatAnswerMode(value: string | null | undefined) {
+  if (value === 'RAG_ANSWER') return '完整回答'
+  if (value === 'PARTIAL_ANSWER') return '部分回答'
+  if (value === 'TOOL_ONLY') return '工具回答'
+  if (value === 'REFUSAL') return '拒答'
+  return '未记录'
+}
+
+function formatEvidenceDecision(value: string | null | undefined) {
+  if (value === 'SUFFICIENT') return '证据充分'
+  if (value === 'PARTIAL') return '证据部分充分'
+  if (value === 'INSUFFICIENT') return '证据不足'
+  return '未记录'
+}
+
 function formatCaseId(id: number) {
   return `#${String(id).padStart(3, '0')}`
 }
@@ -864,6 +879,12 @@ onBeforeUnmount(() => {
         <div>
           <h2 id="evaluation-detail-title">批次运行结果</h2>
           <p class="evaluation-detail-run-name">{{ displayedRunName }}</p>
+          <p
+            v-if="runDetail?.config.baseline_version !== undefined && runDetail.config.baseline_version !== null"
+            class="evaluation-detail-run-name"
+          >
+            官方基线 v{{ runDetail.config.baseline_version }}
+          </p>
         </div>
         <span class="evaluation-status" :class="statusClass(displayedStatus)">{{ formatStatus(displayedStatus) }}</span>
       </div>
@@ -887,10 +908,13 @@ onBeforeUnmount(() => {
         <div v-if="runDetail.metrics" class="evaluation-metrics" aria-label="评测指标">
           <div><span>回答正确率</span><strong>{{ formatRate(runDetail.metrics.accuracy) }}</strong></div>
           <div><span title="应拒答用例中正确拒答的比例">应拒答命中率</span><strong>{{ formatRate(runDetail.metrics.reject_rate) }}</strong></div>
-          <div><span title="全部已完成用例中实际触发拒答的比例">实际拒答率</span><strong>{{ formatRate(runDetail.metrics.refusal_rate) }}</strong></div>
-          <div><span>引用命中率</span><strong>{{ formatRate(runDetail.metrics.citation_hit_rate) }}</strong></div>
+          <div><span title="全部已完成用例中实际触发拒答的比例">实际拒答占比</span><strong>{{ formatRate(runDetail.metrics.refusal_rate) }}</strong></div>
+          <div><span>最终引用命中率</span><strong>{{ formatRate(runDetail.metrics.citation_hit_rate) }}</strong></div>
+          <div><span>检索来源命中率</span><strong>{{ formatRate(runDetail.metrics.retrieval_hit_rate) }}</strong></div>
+          <div><span>上下文保留率</span><strong>{{ formatRate(runDetail.metrics.context_retention_rate) }}</strong></div>
           <div><span>多轮通过率</span><strong>{{ formatRate(runDetail.metrics.multi_turn_pass_rate) }}</strong></div>
           <div><span>合规提示命中率</span><strong>{{ formatRate(runDetail.metrics.compliance_hit_rate) }}</strong></div>
+          <div><span>执行成功率</span><strong>{{ formatRate(runDetail.metrics.execution_success_rate) }}</strong></div>
         </div>
         <div v-else-if="terminalStatus(runDetail.status)" class="evaluation-muted">此批次没有可计算的指标。</div>
         <p v-if="hasUnavailableMetrics" class="evaluation-metric-note">
@@ -917,14 +941,82 @@ onBeforeUnmount(() => {
               :content="result.answer"
             />
             <div class="evaluation-result-flags">
+              <span v-if="result.answer_mode">回答模式：<b>{{ formatAnswerMode(result.answer_mode) }}</b></span>
+              <span v-if="result.evidence_decision">证据判断：<b>{{ formatEvidenceDecision(result.evidence_decision) }}</b></span>
               <span>正确：<b>{{ formatFlag(result.correct) }}</b></span>
               <span>拒答：<b>{{ formatFlag(result.refused) }}</b></span>
-              <span>引用命中：<b>{{ formatFlag(result.source_hit) }}</b></span>
+              <span>最终引用命中：<b>{{ formatFlag(result.source_hit) }}</b></span>
+              <span>检索命中：<b>{{ formatFlag(result.retrieval_hit) }}</b></span>
+              <span v-if="result.context_retained !== null">上下文保留：<b>{{ formatFlag(result.context_retained) }}</b></span>
               <span>多轮通过：<b>{{ formatFlag(result.multi_turn_correct) }}</b></span>
               <span>合规提示：<b>{{ formatFlag(result.compliance_hit) }}</b></span>
             </div>
+            <details v-if="(result.turn_diagnostics ?? []).length" class="evaluation-turn-diagnostics">
+              <summary>检索与证据诊断（{{ result.turn_diagnostics?.length }} 轮）</summary>
+              <div v-for="turn in result.turn_diagnostics ?? []" :key="turn.turn_no" class="evaluation-turn-diagnostic">
+                <div class="evaluation-turn-heading">
+                  <strong>Turn {{ turn.turn_no }}</strong>
+                  <span>{{ turn.retrieval_ms }} ms</span>
+                  <span>回答模式：{{ formatAnswerMode(turn.answer_mode) }}</span>
+                  <span>证据：{{ formatEvidenceDecision(turn.evidence_decision) }}</span>
+                </div>
+                <p><b>原始问题：</b>{{ turn.question }}</p>
+                <p><b>独立检索问题：</b>{{ turn.rewritten_question }}</p>
+                <p v-if="turn.evidence_reason"><b>证据理由：</b>{{ turn.evidence_reason }}</p>
+                <div class="evaluation-turn-points">
+                  <span><b>Evidence supported：</b>{{ (turn.supported_points ?? []).join('；') || '无' }}</span>
+                  <span><b>Evidence missing：</b>{{ (turn.missing_points ?? []).join('；') || '无' }}</span>
+                </div>
+                <details v-if="turn.retrieved_sources.length" class="evaluation-citations">
+                  <summary>Retrieved Sources（{{ turn.retrieved_sources.length }}）</summary>
+                  <ul>
+                    <li v-for="source in turn.retrieved_sources" :key="`${turn.turn_no}-retrieved-${source.chunk_id}`">
+                      {{ source.file_name }} · 第 {{ source.chunk_no }} 段 · {{ source.evidence_origin === 'NEIGHBOR' ? '邻接扩展' : '直接召回' }}
+                      <span>{{ source.content }}</span>
+                    </li>
+                  </ul>
+                </details>
+              </div>
+            </details>
+            <details
+              v-if="result.status === 'COMPLETED' && result.correct !== null"
+              class="evaluation-judge-diagnostics"
+            >
+              <summary>评测诊断</summary>
+              <div class="evaluation-judge-diagnostic-body">
+                <p class="evaluation-judge-conclusion">
+                  评测结论：<b :class="result.correct ? 'evaluation-completed' : 'evaluation-failed'">
+                    {{ result.correct ? '通过' : '未通过' }}
+                  </b>
+                </p>
+                <template v-if="!result.correct">
+                  <div class="evaluation-diagnostic-group">
+                    <strong>已覆盖要点</strong>
+                    <ul v-if="(result.matched_points ?? []).length">
+                      <li v-for="point in result.matched_points ?? []" :key="`matched-${point}`">✓ {{ point }}</li>
+                    </ul>
+                    <p v-else class="evaluation-diagnostic-empty">无</p>
+                  </div>
+                  <div class="evaluation-diagnostic-group">
+                    <strong>缺失要点</strong>
+                    <ul v-if="(result.missing_points ?? []).length">
+                      <li v-for="point in result.missing_points ?? []" :key="`missing-${point}`">✗ {{ point }}</li>
+                    </ul>
+                    <p v-else class="evaluation-diagnostic-empty">无</p>
+                  </div>
+                  <div class="evaluation-diagnostic-group">
+                    <strong>冲突内容</strong>
+                    <ul v-if="(result.contradictions ?? []).length">
+                      <li v-for="point in result.contradictions ?? []" :key="`contradiction-${point}`">! {{ point }}</li>
+                    </ul>
+                    <p v-else class="evaluation-diagnostic-empty">无</p>
+                  </div>
+                  <p class="evaluation-judge-reason">评测原因：{{ result.judge_reason || '未记录' }}</p>
+                </template>
+              </div>
+            </details>
             <details v-if="result.citations.length" class="evaluation-citations">
-              <summary>引用来源（{{ result.citations.length }}）</summary>
+              <summary>最终引用来源（{{ result.citations.length }}）</summary>
               <ul>
                 <li v-for="citation in result.citations" :key="citation.chunk_id">
                   {{ citation.file_name }} · 第 {{ citation.chunk_no }} 段
@@ -1766,7 +1858,7 @@ onBeforeUnmount(() => {
 
 .evaluation-metrics {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   margin-top: 14px;
 }
 
@@ -1851,6 +1943,45 @@ onBeforeUnmount(() => {
   line-height: 1.65;
 }
 
+.evaluation-judge-diagnostics {
+  color: #185b44;
+  font-size: 12px;
+}
+
+.evaluation-judge-diagnostic-body {
+  display: grid;
+  gap: 9px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  color: #4e5a6b;
+  background: #f7faf8;
+  border: 1px solid #e0e8e3;
+  border-radius: 6px;
+}
+
+.evaluation-judge-conclusion,
+.evaluation-judge-reason,
+.evaluation-diagnostic-group {
+  margin: 0;
+}
+
+.evaluation-diagnostic-group strong {
+  color: #354257;
+  font-weight: 650;
+}
+
+.evaluation-diagnostic-group ul {
+  display: grid;
+  gap: 4px;
+  margin: 5px 0 0;
+  padding-left: 18px;
+}
+
+.evaluation-diagnostic-empty {
+  margin: 5px 0 0;
+  color: #8a95a5;
+}
+
 .evaluation-citations {
   color: #185b44;
   font-size: 12px;
@@ -1869,6 +2000,45 @@ onBeforeUnmount(() => {
   margin-top: 3px;
   color: #758195;
   line-height: 1.55;
+}
+
+.evaluation-turn-diagnostics {
+  color: #185b44;
+  font-size: 12px;
+}
+
+.evaluation-turn-diagnostic {
+  display: grid;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 9px 10px;
+  color: #4e5a6b;
+  background: #fbfdfc;
+  border: 1px solid #e0e8e3;
+  border-radius: 6px;
+}
+
+.evaluation-turn-heading,
+.evaluation-turn-diagnostic p,
+.evaluation-turn-points {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px 12px;
+  margin: 0;
+  line-height: 1.55;
+}
+
+.evaluation-turn-heading {
+  color: #315b4b;
+}
+
+.evaluation-turn-heading span {
+  color: #758195;
+}
+
+.evaluation-turn-points {
+  display: grid;
+  gap: 4px;
 }
 
 .evaluation-error {

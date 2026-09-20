@@ -37,13 +37,21 @@ import { getErrorMessage } from '@/api/http'
 import { getEvaluationCases, type EvaluationCase } from '@/api/evaluations'
 import MarkdownContent from '@/components/chat/MarkdownContent.vue'
 
+const lightweightRagDefaults = {
+  candidate_k: 20,
+  lightweight_rerank_enabled: true,
+  neighbor_expand_top_n: 3,
+  neighbor_radius: 1,
+  evidence_limit: 10,
+}
+
 const experimentGroups: Array<{ label: string; config: ExperimentConfig }> = [
-  { label: 'A', config: { chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 } },
-  { label: 'B', config: { chunk_size: 400, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 } },
-  { label: 'C', config: { chunk_size: 800, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 } },
-  { label: 'D', config: { chunk_size: 600, chunk_overlap: 100, top_k: 3, rerank_enabled: false, rerank_top_n: 3, score_threshold: 0.35 } },
-  { label: 'E', config: { chunk_size: 600, chunk_overlap: 100, top_k: 8, rerank_enabled: false, rerank_top_n: 8, score_threshold: 0.35 } },
-  { label: 'F', config: { chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: true, rerank_top_n: 5, score_threshold: 0.35 } },
+  { label: 'A', config: { ...lightweightRagDefaults, chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 } },
+  { label: 'B', config: { ...lightweightRagDefaults, chunk_size: 400, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 } },
+  { label: 'C', config: { ...lightweightRagDefaults, chunk_size: 800, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 } },
+  { label: 'D', config: { ...lightweightRagDefaults, chunk_size: 600, chunk_overlap: 100, top_k: 3, rerank_enabled: false, rerank_top_n: 3, score_threshold: 0.35 } },
+  { label: 'E', config: { ...lightweightRagDefaults, chunk_size: 600, chunk_overlap: 100, top_k: 8, rerank_enabled: false, rerank_top_n: 8, score_threshold: 0.35 } },
+  { label: 'F', config: { ...lightweightRagDefaults, chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: true, rerank_top_n: 5, score_threshold: 0.35 } },
 ]
 
 function cloneConfig(config: ExperimentConfig): ExperimentConfig {
@@ -129,7 +137,8 @@ const strategyEditorTitle = computed(() => {
 const strategyDraftWarning = computed(() => {
   if (strategyDraft.config.score_threshold >= 0.8) return '阈值较高，可能过滤掉有用材料。建议先试跑确认。'
   if (strategyDraft.config.top_k >= 12) return 'Top-k 较大，可能增加响应耗时和上下文长度。'
-  if (!strategyDraft.config.rerank_enabled) return '关闭重排会减少处理步骤，但可能降低候选材料的排序准确性。'
+  if (!strategyDraft.config.lightweight_rerank_enabled && !strategyDraft.config.rerank_enabled) return '未启用轻量或模型重排，将按向量检索分排序。'
+  if (strategyDraft.config.rerank_enabled) return '旧 CrossEncoder 重排会增加 CPU、内存和响应耗时，4C4G 环境建议关闭。'
   return ''
 })
 const detailConfigGroups = computed(() => (detail.value?.config_results ?? []).map((result, index) => {
@@ -396,8 +405,20 @@ async function saveStrategy() {
     strategyEditorError.value = 'Overlap 必须小于 Chunk Size'
     return
   }
-  if (strategyDraft.config.rerank_top_n > strategyDraft.config.top_k) {
-    strategyEditorError.value = 'Rerank Top-N 不能大于 Top-k'
+  if (strategyDraft.config.top_k > strategyDraft.config.candidate_k) {
+    strategyEditorError.value = 'Final Top-k 不能大于 Candidate Top-k'
+    return
+  }
+  if (strategyDraft.config.evidence_limit < strategyDraft.config.top_k) {
+    strategyEditorError.value = 'Evidence 上限不能小于 Final Top-k'
+    return
+  }
+  if (strategyDraft.config.neighbor_expand_top_n > strategyDraft.config.top_k) {
+    strategyEditorError.value = '邻接扩展 Top-N 不能大于 Final Top-k'
+    return
+  }
+  if (strategyDraft.config.rerank_enabled && strategyDraft.config.rerank_top_n > strategyDraft.config.candidate_k) {
+    strategyEditorError.value = 'Rerank Top-N 不能大于 Candidate Top-k'
     return
   }
   strategySaving.value = true
@@ -809,13 +830,16 @@ onBeforeUnmount(() => {
           @keydown.space.prevent="selectPreviewStrategy(strategy)"
         >
           <div class="strategy-card-select">
-            <span>{{ strategy.name }} <em>v{{ strategy.version }}</em><em v-if="strategy.archived_at"> · 已归档</em><em v-else-if="!strategy.is_active"> · 已停用</em></span>
+            <span :title="`${strategy.name} · v${strategy.version}`">{{ strategy.name }} <em>v{{ strategy.version }}</em><em v-if="strategy.archived_at"> · 已归档</em><em v-else-if="!strategy.is_active"> · 已停用</em></span>
           </div>
           <p>{{ strategy.description }}</p>
           <dl class="strategy-card-meta">
             <div><dt>分块</dt><dd>{{ strategy.config.chunk_size }} / {{ strategy.config.chunk_overlap }}</dd></div>
-            <div><dt>召回</dt><dd>{{ strategy.config.top_k }}</dd></div>
-            <div><dt>重排</dt><dd>{{ strategy.config.rerank_enabled ? '开' : '关' }}</dd></div>
+            <div><dt>候选 / 最终</dt><dd>{{ strategy.config.candidate_k }} / {{ strategy.config.top_k }}</dd></div>
+            <div><dt>轻量重排</dt><dd>{{ strategy.config.lightweight_rerank_enabled ? '开' : '关' }}</dd></div>
+            <div><dt>模型重排</dt><dd>{{ strategy.config.rerank_enabled ? '开' : '关' }}</dd></div>
+            <div><dt>邻接扩展</dt><dd>{{ strategy.config.neighbor_expand_top_n }} × {{ strategy.config.neighbor_radius }}</dd></div>
+            <div><dt>证据上限</dt><dd>{{ strategy.config.evidence_limit }}</dd></div>
             <div><dt>阈值</dt><dd>{{ strategy.config.score_threshold.toFixed(2) }}</dd></div>
           </dl>
           <div class="strategy-card-actions" @click.stop @keydown.stop>
@@ -877,13 +901,13 @@ onBeforeUnmount(() => {
         </label>
         <ElButton class="experiment-primary preview-submit" type="primary" :loading="previewLoading" :disabled="!previewStrategy" @click="runPreview">开始试跑</ElButton>
       </div>
-      <p class="preview-limitations">快速试跑复用当前生产索引。Top-k、Rerank、Rerank Top-N 和阈值会生效；Chunk Size / Overlap 不会重新切分。涉及切块粒度比较时，请创建正式实验。</p>
+      <p class="preview-limitations">快速试跑复用当前生产索引。Candidate Top-k、Final Top-k、轻量重排、邻接扩展、旧模型重排和阈值会生效；Chunk Size / Overlap 不会重新切分。涉及切块粒度比较时，请创建正式实验。</p>
       <p v-if="previewError" class="experiment-error" role="alert">{{ previewError }}</p>
       <div v-if="previewLoading" class="preview-loading">正在执行检索链路…</div>
       <template v-if="previewResult">
         <div class="preview-result-toolbar">
           <div class="preview-result-identity">
-            <strong>{{ previewResult.strategy_name }} · v{{ previewResult.strategy_version }}</strong>
+            <strong :title="`${previewResult.strategy_name} · v${previewResult.strategy_version}`">{{ previewResult.strategy_name }} · v{{ previewResult.strategy_version }}</strong>
             <span>{{ previewResult.index_mode }}</span>
           </div>
           <div class="preview-result-actions">
@@ -919,7 +943,7 @@ onBeforeUnmount(() => {
             <ul v-if="previewResult.retrieved_sources.length > 0">
               <li v-for="source in previewResult.retrieved_sources" :key="source.chunk_id">
                 <strong>{{ source.file_name }} · 第 {{ source.chunk_no }} 段</strong>
-                <span>排序 {{ source.rank_no }} · 检索分 {{ source.retrieval_score.toFixed(3) }}</span>
+                <span>排序 {{ source.rank_no }} · 检索分 {{ source.retrieval_score.toFixed(3) }} · 轻量分 {{ source.lightweight_score.toFixed(3) }} · {{ source.evidence_origin === 'NEIGHBOR' ? '邻接扩展' : '主召回' }}</span>
                 <p>{{ source.content }}</p>
               </li>
             </ul>
@@ -1161,7 +1185,7 @@ onBeforeUnmount(() => {
             <thead>
               <tr>
                 <th scope="col">策略</th>
-                <th scope="col">Chunk / Overlap · Top-k · Rerank</th>
+                <th scope="col">Chunk / Overlap · 候选 / 最终 · 重排</th>
                 <th scope="col">引用命中率</th>
                 <th scope="col">正确率</th>
                 <th scope="col">拒答率</th>
@@ -1180,11 +1204,17 @@ onBeforeUnmount(() => {
                 @click="chooseConfig(index)"
               >
                 <th scope="row">
-                  <button class="experiment-link" type="button" :aria-expanded="index === expandedConfigIndex" @click.stop="chooseConfig(index)">
+                  <button
+                    class="experiment-link"
+                    type="button"
+                    :title="group.label + (index === detail.best_config_index ? ' · 最优' : '')"
+                    :aria-expanded="index === expandedConfigIndex"
+                    @click.stop="chooseConfig(index)"
+                  >
                     {{ group.label }}{{ index === detail.best_config_index ? ' · 最优' : '' }}
                   </button>
                 </th>
-                <td>{{ group.config.chunk_size }} / {{ group.config.chunk_overlap }} · {{ group.config.top_k }} · {{ group.config.rerank_enabled ? '开启' : '关闭' }}</td>
+                <td>{{ group.config.chunk_size }} / {{ group.config.chunk_overlap }} · {{ group.config.candidate_k }} / {{ group.config.top_k }} · {{ group.config.lightweight_rerank_enabled ? '轻量' : '无' }}{{ group.config.rerank_enabled ? ' + 模型' : '' }}</td>
                 <td>{{ formatRate(configResult(index)?.citation_hit_rate) }}</td>
                 <td>{{ formatRate(configResult(index)?.accuracy) }}</td>
                 <td>{{ formatRate(configResult(index)?.reject_rate) }}</td>
@@ -1223,7 +1253,7 @@ onBeforeUnmount(() => {
               <ul v-else class="experiment-sources">
                 <li v-for="source in result.retrieved_sources" :key="source.chunk_id">
                   <strong>{{ source.file_name }} · 实验分块第 {{ source.chunk_no }} 段</strong>
-                  <span>排序 {{ source.rank_no }} · 检索分 {{ source.retrieval_score.toFixed(3) }}<template v-if="source.rerank_score !== null"> · 重排分 {{ source.rerank_score.toFixed(3) }}</template></span>
+                  <span>排序 {{ source.rank_no }} · 检索分 {{ source.retrieval_score.toFixed(3) }} · 轻量分 {{ source.lightweight_score.toFixed(3) }} · {{ source.evidence_origin === 'NEIGHBOR' ? '邻接扩展' : '主召回' }}<template v-if="source.rerank_score !== null"> · 模型分 {{ source.rerank_score.toFixed(3) }}</template></span>
                   <p>{{ source.content }}</p>
                 </li>
               </ul>
@@ -1246,12 +1276,17 @@ onBeforeUnmount(() => {
         <div class="strategy-editor-grid">
           <label><span>Chunk Size</span><ElInputNumber v-model="strategyDraft.config.chunk_size" :min="100" :max="2000" :step="50" controls-position="right" /></label>
           <label><span>Overlap</span><ElInputNumber v-model="strategyDraft.config.chunk_overlap" :min="0" :max="500" :step="10" controls-position="right" /></label>
-          <label><span>Top-k</span><ElInputNumber v-model="strategyDraft.config.top_k" :min="1" :max="20" controls-position="right" /></label>
+          <label><span>Candidate Top-k</span><ElInputNumber v-model="strategyDraft.config.candidate_k" :min="5" :max="50" controls-position="right" /></label>
+          <label><span>Final Top-k</span><ElInputNumber v-model="strategyDraft.config.top_k" :min="1" :max="20" controls-position="right" /></label>
           <label><span>Rerank Top-N</span><ElInputNumber v-model="strategyDraft.config.rerank_top_n" :min="1" :max="20" controls-position="right" /></label>
+          <label><span>邻接扩展 Top-N</span><ElInputNumber v-model="strategyDraft.config.neighbor_expand_top_n" :min="0" :max="10" controls-position="right" /></label>
+          <label><span>邻接半径</span><ElInputNumber v-model="strategyDraft.config.neighbor_radius" :min="0" :max="2" controls-position="right" /></label>
+          <label><span>Evidence 上限</span><ElInputNumber v-model="strategyDraft.config.evidence_limit" :min="5" :max="20" controls-position="right" /></label>
           <label><span>阈值</span><ElInputNumber v-model="strategyDraft.config.score_threshold" :min="0" :max="1" :step="0.05" :precision="2" controls-position="right" /></label>
-          <label class="strategy-editor-switch"><span>启用重排</span><ElSwitch v-model="strategyDraft.config.rerank_enabled" /></label>
+          <label class="strategy-editor-switch"><span>启用轻量重排</span><ElSwitch v-model="strategyDraft.config.lightweight_rerank_enabled" /></label>
+          <label class="strategy-editor-switch"><span>启用旧模型重排</span><ElSwitch v-model="strategyDraft.config.rerank_enabled" /></label>
         </div>
-        <p class="experiment-inline-hint">Overlap 必须小于 Chunk Size；Rerank Top-N 不能大于 Top-k。</p>
+        <p class="experiment-inline-hint">Overlap 必须小于 Chunk Size；Candidate Top-k 不得小于 Final Top-k；Evidence 上限和邻接扩展 Top-N 受 Final Top-k 约束。4C4G 环境建议关闭旧模型重排。</p>
         <p v-if="strategyDraftWarning" class="experiment-warning">{{ strategyDraftWarning }}</p>
         <p v-if="strategyEditorError" class="experiment-error" role="alert">{{ strategyEditorError }}</p>
         <div class="strategy-editor-actions">
@@ -1954,6 +1989,19 @@ onBeforeUnmount(() => {
 .experiment-results-table th:nth-child(7),
 .experiment-results-table td:nth-child(7) { width: 12%; }
 
+.experiment-results-table th:first-child,
+.experiment-results-table td:first-child {
+  min-width: 0;
+}
+
+.experiment-results-table .experiment-link {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .experiment-results-table tbody tr {
   cursor: pointer;
 }
@@ -2159,11 +2207,20 @@ onBeforeUnmount(() => {
 
 .strategy-card-select {
   display: flex;
+  min-width: 0;
   align-items: center;
   gap: 7px;
   color: #20352d;
   font-size: 13px;
   font-weight: 700;
+}
+
+.strategy-card-select > span {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .strategy-card-select em {

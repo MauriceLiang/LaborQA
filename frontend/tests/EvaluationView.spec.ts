@@ -67,6 +67,7 @@ function runDetail(
       chat_provider: 'langchain_openai.ChatOpenAI',
       answer_style: 'plain',
       case_scope: 'BUILTIN_BASELINE',
+      baseline_version: 2,
       llm_model: 'test-model',
       evaluator_model: 'test-model',
       evaluator_prompt_version: 'evaluation_judge_v1',
@@ -84,12 +85,20 @@ function runDetail(
       top_k: 5,
       rerank_enabled: false,
       score_threshold: 0.35,
+      candidate_k: 20,
+      lightweight_rerank_enabled: true,
+      neighbor_expand_top_n: 3,
+      neighbor_radius: 1,
+      evidence_limit: 10,
     },
     metrics: status === 'COMPLETED' ? {
       accuracy: 0.9,
       reject_rate: 0.2,
       refusal_rate: 0.1,
       citation_hit_rate: 0.8,
+      retrieval_hit_rate: 0.85,
+      context_retention_rate: 0.75,
+      execution_success_rate: 1,
       multi_turn_pass_rate: 0.75,
       compliance_hit_rate: 1,
     } : null,
@@ -100,8 +109,16 @@ function runDetail(
       refused: false,
       correct: true,
       source_hit: true,
+      retrieval_hit: true,
+      context_retained: null,
       multi_turn_correct: null,
       compliance_hit: true,
+      answer_mode: 'RAG_ANSWER',
+      evidence_decision: 'SUFFICIENT',
+      judge_reason: null,
+      matched_points: [],
+      missing_points: [],
+      contradictions: [],
       citations: [{
         chunk_id: 11,
         document_id: 4,
@@ -112,6 +129,10 @@ function runDetail(
         retrieval_score: 0.9,
         rerank_score: null,
         rank_no: 1,
+        lexical_score: 0,
+        source_score: 0,
+        lightweight_score: 0,
+        evidence_origin: 'RETRIEVED',
       }],
       latency_ms: 120,
       error_message: null,
@@ -237,11 +258,14 @@ describe('EvaluationView', () => {
     expect(wrapper.text()).toContain('回答正确率')
     expect(wrapper.text()).toContain('90.0%')
     expect(wrapper.text()).toContain('应拒答命中率')
-    expect(wrapper.text()).toContain('实际拒答率')
+    expect(wrapper.text()).toContain('实际拒答占比')
     expect(wrapper.text()).toContain('10.0%')
     expect(wrapper.text()).toContain('多轮通过率')
     expect(wrapper.text()).not.toContain('此批次没有可计算的指标。')
     expect(wrapper.text()).toContain('用例 #3')
+    expect(wrapper.text()).toContain('官方基线 v2')
+    expect(wrapper.text()).toContain('回答模式：完整回答')
+    expect(wrapper.text()).toContain('证据判断：证据充分')
     expect(wrapper.text()).toContain('工资支付规定.txt')
     const answer = wrapper.findComponent(MarkdownContent)
     expect(answer.exists()).toBe(true)
@@ -264,6 +288,9 @@ describe('EvaluationView', () => {
       reject_rate: null,
       refusal_rate: null,
       citation_hit_rate: 0.65,
+      retrieval_hit_rate: null,
+      context_retention_rate: null,
+      execution_success_rate: 1,
       multi_turn_pass_rate: null,
       compliance_hit_rate: null,
     }
@@ -282,6 +309,34 @@ describe('EvaluationView', () => {
     expect(wrapper.get('.evaluation-metrics').text()).toContain('不适用')
     expect(wrapper.get('.evaluation-metric-note').text()).toContain('没有包含该指标所需的用例')
     expect(wrapper.text()).not.toContain('—')
+    wrapper.unmount()
+  })
+
+  it('shows collapsed judge diagnostics for failed answers', async () => {
+    const detail = runDetail('COMPLETED')
+    detail.results[0].correct = false
+    detail.results[0].judge_reason = '遗漏关键要点且存在冲突'
+    detail.results[0].matched_points = ['已覆盖要点']
+    detail.results[0].missing_points = ['遗漏要点']
+    detail.results[0].contradictions = ['冲突内容']
+    vi.mocked(evaluationsApi.getEvaluationRuns).mockResolvedValue({
+      items: [runSummary('COMPLETED')], page: 1, size: 10, total: 1, pages: 1,
+    })
+    vi.mocked(evaluationsApi.getEvaluationRun).mockResolvedValue(detail)
+
+    const wrapper = shallowMount(EvaluationView)
+    await flushPromises()
+    await wrapper.get('.evaluation-link').trigger('click')
+    await flushPromises()
+
+    const diagnostics = wrapper.get('.evaluation-judge-diagnostics')
+    expect(diagnostics.attributes('open')).toBeUndefined()
+    expect(diagnostics.text()).toContain('评测结论：')
+    expect(diagnostics.text()).toContain('未通过')
+    expect(diagnostics.text()).toContain('已覆盖要点')
+    expect(diagnostics.text()).toContain('遗漏要点')
+    expect(diagnostics.text()).toContain('冲突内容')
+    expect(diagnostics.text()).toContain('遗漏关键要点且存在冲突')
     wrapper.unmount()
   })
 

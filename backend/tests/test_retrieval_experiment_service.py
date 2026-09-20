@@ -15,6 +15,7 @@ from app.core.config import Settings, settings
 from app.core.error_codes import ErrorCode
 from app.core.errors import AppError
 from app.main import app
+from app.rag.errors import ModelUnavailableError
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.evaluation_repository import EvaluationRepository
 from app.repositories.retrieval_experiment_repository import (
@@ -85,6 +86,18 @@ class FakeChatClient:
         return "劳动关系自用工之日起建立。"
 
 
+class FailingChatClient:
+    async def complete(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        json_mode: bool = False,
+        temperature: float | None = None,
+    ) -> str:
+        del messages, json_mode, temperature
+        raise ModelUnavailableError("model down")
+
+
 def _create_database(database_path: Path) -> None:
     schema_path = Path(__file__).parents[1] / "app" / "core" / "schema.sql"
     with sqlite3.connect(database_path) as connection:
@@ -122,6 +135,7 @@ def _configs() -> list[ExperimentConfig]:
             rerank_enabled=False,
             rerank_top_n=5,
             score_threshold=0,
+            evidence_limit=20,
         ),
         ExperimentConfig(
             chunk_size=120,
@@ -130,6 +144,7 @@ def _configs() -> list[ExperimentConfig]:
             rerank_enabled=False,
             rerank_top_n=5,
             score_threshold=0,
+            evidence_limit=20,
         ),
     ]
 
@@ -150,6 +165,7 @@ def _make_environment(
         chunk_size=600,
         chunk_overlap=100,
         rag_top_k=20,
+        rag_evidence_limit=20,
         rerank_enabled=False,
         local_embedding_model="offline-test-embedding",
         embedding_batch_size=8,
@@ -157,7 +173,8 @@ def _make_environment(
     embedding = FakeEmbeddingService(config.embedding_model)
     document_repository = DocumentRepository(database_path)
     evaluation_repository = EvaluationRepository(database_path)
-    evaluation_repository.seed_cases(_cases())
+    for case in _cases():
+        evaluation_repository.create_case(case)
 
     source_path = directory / "law.txt"
     source_path.write_text("劳动权益依据。" * 80, encoding="utf-8")
@@ -251,7 +268,10 @@ def test_preview_loads_strategy_and_returns_identity(tmp_path: Path) -> None:
     assert [stage["stage"] for stage in result["trace"]] == [
         "文本分块",
         "初步召回",
+        "轻量重排",
         "重排",
+        "最终 Top-K",
+        "上下文扩展",
         "相似度阈值",
         "证据充分性",
         "Tool 决策",
@@ -337,6 +357,7 @@ def test_experiment_snapshot_keeps_strategy_version_after_strategy_update(
                 rerank_enabled=True,
                 rerank_top_n=5,
                 score_threshold=0.2,
+                evidence_limit=20,
             ),
         ),
     )
@@ -468,6 +489,36 @@ def test_experiment_uses_isolated_rechunked_indexes_and_persists_case_metrics(
             ).fetchone()[0]
             == 4
         )
+
+
+def test_model_error_is_saved_and_remaining_experiment_cases_continue(
+    tmp_path: Path,
+) -> None:
+    service, _, _, _ = _make_environment(tmp_path)
+    service.chat_service.chat_model = AsyncClientChatModel(FailingChatClient())
+    experiment = service.create_experiment(
+        ExperimentCreate(
+            name="model failure",
+            strategy_ids=_create_test_strategy_ids(service),
+            case_scope="SELECTED",
+            case_ids=[1, 2],
+            answer_style="plain",
+        )
+    )
+
+    asyncio.run(service.execute_experiment(experiment["id"]))
+
+    detail = service.get_experiment(experiment["id"])
+    assert detail["status"] == "COMPLETED"
+    assert detail["progress_current"] == detail["progress_total"] == 4
+    assert len(detail["results"]) == 4
+    assert all(item["status"] == "FAILED" for item in detail["results"])
+    assert all(
+        item["error_message"] == "模型服务暂不可用，请检查模型配置与服务状态"
+        for item in detail["results"]
+    )
+    assert detail["best_config_index"] is None
+    assert all(item["accuracy"] == 0 for item in detail["config_results"])
 
 
 def test_initialize_marks_pending_and_running_experiments_interrupted(

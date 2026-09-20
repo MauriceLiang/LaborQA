@@ -177,8 +177,10 @@ class SessionRepository:
                     """
                     INSERT INTO citation (
                         message_id, chunk_id, score, retrieval_score,
-                        rerank_score, rank_no
-                    ) VALUES (?, ?, ?, ?, ?, ?)
+                        rerank_score, lexical_score, source_score,
+                        lightweight_score, evidence_origin, anchor_chunk_id,
+                        anchor_retrieval_score, rank_no
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                     """,
                     (
                         message_id,
@@ -186,6 +188,12 @@ class SessionRepository:
                         citation["score"],
                         citation["retrieval_score"],
                         citation.get("rerank_score"),
+                        citation.get("lexical_score", 0.0),
+                        citation.get("source_score", 0.0),
+                        citation.get("lightweight_score", 0.0),
+                        citation.get("evidence_origin", "RETRIEVED"),
+                        citation.get("anchor_chunk_id"),
+                        citation.get("anchor_retrieval_score"),
                         citation["rank_no"],
                     ),
                 )
@@ -244,7 +252,9 @@ class SessionRepository:
             SELECT
                 c.message_id, c.chunk_id, ch.document_id, d.file_name,
                 ch.chunk_no, ch.content, c.score, c.retrieval_score,
-                c.rerank_score, c.rank_no
+                c.rerank_score, c.lexical_score, c.source_score,
+                c.lightweight_score, c.evidence_origin, c.anchor_chunk_id,
+                c.anchor_retrieval_score, c.rank_no
             FROM citation AS c
             JOIN chunk AS ch ON ch.id = c.chunk_id
             JOIN document AS d ON d.id = ch.document_id
@@ -266,6 +276,20 @@ class SessionRepository:
                     "rerank_score": (
                         float(row["rerank_score"])
                         if row["rerank_score"] is not None
+                        else None
+                    ),
+                    "lexical_score": float(row["lexical_score"]),
+                    "source_score": float(row["source_score"]),
+                    "lightweight_score": float(row["lightweight_score"]),
+                    "evidence_origin": str(row["evidence_origin"]),
+                    "anchor_chunk_id": (
+                        int(row["anchor_chunk_id"])
+                        if row["anchor_chunk_id"] is not None
+                        else None
+                    ),
+                    "anchor_retrieval_score": (
+                        float(row["anchor_retrieval_score"])
+                        if row["anchor_retrieval_score"] is not None
                         else None
                     ),
                     "rank_no": int(row["rank_no"]),

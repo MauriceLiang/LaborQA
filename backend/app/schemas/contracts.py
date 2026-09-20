@@ -9,6 +9,7 @@ from app.schemas.common import ApiModel, PageQuery, UtcDateTime
 
 Score = Annotated[float, Field(ge=0, le=1)]
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+EvidenceOrigin = Literal["RETRIEVED", "NEIGHBOR"]
 
 
 class FileType(StrEnum):
@@ -120,6 +121,12 @@ class CitationItem(ApiModel):
     retrieval_score: Score
     rerank_score: Score | None
     rank_no: int
+    lexical_score: Score = 0.0
+    source_score: Score = 0.0
+    lightweight_score: Score = 0.0
+    evidence_origin: EvidenceOrigin = "RETRIEVED"
+    anchor_chunk_id: int | None = None
+    anchor_retrieval_score: Score | None = None
 
 
 class MaterialChecklistInput(ApiModel):
@@ -290,6 +297,7 @@ class LangChainRuntimeConfig(ApiModel):
 class EvaluationRunConfig(LangChainRuntimeConfig):
     answer_style: AnswerStyle
     case_scope: EvaluationCaseScope | None = None
+    baseline_version: int | None = None
     evaluator_model: str
     evaluator_prompt_version: str
     chunk_size: int
@@ -297,6 +305,27 @@ class EvaluationRunConfig(LangChainRuntimeConfig):
     top_k: int
     rerank_enabled: bool
     score_threshold: Score
+    candidate_k: int = Field(default=20, ge=5, le=50)
+    lightweight_rerank_enabled: bool = True
+    neighbor_expand_top_n: int = Field(default=3, ge=0, le=10)
+    neighbor_radius: int = Field(default=1, ge=0, le=2)
+    evidence_limit: int = Field(default=10, ge=5, le=20)
+
+
+class EvaluationTurnDiagnostic(ApiModel):
+    turn_no: int = Field(ge=1)
+    question: str
+    rewritten_question: str
+    answer: str
+    refused: bool
+    answer_mode: Literal["RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"] | None
+    evidence_decision: Literal["SUFFICIENT", "PARTIAL", "INSUFFICIENT"] | None
+    evidence_reason: str | None
+    supported_points: list[str] = Field(default_factory=list)
+    missing_points: list[str] = Field(default_factory=list)
+    retrieved_sources: list[CitationItem]
+    citations: list[CitationItem]
+    retrieval_ms: int = Field(ge=0)
 
 
 class EvaluationResultItem(ApiModel):
@@ -306,8 +335,17 @@ class EvaluationResultItem(ApiModel):
     refused: bool | None
     correct: bool | None
     source_hit: bool | None
+    retrieval_hit: bool | None
+    context_retained: bool | None
     multi_turn_correct: bool | None
     compliance_hit: bool | None
+    answer_mode: Literal["RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"] | None
+    evidence_decision: Literal["SUFFICIENT", "PARTIAL", "INSUFFICIENT"] | None
+    judge_reason: str | None = None
+    matched_points: list[str] = Field(default_factory=list)
+    missing_points: list[str] = Field(default_factory=list)
+    contradictions: list[str] = Field(default_factory=list)
+    turn_diagnostics: list[EvaluationTurnDiagnostic] = Field(default_factory=list)
     citations: list[CitationItem]
     latency_ms: int | None
     error_message: str | None
@@ -318,6 +356,9 @@ class EvaluationMetrics(ApiModel):
     reject_rate: Score | None
     refusal_rate: Score | None
     citation_hit_rate: Score | None
+    retrieval_hit_rate: Score | None
+    context_retention_rate: Score | None
+    execution_success_rate: Score | None
     multi_turn_pass_rate: Score | None
     compliance_hit_rate: Score | None
 
@@ -360,13 +401,28 @@ class ExperimentConfig(ApiModel):
     rerank_enabled: bool
     rerank_top_n: int = Field(ge=1)
     score_threshold: Score
+    candidate_k: int = Field(default=20, ge=5, le=50)
+    lightweight_rerank_enabled: bool = True
+    neighbor_expand_top_n: int = Field(default=3, ge=0, le=10)
+    neighbor_radius: int = Field(default=1, ge=0, le=2)
+    evidence_limit: int = Field(default=10, ge=5, le=20)
 
     @model_validator(mode="after")
     def validate_relationships(self) -> "ExperimentConfig":
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("chunk_overlap must be less than chunk_size")
-        if self.rerank_top_n > self.top_k:
-            raise ValueError("rerank_top_n must be less than or equal to top_k")
+        if self.top_k > self.candidate_k:
+            raise ValueError("top_k must be less than or equal to candidate_k")
+        if self.evidence_limit < self.top_k:
+            raise ValueError("evidence_limit must be greater than or equal to top_k")
+        if self.neighbor_expand_top_n > self.top_k:
+            raise ValueError(
+                "neighbor_expand_top_n must be less than or equal to top_k"
+            )
+        if self.rerank_enabled and self.rerank_top_n > self.candidate_k:
+            raise ValueError(
+                "rerank_top_n must be less than or equal to candidate_k"
+            )
         return self
 
 

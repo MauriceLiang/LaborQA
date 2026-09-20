@@ -808,6 +808,31 @@ export interface components {
             rerank_score: number | null;
             /** Rank No */
             rank_no: number;
+            /**
+             * Lexical Score
+             * @default 0
+             */
+            lexical_score: number;
+            /**
+             * Source Score
+             * @default 0
+             */
+            source_score: number;
+            /**
+             * Lightweight Score
+             * @default 0
+             */
+            lightweight_score: number;
+            /**
+             * Evidence Origin
+             * @default RETRIEVED
+             * @enum {string}
+             */
+            evidence_origin: "RETRIEVED" | "NEIGHBOR";
+            /** Anchor Chunk Id */
+            anchor_chunk_id?: number | null;
+            /** Anchor Retrieval Score */
+            anchor_retrieval_score?: number | null;
         };
         /** CreateSessionRequest */
         CreateSessionRequest: {
@@ -959,6 +984,12 @@ export interface components {
             refusal_rate: number | null;
             /** Citation Hit Rate */
             citation_hit_rate: number | null;
+            /** Retrieval Hit Rate */
+            retrieval_hit_rate: number | null;
+            /** Context Retention Rate */
+            context_retention_rate: number | null;
+            /** Execution Success Rate */
+            execution_success_rate: number | null;
             /** Multi Turn Pass Rate */
             multi_turn_pass_rate: number | null;
             /** Compliance Hit Rate */
@@ -981,16 +1012,63 @@ export interface components {
             correct: boolean | null;
             /** Source Hit */
             source_hit: boolean | null;
+            /** Retrieval Hit */
+            retrieval_hit: boolean | null;
+            /** Context Retained */
+            context_retained: boolean | null;
             /** Multi Turn Correct */
             multi_turn_correct: boolean | null;
             /** Compliance Hit */
             compliance_hit: boolean | null;
+            /** Answer Mode */
+            answer_mode: "RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL" | null;
+            /** Evidence Decision */
+            evidence_decision: "SUFFICIENT" | "PARTIAL" | "INSUFFICIENT" | null;
+            /** Judge Reason */
+            judge_reason?: string | null;
+            /** Matched Points */
+            matched_points?: string[];
+            /** Missing Points */
+            missing_points?: string[];
+            /** Contradictions */
+            contradictions?: string[];
+            /** Turn Diagnostics */
+            turn_diagnostics?: components["schemas"]["EvaluationTurnDiagnostic"][];
             /** Citations */
             citations: components["schemas"]["CitationItem"][];
             /** Latency Ms */
             latency_ms: number | null;
             /** Error Message */
             error_message: string | null;
+        };
+        /** EvaluationTurnDiagnostic */
+        EvaluationTurnDiagnostic: {
+            /** Turn No */
+            turn_no: number;
+            /** Question */
+            question: string;
+            /** Rewritten Question */
+            rewritten_question: string;
+            /** Answer */
+            answer: string;
+            /** Refused */
+            refused: boolean;
+            /** Answer Mode */
+            answer_mode: "RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL" | null;
+            /** Evidence Decision */
+            evidence_decision: "SUFFICIENT" | "PARTIAL" | "INSUFFICIENT" | null;
+            /** Evidence Reason */
+            evidence_reason: string | null;
+            /** Supported Points */
+            supported_points?: string[];
+            /** Missing Points */
+            missing_points?: string[];
+            /** Retrieved Sources */
+            retrieved_sources: components["schemas"]["CitationItem"][];
+            /** Citations */
+            citations: components["schemas"]["CitationItem"][];
+            /** Retrieval Ms */
+            retrieval_ms: number;
         };
         /** EvaluationRunConfig */
         EvaluationRunConfig: {
@@ -1023,6 +1101,8 @@ export interface components {
             prompt_version: string;
             answer_style: components["schemas"]["AnswerStyle"];
             case_scope?: components["schemas"]["EvaluationCaseScope"] | null;
+            /** Baseline Version */
+            baseline_version?: number | null;
             /** Evaluator Model */
             evaluator_model: string;
             /** Evaluator Prompt Version */
@@ -1037,6 +1117,31 @@ export interface components {
             rerank_enabled: boolean;
             /** Score Threshold */
             score_threshold: number;
+            /**
+             * Candidate K
+             * @default 20
+             */
+            candidate_k: number;
+            /**
+             * Lightweight Rerank Enabled
+             * @default true
+             */
+            lightweight_rerank_enabled: boolean;
+            /**
+             * Neighbor Expand Top N
+             * @default 3
+             */
+            neighbor_expand_top_n: number;
+            /**
+             * Neighbor Radius
+             * @default 1
+             */
+            neighbor_radius: number;
+            /**
+             * Evidence Limit
+             * @default 10
+             */
+            evidence_limit: number;
         };
         /** EvaluationRunCreate */
         EvaluationRunCreate: {
@@ -1140,6 +1245,31 @@ export interface components {
             rerank_top_n: number;
             /** Score Threshold */
             score_threshold: number;
+            /**
+             * Candidate K
+             * @default 20
+             */
+            candidate_k: number;
+            /**
+             * Lightweight Rerank Enabled
+             * @default true
+             */
+            lightweight_rerank_enabled: boolean;
+            /**
+             * Neighbor Expand Top N
+             * @default 3
+             */
+            neighbor_expand_top_n: number;
+            /**
+             * Neighbor Radius
+             * @default 1
+             */
+            neighbor_radius: number;
+            /**
+             * Evidence Limit
+             * @default 10
+             */
+            evidence_limit: number;
         };
         /** ExperimentConfigResult */
         ExperimentConfigResult: {

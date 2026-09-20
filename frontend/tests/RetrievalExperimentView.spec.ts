@@ -35,12 +35,12 @@ vi.mock('@/api/evaluations', () => ({
 }))
 
 const configs = [
-  { chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 },
-  { chunk_size: 400, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 },
-  { chunk_size: 800, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 },
-  { chunk_size: 600, chunk_overlap: 100, top_k: 3, rerank_enabled: false, rerank_top_n: 3, score_threshold: 0.35 },
-  { chunk_size: 600, chunk_overlap: 100, top_k: 8, rerank_enabled: false, rerank_top_n: 8, score_threshold: 0.35 },
-  { chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: true, rerank_top_n: 5, score_threshold: 0.35 },
+  { candidate_k: 20, lightweight_rerank_enabled: true, neighbor_expand_top_n: 3, neighbor_radius: 1, evidence_limit: 10, chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 },
+  { candidate_k: 20, lightweight_rerank_enabled: true, neighbor_expand_top_n: 3, neighbor_radius: 1, evidence_limit: 10, chunk_size: 400, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 },
+  { candidate_k: 20, lightweight_rerank_enabled: true, neighbor_expand_top_n: 3, neighbor_radius: 1, evidence_limit: 10, chunk_size: 800, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 },
+  { candidate_k: 20, lightweight_rerank_enabled: true, neighbor_expand_top_n: 3, neighbor_radius: 1, evidence_limit: 10, chunk_size: 600, chunk_overlap: 100, top_k: 3, rerank_enabled: false, rerank_top_n: 3, score_threshold: 0.35 },
+  { candidate_k: 20, lightweight_rerank_enabled: true, neighbor_expand_top_n: 3, neighbor_radius: 1, evidence_limit: 10, chunk_size: 600, chunk_overlap: 100, top_k: 8, rerank_enabled: false, rerank_top_n: 8, score_threshold: 0.35 },
+  { candidate_k: 20, lightweight_rerank_enabled: true, neighbor_expand_top_n: 3, neighbor_radius: 1, evidence_limit: 10, chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: true, rerank_top_n: 5, score_threshold: 0.35 },
 ]
 
 function strategyFixtures(): experimentsApi.RetrievalStrategy[] {
@@ -126,6 +126,10 @@ function experimentDetail(status: experimentsApi.ExperimentDetail['status'] = 'C
         retrieval_score: 0.8,
         rerank_score: 0.9,
         rank_no: 1,
+        lexical_score: 0,
+        source_score: 0,
+        lightweight_score: 0,
+        evidence_origin: 'RETRIEVED',
       }],
       source_hit: true,
       correct: true,
@@ -348,6 +352,21 @@ describe('RetrievalExperimentView', () => {
     expect(wrapper.text()).toContain('本次实验共比较 6 条策略、60 条测试问题。')
     for (const strategy of strategyFixtures()) expect(wrapper.text()).toContain(strategy.name)
     expect(wrapper.text()).toContain('当前最优策略：基线 F · 重排 · v1')
+    wrapper.unmount()
+  })
+
+  it('keeps long strategy labels inspectable in the result table', async () => {
+    const detail = experimentDetail()
+    const longStrategyName = '劳动关系与合同变更高召回及欠薪投诉综合检索策略'
+    detail.strategy_snapshots[0].name = longStrategyName
+    vi.mocked(experimentsApi.getExperiments).mockResolvedValue({
+      items: [summary('COMPLETED')], page: 1, size: 10, total: 1, pages: 1,
+    })
+    vi.mocked(experimentsApi.getExperiment).mockResolvedValue(detail)
+
+    const wrapper = await mountView()
+    expect(wrapper.find('.experiment-results-table .experiment-link').attributes('title'))
+      .toBe(`${longStrategyName} · v1`)
     wrapper.unmount()
   })
 })

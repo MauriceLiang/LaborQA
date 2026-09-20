@@ -89,6 +89,10 @@ def test_fixed_question_returns_expected_document_and_answer(
             "score": 1.0,
             "retrieval_score": 1.0,
             "rerank_score": None,
+            "lexical_score": 1.0,
+            "source_score": 0.6,
+            "lightweight_score": 0.98,
+            "evidence_origin": "RETRIEVED",
             "rank_no": 1,
         }
     ]

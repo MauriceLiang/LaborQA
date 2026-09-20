@@ -74,6 +74,25 @@ class _ExperimentChunkRepository:
             if int(chunk["id"]) in requested_ids
         }
 
+    def get_neighbor_chunks(
+        self,
+        document_id: int,
+        chunk_no: int,
+        *,
+        radius: int = 1,
+    ) -> list[dict[str, Any]]:
+        if radius < 0:
+            raise ValueError("radius must not be negative")
+        return sorted(
+            (
+                chunk
+                for chunk in self.chunks
+                if int(chunk["document_id"]) == int(document_id)
+                and abs(int(chunk["chunk_no"]) - int(chunk_no)) <= radius
+            ),
+            key=lambda chunk: (int(chunk["chunk_no"]), int(chunk["id"])),
+        )
+
 
 class RetrievalExperimentService:
     def __init__(
@@ -449,6 +468,16 @@ class RetrievalExperimentService:
             ) from exc
 
         retrieved_sources = output.get("retrieved_sources", [])
+        primary_sources = [
+            item
+            for item in retrieved_sources
+            if item.get("evidence_origin", "RETRIEVED") == "RETRIEVED"
+        ]
+        neighbor_sources = [
+            item
+            for item in retrieved_sources
+            if item.get("evidence_origin") == "NEIGHBOR"
+        ]
         refused = bool(output["refused"])
         answer_mode = str(output["answer_mode"])
         evidence_decision = str(output["evidence_decision"])
@@ -504,8 +533,20 @@ class RetrievalExperimentService:
                 {
                     "stage": "初步召回",
                     "status": "completed" if retrieved_sources else "skipped",
-                    "detail": f"召回 {len(retrieved_sources)} 个候选片段（Top-k {strategy_config.top_k}）",
+                    "detail": f"FAISS 候选上限 {strategy_config.candidate_k} 个片段",
                     "duration_ms": output["retrieval_ms"],
+                },
+                {
+                    "stage": "轻量重排",
+                    "status": "completed"
+                    if strategy_config.lightweight_rerank_enabled
+                    else "skipped",
+                    "detail": (
+                        "使用检索分、法律术语命中和资料来源优先级排序"
+                        if strategy_config.lightweight_rerank_enabled
+                        else "当前策略未启用轻量重排"
+                    ),
+                    "duration_ms": None,
                 },
                 {
                     "stage": "重排",
@@ -513,9 +554,26 @@ class RetrievalExperimentService:
                     if strategy_config.rerank_enabled
                     else "skipped",
                     "detail": (
-                        f"已保留重排后的前 {strategy_config.rerank_top_n} 个片段"
+                        f"已启用旧 CrossEncoder，Top-N {strategy_config.rerank_top_n}"
                         if strategy_config.rerank_enabled
-                        else "当前策略未启用重排"
+                        else "未启用旧 CrossEncoder"
+                    ),
+                    "duration_ms": None,
+                },
+                {
+                    "stage": "最终 Top-K",
+                    "status": "completed" if primary_sources else "skipped",
+                    "detail": f"保留主证据 {len(primary_sources)} 个，目标 Top-K {strategy_config.top_k}",
+                    "duration_ms": None,
+                },
+                {
+                    "stage": "上下文扩展",
+                    "status": "completed" if neighbor_sources else "skipped",
+                    "detail": (
+                        f"扩展 {len(neighbor_sources)} 个同文档邻接片段，证据上限 "
+                        f"{strategy_config.evidence_limit}"
+                        if neighbor_sources
+                        else "没有新增邻接片段"
                     ),
                     "duration_ms": None,
                 },
@@ -774,18 +832,17 @@ class RetrievalExperimentService:
                         VectorStorePersistenceError,
                         VectorStoreSignatureMismatch,
                     ) as exc:
-                        self.repository.add_result(
+                        logger.exception(
+                            "Experiment %s config %s case %s failed",
                             experiment_id,
-                            _failed_result(
-                                config_index,
-                                case["id"],
-                                self._system_error_message(exc),
-                            ),
+                            config_index,
+                            case["id"],
                         )
-                        self.repository.fail_experiment(
-                            experiment_id, self._system_error_message(exc)
+                        result = _failed_result(
+                            config_index,
+                            case["id"],
+                            self._system_error_message(exc),
                         )
-                        return
                     except Exception as exc:
                         logger.exception(
                             "Experiment %s config %s case %s failed",
@@ -1040,7 +1097,7 @@ class RetrievalExperimentService:
 
 
 def _builtin_strategies() -> list[dict[str, Any]]:
-    return [
+    strategies = [
         {
             "builtin_key": "baseline_a",
             "name": "基线 A · 平衡",
@@ -1120,6 +1177,16 @@ def _builtin_strategies() -> list[dict[str, Any]]:
             },
         },
     ]
+    defaults = {
+        "candidate_k": 20,
+        "lightweight_rerank_enabled": True,
+        "neighbor_expand_top_n": 3,
+        "neighbor_radius": 1,
+        "evidence_limit": 10,
+    }
+    for strategy in strategies:
+        strategy["config"] = {**defaults, **strategy["config"]}
+    return strategies
 
 
 def _runtime_config(config: Settings, experiment: ExperimentConfig) -> Settings:
@@ -1127,7 +1194,12 @@ def _runtime_config(config: Settings, experiment: ExperimentConfig) -> Settings:
         update={
             "chunk_size": experiment.chunk_size,
             "chunk_overlap": experiment.chunk_overlap,
+            "rag_candidate_k": experiment.candidate_k,
             "rag_top_k": experiment.top_k,
+            "lightweight_rerank_enabled": experiment.lightweight_rerank_enabled,
+            "rag_neighbor_expand_top_n": experiment.neighbor_expand_top_n,
+            "rag_neighbor_radius": experiment.neighbor_radius,
+            "rag_evidence_limit": experiment.evidence_limit,
             "rerank_enabled": experiment.rerank_enabled,
             "rerank_top_n": experiment.rerank_top_n,
             "rag_score_threshold": experiment.score_threshold,

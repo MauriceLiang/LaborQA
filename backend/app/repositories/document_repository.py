@@ -238,6 +238,31 @@ class DocumentRepository:
             ).fetchall()
             return {int(row["id"]): dict(row) for row in rows}
 
+    def get_neighbor_chunks(
+        self,
+        document_id: int,
+        chunk_no: int,
+        *,
+        radius: int = 1,
+    ) -> list[dict[str, Any]]:
+        """Load adjacent successful chunks from the same document only."""
+        if radius < 0:
+            raise ValueError("radius must not be negative")
+        with self._connection() as connection:
+            rows = connection.execute(
+                """
+                SELECT c.*, d.file_name, d.file_type
+                FROM chunk AS c
+                JOIN document AS d ON d.id = c.document_id
+                WHERE d.status = 'SUCCESS'
+                  AND c.document_id = ?
+                  AND c.chunk_no BETWEEN ? AND ?
+                ORDER BY c.chunk_no, c.id
+                """,
+                (document_id, chunk_no - radius, chunk_no + radius),
+            ).fetchall()
+            return [dict(row) for row in rows]
+
     def list_success_documents(self) -> list[dict[str, Any]]:
         with self._connection() as connection:
             rows = connection.execute(
