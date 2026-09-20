@@ -2674,7 +2674,9 @@ input {
   cursor: pointer;
 }
 
-.question-input-expand:hover {
+.question-input-expand:hover,
+.question-input-expand:focus-visible {
+  color: #fff;
   background: #15503b;
   border-color: #15503b;
 }
