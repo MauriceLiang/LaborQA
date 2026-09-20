@@ -134,7 +134,7 @@ async function startNewConversation() {
             <span>基于已导入资料回答</span>
           </span>
         </div>
-        <div class="app-topbar-right">
+        <div class="app-topbar-right" :class="{ 'app-topbar-right-non-chat': !isChatRoute }">
           <AiModeSelector />
           <span v-if="isChatRoute" class="session-status">{{ chatStatusText }}</span>
         </div>

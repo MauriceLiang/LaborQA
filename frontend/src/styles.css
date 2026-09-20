@@ -759,6 +759,10 @@ input {
   gap: 16px;
 }
 
+.app-topbar-right-non-chat {
+  padding-right: 12px;
+}
+
 .ai-mode-selector {
   display: inline-flex;
 }
