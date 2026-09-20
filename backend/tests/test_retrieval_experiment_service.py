@@ -157,7 +157,8 @@ def _make_environment(
     embedding = FakeEmbeddingService(config.embedding_model)
     document_repository = DocumentRepository(database_path)
     evaluation_repository = EvaluationRepository(database_path)
-    evaluation_repository.seed_cases(_cases())
+    for case in _cases():
+        evaluation_repository.create_case(case)
 
     source_path = directory / "law.txt"
     source_path.write_text("劳动权益依据。" * 80, encoding="utf-8")

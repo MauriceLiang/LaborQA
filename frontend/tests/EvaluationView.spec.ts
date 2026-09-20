@@ -67,6 +67,7 @@ function runDetail(
       chat_provider: 'langchain_openai.ChatOpenAI',
       answer_style: 'plain',
       case_scope: 'BUILTIN_BASELINE',
+      baseline_version: 2,
       llm_model: 'test-model',
       evaluator_model: 'test-model',
       evaluator_prompt_version: 'evaluation_judge_v1',
@@ -102,6 +103,8 @@ function runDetail(
       source_hit: true,
       multi_turn_correct: null,
       compliance_hit: true,
+      answer_mode: 'RAG_ANSWER',
+      evidence_decision: 'SUFFICIENT',
       citations: [{
         chunk_id: 11,
         document_id: 4,
@@ -242,6 +245,9 @@ describe('EvaluationView', () => {
     expect(wrapper.text()).toContain('多轮通过率')
     expect(wrapper.text()).not.toContain('此批次没有可计算的指标。')
     expect(wrapper.text()).toContain('用例 #3')
+    expect(wrapper.text()).toContain('官方基线 v2')
+    expect(wrapper.text()).toContain('回答模式：完整回答')
+    expect(wrapper.text()).toContain('证据判断：证据充分')
     expect(wrapper.text()).toContain('工资支付规定.txt')
     const answer = wrapper.findComponent(MarkdownContent)
     expect(answer.exists()).toBe(true)

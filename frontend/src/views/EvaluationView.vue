@@ -491,6 +491,21 @@ function formatFlag(value: boolean | null) {
   return value === null ? '不适用' : value ? '是' : '否'
 }
 
+function formatAnswerMode(value: string | null | undefined) {
+  if (value === 'RAG_ANSWER') return '完整回答'
+  if (value === 'PARTIAL_ANSWER') return '部分回答'
+  if (value === 'TOOL_ONLY') return '工具回答'
+  if (value === 'REFUSAL') return '拒答'
+  return '未记录'
+}
+
+function formatEvidenceDecision(value: string | null | undefined) {
+  if (value === 'SUFFICIENT') return '证据充分'
+  if (value === 'PARTIAL') return '证据部分充分'
+  if (value === 'INSUFFICIENT') return '证据不足'
+  return '未记录'
+}
+
 function formatCaseId(id: number) {
   return `#${String(id).padStart(3, '0')}`
 }
@@ -864,6 +879,12 @@ onBeforeUnmount(() => {
         <div>
           <h2 id="evaluation-detail-title">批次运行结果</h2>
           <p class="evaluation-detail-run-name">{{ displayedRunName }}</p>
+          <p
+            v-if="runDetail?.config.baseline_version !== undefined && runDetail.config.baseline_version !== null"
+            class="evaluation-detail-run-name"
+          >
+            官方基线 v{{ runDetail.config.baseline_version }}
+          </p>
         </div>
         <span class="evaluation-status" :class="statusClass(displayedStatus)">{{ formatStatus(displayedStatus) }}</span>
       </div>
@@ -917,6 +938,8 @@ onBeforeUnmount(() => {
               :content="result.answer"
             />
             <div class="evaluation-result-flags">
+              <span v-if="result.answer_mode">回答模式：<b>{{ formatAnswerMode(result.answer_mode) }}</b></span>
+              <span v-if="result.evidence_decision">证据判断：<b>{{ formatEvidenceDecision(result.evidence_decision) }}</b></span>
               <span>正确：<b>{{ formatFlag(result.correct) }}</b></span>
               <span>拒答：<b>{{ formatFlag(result.refused) }}</b></span>
               <span>引用命中：<b>{{ formatFlag(result.source_hit) }}</b></span>

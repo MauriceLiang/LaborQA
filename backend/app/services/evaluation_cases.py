@@ -4,7 +4,29 @@ from __future__ import annotations
 
 from typing import Any
 
-_SOURCE = "法条文件.docx"
+_BASELINE_VERSION = 2
+
+SOURCE_LABOR_RELATION = "01_劳动关系与劳动合同.md"
+SOURCE_WAGE_OVERTIME = "02_工资支付与加班.md"
+SOURCE_WORK_REST = "03_工作时间与休息休假.md"
+SOURCE_SOCIAL_INSURANCE = "04_社会保险.md"
+SOURCE_WORK_INJURY = "05_工伤保险与工伤认定.md"
+SOURCE_DISPUTE = "06_劳动争议_调解_仲裁与诉讼衔接.md"
+SOURCE_SPECIAL_PROTECTION = "07_特殊劳动保护.md"
+SOURCE_CASES_POLICY = "08_辅助案例与政策解读.md"
+
+BASELINE_SOURCE_FILES = frozenset(
+    {
+        SOURCE_LABOR_RELATION,
+        SOURCE_WAGE_OVERTIME,
+        SOURCE_WORK_REST,
+        SOURCE_SOCIAL_INSURANCE,
+        SOURCE_WORK_INJURY,
+        SOURCE_DISPUTE,
+        SOURCE_SPECIAL_PROTECTION,
+        SOURCE_CASES_POLICY,
+    }
+)
 
 _SINGLE_TURN_CASES = [
     (
@@ -15,7 +37,7 @@ _SINGLE_TURN_CASES = [
             "应订立书面劳动合同",
             "未同时订立的应在一个月内订立",
         ],
-        4,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
@@ -26,7 +48,7 @@ _SINGLE_TURN_CASES = [
             "劳动合同应采用书面形式",
             "可结合工资、考勤、工作安排等证据证明实际用工",
         ],
-        4,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
@@ -36,14 +58,14 @@ _SINGLE_TURN_CASES = [
             "用人单位免除法定责任、排除劳动者权利的条款可能无效",
             "应以具体条款和事实判断",
         ],
-        5,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
         "劳动合同",
         "公司能单方面把劳动合同的工作地点改到外省吗？",
         ["劳动合同变更应协商一致", "应查看合同约定和实际变更情况"],
-        4,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
@@ -54,105 +76,105 @@ _SINGLE_TURN_CASES = [
             "有集体合同的按集体合同规定",
             "没有相关约定时依法适用同工同酬等规则",
         ],
-        4,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
         "劳动合同",
         "公司在我怀孕期间合同到期，可以直接终止吗？",
         ["符合劳动合同法规定的孕期等情形时劳动合同应续延", "需结合具体法定情形判断"],
-        6,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
         "劳动合同",
         "我在试用期想离职，是否可以提出解除？",
         ["劳动者在试用期内可以通知用人单位解除劳动合同", "仍应依法办理交接"],
-        3,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
         "劳动合同",
         "招聘时因为我的民族拒绝录用，劳动者享有什么权利？",
         ["劳动者依法享有平等就业权", "就业不得因民族等因素受到歧视"],
-        7,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
         "劳动关系",
         "没签合同但已经上班，劳动关系从哪天算？",
         ["劳动关系自用工之日起建立", "未签书面合同不当然否定实际劳动关系"],
-        4,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
         "劳动关系",
         "公司制定涉及工资和工时的制度，可以老板自己决定吗？",
         ["涉及劳动者切身利益的制度应经过职工讨论并与工会或职工代表协商"],
-        4,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
         "工资",
         "公司无故拖欠工资，我可以要求按时足额支付吗？",
         ["用人单位应及时足额支付劳动报酬", "不得克扣或无故拖欠工资"],
-        11,
+        [SOURCE_WAGE_OVERTIME],
         False,
     ),
     (
         "工资",
         "我的工资低于当地最低工资，最低工资标准由谁确定？",
         ["省级政府确定和调整本地区最低工资标准", "标准需结合当地因素制定"],
-        12,
+        [SOURCE_WAGE_OVERTIME],
         False,
     ),
     (
         "工资",
         "算最低工资时，延长工作时间的加班工资能算进去吗？",
         ["正常劳动工资不得低于当地最低工资", "延长工作时间工资不计入最低工资组成部分"],
-        12,
+        [SOURCE_WAGE_OVERTIME],
         False,
     ),
     (
         "加班",
         "工作日延长工作时间，加班工资至少按多少比例支付？",
         ["工作日延长工作时间的工资报酬不低于正常工资的150%"],
-        8,
+        [SOURCE_WAGE_OVERTIME],
         False,
     ),
     (
         "加班",
         "休息日安排我加班又没有补休，工资标准是什么？",
         ["休息日工作且不能安排补休的，支付不低于正常工资200%的报酬"],
-        8,
+        [SOURCE_WAGE_OVERTIME],
         False,
     ),
     (
         "加班",
         "法定节假日上班可以只安排补休不付加班工资吗？",
         ["法定休假日安排工作的，支付不低于正常工资300%的工资报酬"],
-        8,
+        [SOURCE_WAGE_OVERTIME],
         False,
     ),
     (
         "休假",
         "连续工作满一年后是否有带薪年休假？",
         ["连续工作满一年以上享有带薪年休假", "具体天数依累计工作年限确定"],
-        8,
+        [SOURCE_WORK_REST],
         False,
     ),
     (
         "休假",
         "累计工作8年，年休假有几天？",
         ["累计工作满1年不满10年的年休假为5天", "法定休假日和休息日不计入年休假"],
-        8,
+        [SOURCE_WORK_REST],
         False,
     ),
     (
         "休假",
         "累计工作12年，年休假有几天？",
         ["累计工作满10年不满20年的年休假为10天"],
-        8,
+        [SOURCE_WORK_REST],
         False,
     ),
     (
@@ -162,14 +184,14 @@ _SINGLE_TURN_CASES = [
             "单位确因工作需要不能安排年休假时应依法支付未休年休假工资报酬",
             "具体按条例规定计算",
         ],
-        9,
+        [SOURCE_WORK_REST],
         False,
     ),
     (
         "解除与补偿",
         "公司和我协商一致解除劳动合同，需要双方同意吗？",
         ["协商一致可以解除劳动合同"],
-        5,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
@@ -179,7 +201,7 @@ _SINGLE_TURN_CASES = [
             "未及时足额支付劳动报酬属于劳动者可以解除劳动合同的情形",
             "应保存欠薪和劳动关系证据",
         ],
-        5,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
@@ -189,7 +211,7 @@ _SINGLE_TURN_CASES = [
             "未依法缴纳社会保险费属于劳动者可以解除劳动合同的情形",
             "经济补偿仍需按具体事实判断",
         ],
-        5,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
@@ -200,21 +222,21 @@ _SINGLE_TURN_CASES = [
             "六个月以上不满一年按一年计算",
             "补偿月工资通常按解除或终止前十二个月平均工资计算",
         ],
-        6,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
         "解除与补偿",
         "工作四个月，符合法定补偿条件时按几年算？",
         ["工作不满六个月的，经济补偿为半个月工资"],
-        6,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
         "社会保险",
         "职工养老保险的费用由谁缴纳？",
         ["职工应参加基本养老保险", "基本养老保险费由用人单位和职工共同缴纳"],
-        13,
+        [SOURCE_SOCIAL_INSURANCE],
         False,
     ),
     (
@@ -225,14 +247,14 @@ _SINGLE_TURN_CASES = [
             "累计缴费达到法定年限",
             "以现行法律和具体情况核实领取条件",
         ],
-        13,
+        [SOURCE_SOCIAL_INSURANCE],
         False,
     ),
     (
         "工伤",
         "在工作时间和工作场所因工作原因受伤，通常是否应认定工伤？",
         ["工作时间和工作场所内因工作原因受到事故伤害属于应认定工伤情形"],
-        14,
+        [SOURCE_WORK_INJURY],
         False,
     ),
     (
@@ -243,14 +265,38 @@ _SINGLE_TURN_CASES = [
             "未参保不当然免除单位依法应承担的工伤待遇责任",
             "需先依法认定工伤并核实具体待遇",
         ],
-        14,
+        [SOURCE_WORK_INJURY],
         False,
     ),
     (
         "女职工保护",
         "女职工生育可以享受多少天产假？",
         ["女职工生育享受98天产假", "产前可以休假15天", "难产或多胞胎按规定增加"],
-        18,
+        [SOURCE_SPECIAL_PROTECTION],
+        False,
+    ),
+    (
+        "欠薪材料",
+        "公司拖欠工资，我应该准备什么材料？",
+        [
+            "劳动合同或其他劳动关系证明材料",
+            "工资条或银行流水等工资支付记录",
+            "考勤、排班或工作记录",
+            "与用人单位沟通欠薪问题的记录",
+            "说明材料清单仅用于信息整理",
+        ],
+        [],
+        False,
+    ),
+    (
+        "试用期",
+        "试用期被辞退，工资应该怎么算？",
+        [
+            "说明试用期工资存在法定最低标准",
+            "事实不足时不能直接判断经济补偿或赔偿",
+            "说明解除是否合法需要结合具体解除理由等事实",
+        ],
+        [SOURCE_LABOR_RELATION],
         False,
     ),
 ]
@@ -263,28 +309,28 @@ _MULTI_TURN_CASES = [
             "如果没有安排补休，最低要按多少比例支付？",
         ],
         ["休息日工作且不能安排补休", "加班工资不低于正常工资的200%"],
-        8,
+        [SOURCE_WAGE_OVERTIME],
         False,
     ),
     (
         "年休假",
         ["我累计工作已经8年了。", "那我每年有几天带薪年假？"],
         ["累计工作满1年不满10年", "年休假为5天"],
-        8,
+        [SOURCE_WORK_REST],
         False,
     ),
     (
         "劳动合同",
         ["我入职后公司一直没给我签书面合同。", "建立劳动关系后最迟多久要签？"],
         ["劳动关系自实际用工之日起建立", "未同时订立书面合同的应在一个月内订立"],
-        4,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
         "解除与补偿",
         ["公司拖欠我两个月工资。", "那我能因此解除劳动合同吗？"],
         ["未及时足额支付劳动报酬属于劳动者可以解除劳动合同的情形"],
-        5,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
@@ -295,14 +341,14 @@ _MULTI_TURN_CASES = [
             "六个月以上不满一年按一年计算",
             "两年七个月通常按三年对应的月数计算",
         ],
-        6,
+        [SOURCE_LABOR_RELATION],
         False,
     ),
     (
         "工伤",
         ["我在上班时间、单位车间内因工作受伤。", "这种情况是不是工伤？"],
         ["工作时间和工作场所内因工作原因受伤属于应认定工伤情形", "应依法申请工伤认定"],
-        14,
+        [SOURCE_WORK_INJURY],
         False,
     ),
     (
@@ -313,7 +359,7 @@ _MULTI_TURN_CASES = [
             "拖欠劳动报酬争议在劳动关系存续期间申请仲裁不受一年限制",
             "劳动关系终止后应在一年内提出",
         ],
-        25,
+        [SOURCE_DISPUTE],
         True,
     ),
     (
@@ -323,7 +369,7 @@ _MULTI_TURN_CASES = [
             "未依法缴纳社会保险费属于劳动者可以解除劳动合同的情形",
             "是否支持经济补偿需结合证据和具体事实",
         ],
-        5,
+        [SOURCE_LABOR_RELATION, SOURCE_SOCIAL_INSURANCE],
         False,
     ),
     (
@@ -333,7 +379,7 @@ _MULTI_TURN_CASES = [
             "劳动者可向劳动保障行政部门投诉或举报",
             "通常由用工所在地劳动保障行政部门管辖",
         ],
-        27,
+        [SOURCE_DISPUTE],
         True,
     ),
     (
@@ -346,7 +392,7 @@ _MULTI_TURN_CASES = [
             "可向劳动合同履行地或用人单位所在地劳动争议仲裁委员会申请",
             "两地分别申请时由劳动合同履行地仲裁委员会管辖",
         ],
-        25,
+        [SOURCE_DISPUTE],
         True,
     ),
 ]
@@ -364,13 +410,8 @@ _REJECT_CASES = [
     ("工伤待遇", "我在外地出差受伤，按我所在城市今年标准能拿到多少一次性补助？"),
     ("病假工资", "我所在城市2026年的病假工资最低标准是多少？"),
     ("高温津贴", "今年我们县高温津贴具体发几个月、每月多少钱？"),
-    ("平台规则", "外卖平台新出的封号申诉政策具体是哪一天生效的？"),
     ("职称薪酬", "我是国企员工，按本单位2026年职称薪酬制度能涨多少工资？"),
     ("事业单位", "事业单位编制人员这次绩效改革后我个人奖金的确切数额是多少？"),
-    (
-        "个案判断",
-        "我只告诉你老板态度不好，能不能直接判定公司构成违法解除并赔我多少钱？",
-    ),
     (
         "退休政策",
         "我出生于具体日期但没有提供，请问我哪天可以按最新渐进式延迟退休政策退休？",
@@ -383,25 +424,31 @@ _REJECT_CASES = [
 
 def fixed_evaluation_cases() -> list[dict[str, Any]]:
     cases: list[dict[str, Any]] = []
-    for topic, question, points, chunk_no, compliance in _SINGLE_TURN_CASES:
+    for topic, question, points, source_files, compliance in _SINGLE_TURN_CASES:
         cases.append(
             {
                 "topic": topic,
                 "expected_type": "ANSWER",
                 "turns": [question],
                 "expected_points": points,
-                "expected_sources": [{"file_name": _SOURCE, "chunk_no": chunk_no}],
+                "expected_sources": [
+                    {"file_name": file_name, "chunk_no": None}
+                    for file_name in source_files
+                ],
                 "should_show_compliance": compliance,
             }
         )
-    for topic, turns, points, chunk_no, compliance in _MULTI_TURN_CASES:
+    for topic, turns, points, source_files, compliance in _MULTI_TURN_CASES:
         cases.append(
             {
                 "topic": topic,
                 "expected_type": "ANSWER",
                 "turns": turns,
                 "expected_points": points,
-                "expected_sources": [{"file_name": _SOURCE, "chunk_no": chunk_no}],
+                "expected_sources": [
+                    {"file_name": file_name, "chunk_no": None}
+                    for file_name in source_files
+                ],
                 "should_show_compliance": compliance,
             }
         )
@@ -417,3 +464,7 @@ def fixed_evaluation_cases() -> list[dict[str, Any]]:
             }
         )
     return cases
+
+
+def baseline_version() -> int:
+    return _BASELINE_VERSION

@@ -16,10 +16,28 @@ class EvaluationRepository:
     def __init__(self, database_path: Path | None = None) -> None:
         self.database_path = database_path or settings.database_path
 
-    def seed_cases(self, cases: Sequence[dict[str, Any]]) -> None:
+    def seed_cases(
+        self, cases: Sequence[dict[str, Any]], *, baseline_version: int = 1
+    ) -> None:
+        key_prefix = f"baseline-v{baseline_version}-"
         with self._connection() as connection:
+            connection.execute(
+                """
+                UPDATE evaluation_case
+                SET status = 'ARCHIVED',
+                    archived_at = COALESCE(archived_at, CURRENT_TIMESTAMP),
+                    updated_at = CURRENT_TIMESTAMP
+                WHERE origin = 'BUILTIN'
+                  AND status = 'ACTIVE'
+                  AND (
+                      builtin_key IS NULL
+                      OR builtin_key NOT LIKE ?
+                  )
+                """,
+                (f"{key_prefix}%",),
+            )
             for position, case in enumerate(cases, start=1):
-                builtin_key = f"baseline-{position}"
+                builtin_key = f"{key_prefix}{position:03d}"
                 exists = connection.execute(
                     "SELECT 1 FROM evaluation_case WHERE builtin_key = ?",
                     (builtin_key,),
@@ -314,9 +332,9 @@ class EvaluationRepository:
                 """
                 INSERT INTO evaluation_result (
                     run_id, case_id, status, answer, refused, correct, source_hit,
-                    multi_turn_correct, compliance_hit, citations_json, latency_ms,
-                    error_message
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    multi_turn_correct, compliance_hit, answer_mode,
+                    evidence_decision, citations_json, latency_ms, error_message
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -328,6 +346,8 @@ class EvaluationRepository:
                     _db_bool(result.get("source_hit")),
                     _db_bool(result.get("multi_turn_correct")),
                     _db_bool(result.get("compliance_hit")),
+                    result.get("answer_mode"),
+                    result.get("evidence_decision"),
                     json.dumps(result.get("citations", []), ensure_ascii=False),
                     result.get("latency_ms"),
                     result.get("error_message"),
@@ -475,6 +495,7 @@ class EvaluationRepository:
 
     @staticmethod
     def _result_item(row: sqlite3.Row) -> dict[str, Any]:
+        columns = set(row.keys())
         return {
             "case_id": int(row["case_id"]),
             "status": row["status"],
@@ -484,6 +505,10 @@ class EvaluationRepository:
             "source_hit": _python_bool(row["source_hit"]),
             "multi_turn_correct": _python_bool(row["multi_turn_correct"]),
             "compliance_hit": _python_bool(row["compliance_hit"]),
+            "answer_mode": row["answer_mode"] if "answer_mode" in columns else None,
+            "evidence_decision": row["evidence_decision"]
+            if "evidence_decision" in columns
+            else None,
             "citations": json.loads(row["citations_json"]),
             "latency_ms": row["latency_ms"],
             "error_message": row["error_message"],

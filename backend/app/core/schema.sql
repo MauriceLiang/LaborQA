@@ -110,6 +110,8 @@ CREATE TABLE IF NOT EXISTS evaluation_result (
     source_hit INTEGER CHECK (source_hit IN (0, 1)),
     multi_turn_correct INTEGER CHECK (multi_turn_correct IN (0, 1)),
     compliance_hit INTEGER CHECK (compliance_hit IN (0, 1)),
+    answer_mode VARCHAR(30),
+    evidence_decision VARCHAR(30),
     citations_json TEXT NOT NULL DEFAULT '[]',
     latency_ms INTEGER CHECK (latency_ms IS NULL OR latency_ms >= 0),
     error_message TEXT,

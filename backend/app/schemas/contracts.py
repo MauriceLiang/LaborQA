@@ -290,6 +290,7 @@ class LangChainRuntimeConfig(ApiModel):
 class EvaluationRunConfig(LangChainRuntimeConfig):
     answer_style: AnswerStyle
     case_scope: EvaluationCaseScope | None = None
+    baseline_version: int | None = None
     evaluator_model: str
     evaluator_prompt_version: str
     chunk_size: int
@@ -308,6 +309,8 @@ class EvaluationResultItem(ApiModel):
     source_hit: bool | None
     multi_turn_correct: bool | None
     compliance_hit: bool | None
+    answer_mode: Literal["RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"] | None
+    evidence_decision: Literal["SUFFICIENT", "PARTIAL", "INSUFFICIENT"] | None
     citations: list[CitationItem]
     latency_ms: int | None
     error_message: str | None

@@ -985,6 +985,10 @@ export interface components {
             multi_turn_correct: boolean | null;
             /** Compliance Hit */
             compliance_hit: boolean | null;
+            /** Answer Mode */
+            answer_mode: "RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL" | null;
+            /** Evidence Decision */
+            evidence_decision: "SUFFICIENT" | "PARTIAL" | "INSUFFICIENT" | null;
             /** Citations */
             citations: components["schemas"]["CitationItem"][];
             /** Latency Ms */
@@ -1023,6 +1027,8 @@ export interface components {
             prompt_version: string;
             answer_style: components["schemas"]["AnswerStyle"];
             case_scope?: components["schemas"]["EvaluationCaseScope"] | null;
+            /** Baseline Version */
+            baseline_version?: number | null;
             /** Evaluator Model */
             evaluator_model: string;
             /** Evaluator Prompt Version */

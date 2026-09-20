@@ -115,6 +115,17 @@ def _migrate_evaluation_schema(connection: sqlite3.Connection) -> None:
             """
         )
 
+    result_columns = _table_columns(connection, "evaluation_result")
+    result_additions = {
+        "answer_mode": "VARCHAR(30)",
+        "evidence_decision": "VARCHAR(30)",
+    }
+    for column, definition in result_additions.items():
+        if column not in result_columns:
+            connection.execute(
+                f"ALTER TABLE evaluation_result ADD COLUMN {column} {definition}"
+            )
+
     case_columns = _table_columns(connection, "evaluation_case")
     case_additions = {
         "origin": "VARCHAR(20) NOT NULL DEFAULT 'BUILTIN'",

@@ -27,7 +27,7 @@ from app.schemas.contracts import (
     EvaluationRunCreate,
 )
 from app.services.chat_service import ChatService
-from app.services.evaluation_cases import fixed_evaluation_cases
+from app.services.evaluation_cases import baseline_version, fixed_evaluation_cases
 from app.services.missing_knowledge import ExecutionMode
 from app.services.vector_store import (
     VectorStoreNotInitialized,
@@ -56,7 +56,9 @@ class EvaluationService:
         ).read_text(encoding="utf-8")
 
     def initialize(self) -> None:
-        self.repository.seed_cases(fixed_evaluation_cases())
+        self.repository.seed_cases(
+            fixed_evaluation_cases(), baseline_version=baseline_version()
+        )
         self.repository.recover_interrupted_runs()
 
     def list_cases(
@@ -188,6 +190,11 @@ class EvaluationService:
             **runtime_config_snapshot(self.config),
             "answer_style": payload.answer_style.value,
             "case_scope": case_scope.value,
+            "baseline_version": (
+                baseline_version()
+                if case_scope is EvaluationCaseScope.BUILTIN_BASELINE
+                else None
+            ),
             "evaluator_model": self.config.llm_model,
             "evaluator_prompt_version": _EVALUATOR_PROMPT_VERSION,
             "chunk_size": self.config.chunk_size,
@@ -345,6 +352,8 @@ class EvaluationService:
             "source_hit": source_hit,
             "multi_turn_correct": multi_turn_correct,
             "compliance_hit": compliance_hit,
+            "answer_mode": final.get("answer_mode"),
+            "evidence_decision": final.get("evidence_decision"),
             "citations": citations,
             "latency_ms": latency_ms,
             "error_message": None,
@@ -420,6 +429,8 @@ def _failed_result(case_id: int, error_message: str) -> dict[str, Any]:
         "source_hit": None,
         "multi_turn_correct": None,
         "compliance_hit": None,
+        "answer_mode": None,
+        "evidence_decision": None,
         "citations": [],
         "latency_ms": None,
         "error_message": error_message[:500],

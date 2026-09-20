@@ -19,7 +19,11 @@ from app.schemas.contracts import (
     EvaluationCaseUpdate,
     EvaluationRunCreate,
 )
-from app.services.evaluation_cases import fixed_evaluation_cases
+from app.services.evaluation_cases import (
+    BASELINE_SOURCE_FILES,
+    baseline_version,
+    fixed_evaluation_cases,
+)
 from app.services.evaluation_service import EvaluationService
 from tests.support import AsyncClientChatModel
 
@@ -46,12 +50,19 @@ class FakeJudge:
 
 class FakeChat:
     def __init__(
-        self, *, fail_question: str | None = None, model_failure: bool = False
+        self,
+        *,
+        fail_question: str | None = None,
+        model_failure: bool = False,
+        answer_mode: str | None = None,
+        evidence_decision: str | None = None,
     ) -> None:
         self.judge = FakeJudge()
         self.chat_model = AsyncClientChatModel(self.judge)
         self.fail_question = fail_question
         self.model_failure = model_failure
+        self.answer_mode = answer_mode
+        self.evidence_decision = evidence_decision
         self.calls: list[tuple[str, list[dict[str, str]]]] = []
 
     async def answer_once(
@@ -79,8 +90,8 @@ class FakeChat:
                 {
                     "chunk_id": 1,
                     "document_id": 1,
-                    "file_name": "法条文件.docx",
-                    "chunk_no": 4,
+                    "file_name": "01_劳动关系与劳动合同.md",
+                    "chunk_no": 1,
                     "content": "劳动关系自用工之日起建立。",
                     "score": 0.9,
                     "retrieval_score": 0.9,
@@ -91,6 +102,9 @@ class FakeChat:
             "rewritten_question": question,
             "retrieval_ms": 4,
             "compliance_shown": False,
+            "answer_mode": self.answer_mode or ("REFUSAL" if refused else "RAG_ANSWER"),
+            "evidence_decision": self.evidence_decision
+            or ("INSUFFICIENT" if refused else "SUFFICIENT"),
         }
 
 
@@ -120,7 +134,7 @@ def test_fixed_cases_have_the_documented_distribution_and_json_arrays() -> None:
             case["expected_type"] == "ANSWER" and len(case["turns"]) == 1
             for case in cases
         )
-        == 30
+        == 32
     )
     assert (
         sum(
@@ -129,8 +143,64 @@ def test_fixed_cases_have_the_documented_distribution_and_json_arrays() -> None:
         )
         == 10
     )
-    assert sum(case["expected_type"] == "REJECT" for case in cases) == 20
+    assert sum(case["expected_type"] == "REJECT" for case in cases) == 18
     assert all(isinstance(case["turns"], list) for case in cases)
+    assert all(
+        source["file_name"] in BASELINE_SOURCE_FILES
+        for case in cases
+        for source in case["expected_sources"]
+    )
+    assert all(
+        source["chunk_no"] is None
+        for case in cases
+        for source in case["expected_sources"]
+    )
+    assert any(
+        case["topic"] == "欠薪材料" and not case["expected_sources"]
+        for case in cases
+    )
+    assert any(case["topic"] == "试用期" for case in cases)
+    assert any(len(case["turns"]) > 1 for case in cases)
+    assert any(case["expected_type"] == "REJECT" for case in cases)
+    assert sum(case["should_show_compliance"] for case in cases) == 3
+    assert baseline_version() == 2
+
+
+@pytest.mark.parametrize(
+    ("case_id", "answer_mode", "evidence_decision"),
+    [
+        (1, "RAG_ANSWER", "SUFFICIENT"),
+        (32, "PARTIAL_ANSWER", "PARTIAL"),
+        (31, "TOOL_ONLY", "INSUFFICIENT"),
+        (43, "REFUSAL", "INSUFFICIENT"),
+    ],
+)
+def test_run_persists_all_answer_modes(
+    case_id: int, answer_mode: str, evidence_decision: str
+) -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        database_path = Path(directory) / "eval.db"
+        _create_database(database_path)
+        service = _service(
+            database_path,
+            FakeChat(
+                answer_mode=answer_mode,
+                evidence_decision=evidence_decision,
+            ),
+        )
+        run = service.create_run(
+            EvaluationRunCreate(
+                name="answer modes",
+                case_ids=[case_id],
+                answer_style="plain",
+            )
+        )
+
+        asyncio.run(service.execute_run(run["id"]))
+
+        result = service.get_run(run["id"])["results"][0]
+        assert result["answer_mode"] == answer_mode
+        assert result["evidence_decision"] == evidence_decision
 
 
 def test_run_executes_subset_calculates_metrics_and_does_not_write_chat_tables() -> (
@@ -142,7 +212,7 @@ def test_run_executes_subset_calculates_metrics_and_does_not_write_chat_tables()
         chat = FakeChat()
         service = _service(database_path, chat)
         run = service.create_run(
-            EvaluationRunCreate(name="subset", case_ids=[1, 41], answer_style="legal")
+            EvaluationRunCreate(name="subset", case_ids=[1, 43], answer_style="legal")
         )
 
         config_snapshot = service.get_run(run["id"])["config"]
@@ -157,6 +227,7 @@ def test_run_executes_subset_calculates_metrics_and_does_not_write_chat_tables()
         )
         assert config_snapshot["retrieval_type"] == "similarity"
         assert config_snapshot["rerank_model"] is None
+        assert config_snapshot["baseline_version"] is None
 
         asyncio.run(service.execute_run(run["id"]))
 
@@ -168,7 +239,11 @@ def test_run_executes_subset_calculates_metrics_and_does_not_write_chat_tables()
             "COMPLETED",
         ]
         assert detail["results"][0]["source_hit"] is True
+        assert detail["results"][0]["answer_mode"] == "RAG_ANSWER"
+        assert detail["results"][0]["evidence_decision"] == "SUFFICIENT"
         assert detail["results"][1]["correct"] is True
+        assert detail["results"][1]["answer_mode"] == "REFUSAL"
+        assert detail["results"][1]["evidence_decision"] == "INSUFFICIENT"
         assert detail["metrics"] == {
             "accuracy": 1.0,
             "reject_rate": 1.0,
@@ -199,7 +274,7 @@ def test_multiturn_replays_prior_user_and_assistant_messages_in_memory() -> None
         chat = FakeChat()
         service = _service(database_path, chat)
         run = service.create_run(
-            EvaluationRunCreate(name="multi", case_ids=[31], answer_style="plain")
+            EvaluationRunCreate(name="multi", case_ids=[33], answer_style="plain")
         )
 
         asyncio.run(service.execute_run(run["id"]))
@@ -410,6 +485,7 @@ def test_builtin_case_can_be_updated_and_run_scope_is_explicit() -> None:
             service.repository.get_run(baseline["id"])["config"]["case_scope"]
             == "BUILTIN_BASELINE"
         )
+        assert service.repository.get_run(baseline["id"])["config"]["baseline_version"] == 2
 
 
 def test_api_lists_seed_cases_and_returns_accepted_run() -> None:
@@ -436,7 +512,7 @@ def test_api_lists_seed_cases_and_returns_accepted_run() -> None:
                 reject_response = client.get(
                     "/api/evaluations/cases?size=100&expected_type=REJECT"
                 )
-                assert reject_response.json()["data"]["total"] == 20
+                assert reject_response.json()["data"]["total"] == 18
 
                 invalid_run = client.post(
                     "/api/evaluations/runs",
