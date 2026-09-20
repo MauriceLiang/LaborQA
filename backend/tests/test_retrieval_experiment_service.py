@@ -15,6 +15,7 @@ from app.core.config import Settings, settings
 from app.core.error_codes import ErrorCode
 from app.core.errors import AppError
 from app.main import app
+from app.rag.errors import ModelUnavailableError
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.evaluation_repository import EvaluationRepository
 from app.repositories.retrieval_experiment_repository import (
@@ -83,6 +84,18 @@ class FakeChatClient:
                 )
             return json.dumps({"correct": True, "context_retained": True})
         return "劳动关系自用工之日起建立。"
+
+
+class FailingChatClient:
+    async def complete(
+        self,
+        messages: list[dict[str, str]],
+        *,
+        json_mode: bool = False,
+        temperature: float | None = None,
+    ) -> str:
+        del messages, json_mode, temperature
+        raise ModelUnavailableError("model down")
 
 
 def _create_database(database_path: Path) -> None:
@@ -469,6 +482,36 @@ def test_experiment_uses_isolated_rechunked_indexes_and_persists_case_metrics(
             ).fetchone()[0]
             == 4
         )
+
+
+def test_model_error_is_saved_and_remaining_experiment_cases_continue(
+    tmp_path: Path,
+) -> None:
+    service, _, _, _ = _make_environment(tmp_path)
+    service.chat_service.chat_model = AsyncClientChatModel(FailingChatClient())
+    experiment = service.create_experiment(
+        ExperimentCreate(
+            name="model failure",
+            strategy_ids=_create_test_strategy_ids(service),
+            case_scope="SELECTED",
+            case_ids=[1, 2],
+            answer_style="plain",
+        )
+    )
+
+    asyncio.run(service.execute_experiment(experiment["id"]))
+
+    detail = service.get_experiment(experiment["id"])
+    assert detail["status"] == "COMPLETED"
+    assert detail["progress_current"] == detail["progress_total"] == 4
+    assert len(detail["results"]) == 4
+    assert all(item["status"] == "FAILED" for item in detail["results"])
+    assert all(
+        item["error_message"] == "模型服务暂不可用，请检查模型配置与服务状态"
+        for item in detail["results"]
+    )
+    assert detail["best_config_index"] is None
+    assert all(item["accuracy"] == 0 for item in detail["config_results"])
 
 
 def test_initialize_marks_pending_and_running_experiments_interrupted(

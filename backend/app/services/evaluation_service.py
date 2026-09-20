@@ -261,12 +261,10 @@ class EvaluationService:
                     VectorStorePersistenceError,
                     VectorStoreSignatureMismatch,
                 ) as exc:
-                    self.repository.add_result(
-                        run_id,
-                        _failed_result(case["id"], self._system_error_message(exc)),
+                    logger.exception("Evaluation case %s failed", case["id"])
+                    result = _failed_result(
+                        case["id"], self._system_error_message(exc)
                     )
-                    self.repository.fail_run(run_id, self._system_error_message(exc))
-                    return
                 except Exception as exc:
                     logger.exception("Evaluation case %s failed", case["id"])
                     result = _failed_result(case["id"], str(exc) or "评测用例执行失败")

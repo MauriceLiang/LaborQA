@@ -429,7 +429,7 @@ def test_item_error_is_saved_and_remaining_cases_continue() -> None:
         assert detail["metrics"]["accuracy"] == 1.0
 
 
-def test_global_model_error_fails_batch_and_stops_remaining_cases() -> None:
+def test_model_error_is_saved_and_remaining_cases_continue() -> None:
     with tempfile.TemporaryDirectory() as directory:
         database_path = Path(directory) / "eval.db"
         _create_database(database_path)
@@ -444,11 +444,18 @@ def test_global_model_error_fails_batch_and_stops_remaining_cases() -> None:
         asyncio.run(service.execute_run(run["id"]))
 
         detail = service.get_run(run["id"])
-        assert detail["status"] == "FAILED"
-        assert detail["progress_current"] == 1
-        assert len(detail["results"]) == 1
-        assert detail["results"][0]["status"] == "FAILED"
-        assert detail["metrics"] is None
+        assert detail["status"] == "COMPLETED"
+        assert detail["progress_current"] == 2
+        assert len(detail["results"]) == 2
+        assert [item["status"] for item in detail["results"]] == [
+            "FAILED",
+            "FAILED",
+        ]
+        assert all(
+            item["error_message"] == "模型服务暂不可用，请检查模型配置与服务状态"
+            for item in detail["results"]
+        )
+        assert detail["metrics"]["accuracy"] is None
 
 
 def test_startup_recovery_marks_interrupted_run_failed() -> None:

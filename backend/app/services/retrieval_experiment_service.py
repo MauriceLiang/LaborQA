@@ -774,18 +774,17 @@ class RetrievalExperimentService:
                         VectorStorePersistenceError,
                         VectorStoreSignatureMismatch,
                     ) as exc:
-                        self.repository.add_result(
+                        logger.exception(
+                            "Experiment %s config %s case %s failed",
                             experiment_id,
-                            _failed_result(
-                                config_index,
-                                case["id"],
-                                self._system_error_message(exc),
-                            ),
+                            config_index,
+                            case["id"],
                         )
-                        self.repository.fail_experiment(
-                            experiment_id, self._system_error_message(exc)
+                        result = _failed_result(
+                            config_index,
+                            case["id"],
+                            self._system_error_message(exc),
                         )
-                        return
                     except Exception as exc:
                         logger.exception(
                             "Experiment %s config %s case %s failed",
