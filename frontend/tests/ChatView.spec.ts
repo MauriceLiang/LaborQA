@@ -215,6 +215,33 @@ describe('ChatView', () => {
     wrapper.unmount()
   })
 
+  it('shows the backend stage before the first token and clears it when text arrives', async () => {
+    let releaseStream!: () => void
+    const streamPaused = new Promise<void>((resolve) => {
+      releaseStream = resolve
+    })
+    vi.mocked(chatApi.streamChat).mockImplementation(async (_request, handlers) => {
+      handlers.onStatus?.({ stage: 'retrieving', message: '正在检索劳动法规…' })
+      await streamPaused
+      handlers.onToken({ content: '检索完成。' })
+      handlers.onDone({ message_id: 25, answer_style: 'plain', refused: false })
+    })
+    const wrapper = mountView()
+
+    await wrapper.get('textarea').setValue('公司拖欠工资怎么办？')
+    const submitPromise = wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('.message-pending').text()).toBe('正在检索劳动法规…')
+
+    releaseStream()
+    await submitPromise
+    await flushPromises()
+    expect(wrapper.find('.message-pending').exists()).toBe(false)
+    expect(wrapper.text()).toContain('检索完成。')
+    wrapper.unmount()
+  })
+
   it('reuses the session for follow-ups and isolates a new conversation', async () => {
     vi.mocked(sessionsApi.createSession)
       .mockResolvedValueOnce(session)
@@ -284,6 +311,27 @@ describe('ChatView', () => {
     wrapper.unmount()
   })
 
+  it('clears the stage message when generation is stopped before the first token', async () => {
+    vi.mocked(chatApi.streamChat).mockImplementation((_request, handlers, signal) => {
+      handlers.onStatus?.({ stage: 'generating', message: '正在生成回答…' })
+      return new Promise((resolve) => {
+        signal?.addEventListener('abort', () => resolve(), { once: true })
+      })
+    })
+    const wrapper = mountView()
+    await wrapper.get('textarea').setValue('公司欠薪怎么办？')
+    const submitPromise = wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.get('.message-pending').text()).toBe('正在生成回答…')
+    await wrapper.get('.stop-button').trigger('click')
+    await submitPromise
+    await flushPromises()
+
+    expect(wrapper.find('.message-pending').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('keeps the conversation at the bottom while a long answer streams', async () => {
     let releaseStream!: () => void
     const streamPaused = new Promise<void>((resolve) => {
@@ -340,6 +388,7 @@ describe('ChatView', () => {
 
   it('shows an SSE error without assigning a completed message id', async () => {
     vi.mocked(chatApi.streamChat).mockImplementation(async (_request, handlers) => {
+      handlers.onStatus?.({ stage: 'verifying', message: '正在核验证据…' })
       handlers.onError({ code: 50302, message: '模型服务暂不可用' })
     })
     const wrapper = mountView()
@@ -349,6 +398,7 @@ describe('ChatView', () => {
 
     expect(wrapper.get('[role="alert"]').text()).toBe('模型服务暂不可用')
     expect(wrapper.text()).toContain('回答未完成；可以重新提问。')
+    expect(wrapper.find('.message-pending').exists()).toBe(false)
     wrapper.unmount()
   })
 })

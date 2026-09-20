@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import sqlite3
 import tempfile
 from pathlib import Path
@@ -145,19 +146,63 @@ async def _collect(stream):
     return [event async for event in stream]
 
 
-def test_rag_stream_persists_answer_and_only_retrieved_citations() -> None:
+def _event_types(events: list[str]) -> list[str]:
+    return [event.splitlines()[0] for event in events]
+
+
+def _event_payload(event: str) -> dict[str, Any]:
+    return json.loads(event.splitlines()[1].removeprefix("data: ").strip())
+
+
+def _assert_done_timings(events: list[str]) -> None:
+    timings = _event_payload(events[-1])["timings"]
+    expected_keys = {
+        "session_ms",
+        "rewrite_ms",
+        "retrieval_ms",
+        "evidence_judge_ms",
+        "pre_answer_ms",
+        "ttft_ms",
+        "answer_generation_ms",
+        "persist_ms",
+        "total_ms",
+    }
+    assert set(timings) == expected_keys
+    assert all(
+        value >= 0
+        for key, value in timings.items()
+        if key != "ttft_ms" and value is not None
+    )
+    if timings["ttft_ms"] is not None:
+        assert timings["ttft_ms"] >= 0
+        assert timings["total_ms"] >= timings["ttft_ms"]
+
+
+def test_rag_stream_persists_answer_and_only_retrieved_citations(caplog) -> None:
     with tempfile.TemporaryDirectory() as directory:
         service, sessions, retrieval, llm = _service(directory)
         session = sessions.create_session()
+        caplog.set_level(logging.INFO, logger="app.services.chat_service")
 
         events = _events(service, session["id"])
 
-        assert [event.splitlines()[0] for event in events] == [
+        assert _event_types(events) == [
+            "event: status",
+            "event: status",
+            "event: status",
+            "event: status",
             "event: token",
             "event: token",
             "event: sources",
             "event: done",
         ]
+        assert [_event_payload(event)["stage"] for event in events[:4]] == [
+            "understanding",
+            "retrieving",
+            "verifying",
+            "generating",
+        ]
+        _assert_done_timings(events)
         assert retrieval.queries == ["那公司这样解除劳动关系呢？"]
         assert len(llm.completions) == 1
         messages = sessions.list_messages(session["id"])
@@ -165,6 +210,16 @@ def test_rag_stream_persists_answer_and_only_retrieved_citations() -> None:
         assert messages[0]["rewritten_question"] == "那公司这样解除劳动关系呢？"
         assert messages[1]["content"] == "应结合具体证据判断。建议保留书面材料。"
         assert messages[1]["citations"][0]["chunk_id"] == 1
+        latency_logs = [
+            record.getMessage()
+            for record in caplog.records
+            if record.getMessage().startswith("chat_latency ")
+        ]
+        assert len(latency_logs) == 1
+        assert "那公司这样解除劳动关系呢？" not in latency_logs[0]
+        assert "应结合具体证据判断。建议保留书面材料。" not in latency_logs[0]
+        assert "解除劳动合同应符合法定条件。" not in latency_logs[0]
+        assert "test-key" not in latency_logs[0]
 
 
 def test_evaluation_answer_once_reuses_rag_without_production_persistence() -> None:
@@ -297,10 +352,18 @@ def test_low_similarity_evidence_is_refused_without_calling_model() -> None:
 
         events = _events(service, session["id"])
 
-        assert len(events) == 3
-        assert events[0].startswith("event: token")
-        assert '"items":[]' in events[1]
-        assert '"refused":true' in events[2]
+        assert _event_types(events) == [
+            "event: status",
+            "event: status",
+            "event: status",
+            "event: status",
+            "event: token",
+            "event: sources",
+            "event: done",
+        ]
+        assert '"items":[]' in events[5]
+        assert '"refused":true' in events[6]
+        _assert_done_timings(events)
         assert llm.completions == []
         rows, total = service.missing_knowledge_service.list(MissingKnowledgeQuery())
         assert total == 1
@@ -372,12 +435,17 @@ def test_partial_evidence_generates_scoped_answer_without_missing_record() -> No
             question="我应该如何保存工资记录？",
         )
 
-        assert [event.splitlines()[0] for event in events] == [
+        assert _event_types(events) == [
+            "event: status",
+            "event: status",
+            "event: status",
+            "event: status",
             "event: token",
             "event: token",
             "event: sources",
             "event: done",
         ]
+        _assert_done_timings(events)
         prompt = partial_llm.streams[0][0]["content"]
         assert "回答模式：PARTIAL_ANSWER" in prompt
         assert '"已知事实"' in prompt
@@ -400,7 +468,7 @@ def test_failure_to_record_does_not_break_refusal_stream() -> None:
         service.missing_knowledge_service.record_refusal = fail_record
         events = _events(service, session["id"])
 
-        assert events[0].startswith("event: token")
+        assert events[4].startswith("event: token")
         assert '"refused":true' in events[-1]
 
 
@@ -472,9 +540,12 @@ def test_index_not_ready_returns_terminal_error_and_keeps_user_message() -> None
 
         events = _events(service, session["id"])
 
-        assert len(events) == 1
-        assert events[0].startswith("event: error")
-        assert '"code":50301' in events[0]
+        assert _event_types(events) == [
+            "event: status",
+            "event: status",
+            "event: error",
+        ]
+        assert '"code":50301' in events[2]
         assert [
             message["role"] for message in sessions.list_messages(session["id"])
         ] == ["user"]
@@ -491,8 +562,13 @@ def test_client_disconnect_does_not_persist_partial_assistant_message() -> None:
             FakeRequest(disconnected=[False, False, True]),
         )
 
-        assert len(events) == 1
-        assert events[0].startswith("event: token")
+        assert _event_types(events) == [
+            "event: status",
+            "event: status",
+            "event: status",
+            "event: status",
+            "event: token",
+        ]
         assert [
             message["role"] for message in sessions.list_messages(session["id"])
         ] == ["user"]
@@ -507,9 +583,14 @@ def test_empty_model_stream_emits_a_terminal_error() -> None:
 
         events = _events(service, session["id"])
 
-        assert len(events) == 1
-        assert events[0].startswith("event: error")
-        assert '"code":50302' in events[0]
+        assert _event_types(events) == [
+            "event: status",
+            "event: status",
+            "event: status",
+            "event: status",
+            "event: error",
+        ]
+        assert '"code":50302' in events[4]
         assert [
             message["role"] for message in sessions.list_messages(session["id"])
         ] == ["user"]
@@ -526,14 +607,18 @@ def test_material_request_emits_tool_before_answer_and_persists_tool_result() ->
             question="公司拖欠工资，我应该准备什么材料？",
         )
 
-        assert [event.splitlines()[0] for event in events] == [
+        assert _event_types(events) == [
+            "event: status",
+            "event: status",
+            "event: status",
+            "event: status",
             "event: tool",
             "event: token",
             "event: token",
             "event: sources",
             "event: done",
         ]
-        tool_event = json.loads(events[0].splitlines()[1][6:])
+        tool_event = json.loads(events[4].splitlines()[1][6:])
         assert tool_event["tool_name"] == "generate_rights_material_checklist"
         assert tool_event["input"] == {
             "dispute_type": "欠薪",
@@ -565,9 +650,14 @@ def test_tool_failure_emits_only_terminal_error_without_fabricated_result() -> N
             question="公司拖欠工资，我应该准备什么材料？",
         )
 
-        assert len(events) == 1
-        assert events[0].startswith("event: error")
-        assert '"message":"材料清单生成失败"' in events[0]
+        assert _event_types(events) == [
+            "event: status",
+            "event: status",
+            "event: status",
+            "event: status",
+            "event: error",
+        ]
+        assert '"message":"材料清单生成失败"' in events[4]
         assert [
             message["role"] for message in sessions.list_messages(session["id"])
         ] == ["user"]
@@ -584,19 +674,24 @@ def test_material_checklist_runs_as_tool_only_when_evidence_gate_refuses():
             question="公司拖欠工资，我应该准备什么材料？",
         )
 
-        assert [event.splitlines()[0] for event in events] == [
+        assert _event_types(events) == [
+            "event: status",
+            "event: status",
+            "event: status",
+            "event: status",
             "event: tool",
             "event: token",
             "event: sources",
             "event: done",
         ]
-        tool_event = json.loads(events[0].splitlines()[1][6:])
+        tool_event = json.loads(events[4].splitlines()[1][6:])
         assert tool_event["tool_name"] == "generate_rights_material_checklist"
         assert "根据你描述的“欠薪”情况" in json.loads(
-            events[1].splitlines()[1][6:]
+            events[5].splitlines()[1][6:]
         )["content"]
-        assert '"items":[]' in events[2]
-        assert '"refused":false' in events[3]
+        assert '"items":[]' in events[6]
+        assert '"refused":false' in events[7]
+        _assert_done_timings(events)
         assert llm.completions == []
         rows, total = service.missing_knowledge_service.list(MissingKnowledgeQuery())
         assert rows == []
