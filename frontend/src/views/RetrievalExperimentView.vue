@@ -1070,7 +1070,7 @@ onBeforeUnmount(() => {
               <th scope="col">状态</th>
               <th scope="col">进度</th>
               <th scope="col">创建时间</th>
-              <th scope="col">操作</th>
+              <th scope="col" class="experiment-actions-header">操作</th>
             </tr>
           </thead>
           <tbody>
@@ -1104,35 +1104,37 @@ onBeforeUnmount(() => {
               </td>
               <td>{{ item.progress_current }} / {{ item.progress_total }}</td>
               <td>{{ formatCreatedAt(item.created_at) }}</td>
-              <td>
-                <ElButton
-                  class="experiment-table-action"
-                  text
-                  :loading="exportingExperimentId === item.id"
-                  :disabled="item.status === 'PENDING' || item.status === 'RUNNING'"
-                  @click.stop="exportExperimentRecord(item)"
-                >导出</ElButton>
-                <ElButton
-                  class="experiment-table-action"
-                  text
-                  :loading="archivingExperimentId === item.id"
-                  :disabled="item.status === 'PENDING' || item.status === 'RUNNING'"
-                  @click.stop="item.archived_at ? restoreExperimentRecord(item) : archiveExperimentRecord(item)"
-                >{{ item.archived_at ? '恢复' : '归档' }}</ElButton>
-                <ElButton
-                  class="experiment-table-action"
-                  text
-                  :loading="copyingExperimentId === item.id"
-                  @click.stop="duplicateExperiment(item)"
-                >复制</ElButton>
-                <ElButton
-                  class="experiment-table-action"
-                  text
-                  type="danger"
-                  :loading="deletingExperimentId === item.id"
-                  :disabled="item.status === 'PENDING' || item.status === 'RUNNING'"
-                  @click.stop="removeExperiment(item)"
-                >删除</ElButton>
+              <td class="experiment-actions-cell">
+                <div class="experiment-action-group">
+                  <ElButton
+                    class="experiment-table-action"
+                    text
+                    :loading="exportingExperimentId === item.id"
+                    :disabled="item.status === 'PENDING' || item.status === 'RUNNING'"
+                    @click.stop="exportExperimentRecord(item)"
+                  >导出</ElButton>
+                  <ElButton
+                    class="experiment-table-action"
+                    text
+                    :loading="archivingExperimentId === item.id"
+                    :disabled="item.status === 'PENDING' || item.status === 'RUNNING'"
+                    @click.stop="item.archived_at ? restoreExperimentRecord(item) : archiveExperimentRecord(item)"
+                  >{{ item.archived_at ? '恢复' : '归档' }}</ElButton>
+                  <ElButton
+                    class="experiment-table-action"
+                    text
+                    :loading="copyingExperimentId === item.id"
+                    @click.stop="duplicateExperiment(item)"
+                  >复制</ElButton>
+                  <ElButton
+                    class="experiment-table-action"
+                    text
+                    type="danger"
+                    :loading="deletingExperimentId === item.id"
+                    :disabled="item.status === 'PENDING' || item.status === 'RUNNING'"
+                    @click.stop="removeExperiment(item)"
+                  >删除</ElButton>
+                </div>
               </td>
             </tr>
             <tr v-if="!loadingList && experiments.length === 0">
@@ -1755,22 +1757,42 @@ onBeforeUnmount(() => {
 }
 
 .experiment-list-table {
-  min-width: 700px;
+  min-width: 900px;
   table-layout: fixed;
 }
 
 .experiment-list-table th:nth-child(1),
 .experiment-list-table td:nth-child(1) { width: 42px; }
-.experiment-list-table th:nth-child(2),
-.experiment-list-table td:nth-child(2) { width: 42%; }
 .experiment-list-table th:nth-child(3),
-.experiment-list-table td:nth-child(3) { width: 18%; }
+.experiment-list-table td:nth-child(3) { width: 140px; }
 .experiment-list-table th:nth-child(4),
-.experiment-list-table td:nth-child(4) { width: 18%; }
+.experiment-list-table td:nth-child(4) { width: 140px; }
 .experiment-list-table th:nth-child(5),
-.experiment-list-table td:nth-child(5) { width: 18%; }
+.experiment-list-table td:nth-child(5) { width: 180px; }
 .experiment-list-table th:nth-child(6),
-.experiment-list-table td:nth-child(6) { width: 12%; }
+.experiment-list-table td:nth-child(6) { width: 190px; }
+
+.experiment-actions-header,
+.experiment-actions-cell {
+  text-align: center;
+}
+
+.experiment-action-group {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.experiment-action-group :deep(.el-button) {
+  flex: 0 0 auto;
+  margin: 0;
+}
+
+.experiment-action-group :deep(.el-button + .el-button) {
+  margin-left: 0;
+}
 
 .experiment-select-cell {
   text-align: center;
@@ -2324,6 +2346,7 @@ onBeforeUnmount(() => {
 }
 
 .experiment-table-action {
+  min-width: 32px;
   padding: 2px 4px;
   font-size: 11px;
 }

@@ -341,6 +341,22 @@ describe('RetrievalExperimentView', () => {
     wrapper.unmount()
   })
 
+  it('groups experiment actions in a stable container', async () => {
+    vi.mocked(experimentsApi.getExperiments).mockResolvedValue({
+      items: [summary('COMPLETED')], page: 1, size: 10, total: 1, pages: 1,
+    })
+
+    const wrapper = await mountView()
+    const actionCells = wrapper.findAll('.experiment-actions-cell')
+    expect(actionCells).toHaveLength(1)
+
+    const group = actionCells[0].find('.experiment-action-group')
+    expect(group.exists()).toBe(true)
+    expect(group.findAll('.experiment-table-action')).toHaveLength(4)
+    expect(wrapper.find('.experiment-actions-header').text()).toBe('操作')
+    wrapper.unmount()
+  })
+
   it('renders every strategy in the result table and generates a structured conclusion', async () => {
     vi.mocked(experimentsApi.getExperiments).mockResolvedValue({
       items: [summary('COMPLETED')], page: 1, size: 10, total: 1, pages: 1,
