@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import logging
+from inspect import signature
 from pathlib import Path
 from typing import Any
 
@@ -15,9 +16,11 @@ from app.core.config import Settings, settings
 from app.core.error_codes import ErrorCode
 from app.core.errors import AppError
 from app.rag.errors import EmbeddingUnavailableError, ModelUnavailableError
+from app.rag.ai_modes import DEFAULT_AI_MODE
 from app.rag.runtime_config import runtime_config_snapshot
 from app.repositories.evaluation_repository import EvaluationRepository
 from app.schemas.contracts import (
+    AiMode,
     AnswerStyle,
     EvaluationCaseCreate,
     EvaluationCaseOrigin,
@@ -187,7 +190,7 @@ class EvaluationService:
                 http_status=400,
             )
         snapshot = {
-            **runtime_config_snapshot(self.config),
+            **runtime_config_snapshot(self.config, ai_mode=payload.ai_mode),
             "answer_style": payload.answer_style.value,
             "case_scope": case_scope.value,
             "baseline_version": (
@@ -228,7 +231,12 @@ class EvaluationService:
                 http_status=404,
             )
         run["config"] = {
-            **runtime_config_snapshot(self.config),
+            **runtime_config_snapshot(
+                self.config,
+                ai_mode=AiMode(
+                    run["config"].get("ai_mode", DEFAULT_AI_MODE.value)
+                ),
+            ),
             **run["config"],
         }
         return run
@@ -255,10 +263,13 @@ class EvaluationService:
             if run is None:
                 raise RuntimeError("评测批次不存在")
             answer_style = AnswerStyle(run["config"]["answer_style"])
+            ai_mode = AiMode(
+                run["config"].get("ai_mode", DEFAULT_AI_MODE.value)
+            )
             cases = self.repository.run_cases(run_id)
             for case in cases:
                 try:
-                    result = await self._evaluate_case(case, answer_style)
+                    result = await self._evaluate_case(case, answer_style, ai_mode)
                 except (
                     ModelUnavailableError,
                     EmbeddingUnavailableError,
@@ -290,18 +301,22 @@ class EvaluationService:
                 logger.exception("Could not mark evaluation run %s as failed", run_id)
 
     async def _evaluate_case(
-        self, case: dict[str, Any], answer_style: AnswerStyle
+        self,
+        case: dict[str, Any],
+        answer_style: AnswerStyle,
+        ai_mode: AiMode = DEFAULT_AI_MODE,
     ) -> dict[str, Any]:
         history: list[dict[str, str]] = []
         outputs: list[dict[str, Any]] = []
         turn_diagnostics: list[dict[str, Any]] = []
         latency_ms = 0
         for turn_no, question in enumerate(case["turns"], start=1):
-            output = await self.chat_service.answer_once(
-                question,
-                history,
-                answer_style,
-                mode=ExecutionMode.EVALUATION,
+            answer_once = self.chat_service.answer_once
+            answer_kwargs: dict[str, Any] = {"mode": ExecutionMode.EVALUATION}
+            if "ai_mode" in signature(answer_once).parameters:
+                answer_kwargs["ai_mode"] = ai_mode
+            output = await answer_once(
+                question, history, answer_style, **answer_kwargs
             )
             outputs.append(output)
             retrieved_sources = output.get(

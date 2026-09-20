@@ -1,5 +1,6 @@
 import type { components, paths } from '@/types/api.generated'
 import { http } from '@/api/http'
+import type { AiMode } from '@/types/preferences'
 
 export type EvaluationRunSummary = components['schemas']['EvaluationRunSummary']
 export type EvaluationRunDetail = components['schemas']['EvaluationRunDetail']
@@ -80,6 +81,7 @@ export interface EvaluationRunCreate {
   case_ids: number[] | null
   answer_style: EvaluationAnswerStyle
   case_scope: EvaluationCaseScope
+  ai_mode: AiMode
 }
 
 export async function getEvaluationCases(

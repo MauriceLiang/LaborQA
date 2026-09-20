@@ -13,6 +13,7 @@ import {
 } from '@element-plus/icons-vue'
 
 import type { SessionItem } from '@/api/sessions'
+import AiModeSelector from '@/components/AiModeSelector.vue'
 import { useSessionStore } from '@/stores/session'
 
 const route = useRoute()
@@ -29,6 +30,11 @@ const navItems = [
 ]
 
 const isChatRoute = computed(() => route.name === 'chat')
+const chatStatusText = computed(() => {
+  if (sessionStore.historyLoading) return '正在恢复会话记录…'
+  if (sessionStore.streaming) return '正在生成回答…'
+  return sessionStore.sessionId ? '当前会话' : '新会话'
+})
 
 onMounted(() => {
   void sessionStore.refreshRecentSessions()
@@ -111,7 +117,7 @@ async function startNewConversation() {
     </aside>
 
     <section class="app-content">
-      <header v-if="!isChatRoute" class="app-topbar">
+      <header class="app-topbar">
         <div class="app-topbar-left">
           <ElButton
             class="topbar-new-chat"
@@ -126,6 +132,10 @@ async function startNewConversation() {
             <Document aria-hidden="true" />
             <span>基于已导入资料回答</span>
           </span>
+        </div>
+        <div class="app-topbar-right">
+          <AiModeSelector />
+          <span v-if="isChatRoute" class="session-status">{{ chatStatusText }}</span>
         </div>
       </header>
       <main class="app-main" :class="{ 'app-main-chat': isChatRoute }">

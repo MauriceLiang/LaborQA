@@ -15,8 +15,10 @@ from app.core.error_codes import ErrorCode
 from app.core.errors import AppError
 from app.main import app
 from app.rag.errors import ModelUnavailableError
+from app.rag.ai_modes import DEFAULT_AI_MODE
 from app.rag.runtime_config import runtime_config_snapshot
 from app.schemas.contracts import (
+    AiMode,
     EvaluationCaseCreate,
     EvaluationCaseUpdate,
     EvaluationRunCreate,
@@ -220,18 +222,16 @@ def test_evaluation_judge_uses_the_base_chat_model() -> None:
 
 
 def test_runtime_snapshot_records_thinking_profile() -> None:
-    config = Settings(
-        _env_file=None,
-        llm_evidence_thinking_enabled=False,
-        llm_answer_thinking_enabled=False,
-        llm_reasoning_effort="max",
-    )
+    config = Settings(_env_file=None)
 
-    snapshot = runtime_config_snapshot(config)
+    snapshot = runtime_config_snapshot(config, ai_mode=AiMode.SPEED)
 
-    assert snapshot["llm_evidence_thinking_enabled"] is False
-    assert snapshot["llm_answer_thinking_enabled"] is False
-    assert snapshot["llm_reasoning_effort"] == "max"
+    assert snapshot["ai_mode"] == AiMode.SPEED.value
+    assert snapshot["evidence_thinking"] is False
+    assert snapshot["evidence_effort"] is None
+    assert snapshot["answer_thinking"] is False
+    assert snapshot["answer_effort"] is None
+    assert DEFAULT_AI_MODE is AiMode.BALANCED
 
 
 def test_fixed_cases_have_the_documented_distribution_and_json_arrays() -> None:

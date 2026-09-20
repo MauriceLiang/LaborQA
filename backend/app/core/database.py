@@ -20,6 +20,7 @@ def initialize_database() -> None:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         _migrate_document_schema(connection)
+        _migrate_message_schema(connection)
         _migrate_citation_schema(connection)
         _migrate_evaluation_schema(connection)
         _migrate_retrieval_experiment_schema(connection)
@@ -88,6 +89,13 @@ def _migrate_document_schema(connection: sqlite3.Connection) -> None:
         raise
     finally:
         connection.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_message_schema(connection: sqlite3.Connection) -> None:
+    """Add nullable AI mode metadata while preserving existing conversations."""
+
+    if "ai_mode" not in _table_columns(connection, "message"):
+        connection.execute("ALTER TABLE message ADD COLUMN ai_mode VARCHAR(20)")
 
 
 def _migrate_citation_schema(connection: sqlite3.Connection) -> None:

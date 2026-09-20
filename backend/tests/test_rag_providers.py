@@ -5,12 +5,12 @@ from app.rag import providers as providers_module
 from app.rag.providers import build_chat_model, build_embeddings
 
 
-def test_settings_keep_thinking_enabled_by_default() -> None:
+def test_settings_do_not_store_request_thinking_overrides() -> None:
     config = Settings(_env_file=None)
 
-    assert config.llm_evidence_thinking_enabled is True
-    assert config.llm_answer_thinking_enabled is True
-    assert config.llm_reasoning_effort == "high"
+    assert not hasattr(config, "llm_evidence_thinking_enabled")
+    assert not hasattr(config, "llm_answer_thinking_enabled")
+    assert not hasattr(config, "llm_reasoning_effort")
 
 
 def test_build_chat_model_maps_existing_openai_compatible_settings() -> None:
@@ -36,10 +36,11 @@ def test_build_chat_model_with_thinking_enabled() -> None:
         llm_api_key="test-key",
         llm_base_url="https://llm.example.test/v1",
         llm_model="test-model",
-        llm_reasoning_effort="max",
     )
 
-    model = build_chat_model(config, thinking_mode="enabled")
+    model = build_chat_model(
+        config, thinking_mode="enabled", reasoning_effort="max"
+    )
 
     assert model.reasoning_effort == "max"
     assert model.extra_body == {"thinking": {"type": "enabled"}}

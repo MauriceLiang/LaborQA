@@ -9,7 +9,9 @@ from typing import Any
 
 from app.core.config import Settings
 from app.rag.constants import CURRENT_SPLITTER_VERSION
+from app.rag.ai_modes import DEFAULT_AI_MODE, ai_mode_profile
 from app.services.rerank import DEFAULT_RERANK_MODEL
+from app.schemas.contracts import AiMode
 
 DEFAULT_CHAT_PROVIDER = "langchain_openai.ChatOpenAI"
 DEFAULT_SPLITTER_TYPE = "app.rag.splitters.LegalTextSplitter"
@@ -29,17 +31,23 @@ def langchain_version() -> str:
 
 
 def runtime_config_snapshot(
-    config: Settings, *, prompt_version: str = DEFAULT_PROMPT_VERSION
+    config: Settings,
+    *,
+    ai_mode: AiMode = DEFAULT_AI_MODE,
+    prompt_version: str = DEFAULT_PROMPT_VERSION,
 ) -> dict[str, Any]:
     """Build the stable LangChain portion of an execution configuration."""
 
+    profile = ai_mode_profile(ai_mode)
     return {
         "langchain_version": langchain_version(),
         "chat_provider": DEFAULT_CHAT_PROVIDER,
         "llm_model": config.llm_model,
-        "llm_evidence_thinking_enabled": config.llm_evidence_thinking_enabled,
-        "llm_answer_thinking_enabled": config.llm_answer_thinking_enabled,
-        "llm_reasoning_effort": config.llm_reasoning_effort,
+        "ai_mode": AiMode(ai_mode).value,
+        "evidence_thinking": profile.evidence_thinking,
+        "evidence_effort": profile.evidence_effort,
+        "answer_thinking": profile.answer_thinking,
+        "answer_effort": profile.answer_effort,
         "embedding_provider": config.embedding_provider,
         "embedding_model": config.embedding_model,
         "embedding_normalize": config.embedding_normalize,

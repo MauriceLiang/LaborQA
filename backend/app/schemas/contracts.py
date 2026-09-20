@@ -38,6 +38,12 @@ class AnswerStyle(StrEnum):
     LEGAL = "legal"
 
 
+class AiMode(StrEnum):
+    SPEED = "speed"
+    BALANCED = "balanced"
+    QUALITY = "quality"
+
+
 class MissingKnowledgeStatus(StrEnum):
     PENDING = "PENDING"
     RESOLVED = "RESOLVED"
@@ -152,6 +158,7 @@ class MessageItem(ApiModel):
     content: str
     rewritten_question: str | None
     answer_style: AnswerStyle | None
+    ai_mode: AiMode | None
     refused: bool | None
     created_at: UtcDateTime
     citations: list[CitationItem]
@@ -172,6 +179,7 @@ class ChatRequest(ApiModel):
         StringConstraints(strip_whitespace=True, min_length=1, max_length=2000),
     ]
     answer_style: AnswerStyle
+    ai_mode: AiMode = AiMode.BALANCED
 
 
 class ExpectedSource(ApiModel):
@@ -243,6 +251,7 @@ class EvaluationRunCreate(ApiModel):
     case_ids: list[int] | None = Field(default=None, min_length=1)
     answer_style: AnswerStyle
     case_scope: EvaluationCaseScope | None = None
+    ai_mode: AiMode = AiMode.BALANCED
 
     @model_validator(mode="after")
     def unique_case_ids(self) -> "EvaluationRunCreate":
@@ -283,9 +292,11 @@ class LangChainRuntimeConfig(ApiModel):
     langchain_version: str
     chat_provider: str
     llm_model: str
-    llm_evidence_thinking_enabled: bool
-    llm_answer_thinking_enabled: bool
-    llm_reasoning_effort: Literal["low", "high", "max"]
+    ai_mode: AiMode
+    evidence_thinking: bool
+    evidence_effort: Literal["low", "high", "max"] | None
+    answer_thinking: bool
+    answer_effort: Literal["low", "high", "max"] | None
     embedding_provider: Literal["local", "api"]
     embedding_model: str
     embedding_normalize: bool
@@ -437,6 +448,7 @@ class ExperimentCreate(ApiModel):
     case_scope: EvaluationCaseScope
     case_ids: list[int] | None = Field(default=None, min_length=1)
     answer_style: AnswerStyle = AnswerStyle.PLAIN
+    ai_mode: AiMode = AiMode.BALANCED
 
     @model_validator(mode="after")
     def unique_case_ids(self) -> "ExperimentCreate":
@@ -580,6 +592,7 @@ class RetrievalPreviewRequest(ApiModel):
     ]
     answer_style: AnswerStyle = AnswerStyle.PLAIN
     strategy_id: int
+    ai_mode: AiMode = AiMode.BALANCED
 
 
 class RetrievalTraceStage(ApiModel):

@@ -5,14 +5,15 @@ import { ArrowRight } from '@element-plus/icons-vue'
 
 import MessageList from '@/components/chat/MessageList.vue'
 import QuestionInput from '@/components/chat/QuestionInput.vue'
-import SessionHeader from '@/components/chat/SessionHeader.vue'
 import { getChatApiError, streamChat } from '@/api/chat'
 import { createSession, getSessionMessages } from '@/api/sessions'
 import { ApiError } from '@/api/http'
+import { usePreferencesStore } from '@/stores/preferences'
 import { useSessionStore } from '@/stores/session'
 import type { UiMessage } from '@/types/chat'
 
 const sessionStore = useSessionStore()
+const preferencesStore = usePreferencesStore()
 const messages = ref<UiMessage[]>([])
 const question = ref('')
 const chatError = ref('')
@@ -35,6 +36,7 @@ const suggestions = [
 onBeforeUnmount(() => {
   activeController?.abort()
   sessionStore.setStreaming(false)
+  sessionStore.setHistoryLoading(false)
   if (scrollFrame !== null) window.cancelAnimationFrame(scrollFrame)
 })
 
@@ -85,6 +87,7 @@ function handleInputCollapsed() {
 
 async function restoreSession(sessionId: string, requestId: number) {
   historyLoading.value = true
+  sessionStore.setHistoryLoading(true)
   chatError.value = ''
   try {
     const history = await getSessionMessages(sessionId)
@@ -97,6 +100,7 @@ async function restoreSession(sessionId: string, requestId: number) {
       citations: message.citations,
       toolExecutions: message.tool_executions,
       answerStyle: message.answer_style,
+      aiMode: message.ai_mode,
       refused: message.refused ?? false,
       progressText: null,
       status: 'complete',
@@ -107,7 +111,10 @@ async function restoreSession(sessionId: string, requestId: number) {
     if (error instanceof ApiError && error.code === 40402) sessionStore.clearSession()
     chatError.value = `无法恢复上次对话：${getChatApiError(error)}`
   } finally {
-    if (requestId === restoreRequestId) historyLoading.value = false
+    if (requestId === restoreRequestId) {
+      historyLoading.value = false
+      sessionStore.setHistoryLoading(false)
+    }
   }
 }
 
@@ -117,19 +124,10 @@ function resetConversation() {
   activeController = null
   streaming.value = false
   sessionStore.setStreaming(false)
+  sessionStore.setHistoryLoading(false)
   messages.value = []
   question.value = ''
   chatError.value = ''
-}
-
-async function startNewSession() {
-  if (streaming.value || historyLoading.value) return
-  const saved = await sessionStore.refreshRecentSessions()
-  if (!saved) {
-    chatError.value = `无法保存当前对话：${sessionStore.sessionsError}`
-    return
-  }
-  sessionStore.clearSession()
 }
 
 function setQuestion(value: string) {
@@ -159,6 +157,7 @@ async function sendQuestion() {
     citations: [],
     toolExecutions: [],
     answerStyle: null,
+    aiMode: preferencesStore.aiMode,
     refused: false,
     progressText: null,
     status: 'complete',
@@ -171,6 +170,7 @@ async function sendQuestion() {
     citations: [],
     toolExecutions: [],
     answerStyle: sessionStore.answerStyle,
+    aiMode: preferencesStore.aiMode,
     refused: false,
     progressText: '正在准备回答…',
     status: 'streaming',
@@ -203,6 +203,7 @@ async function sendQuestion() {
         session_id: sessionId,
         question: content,
         answer_style: sessionStore.answerStyle,
+        ai_mode: preferencesStore.aiMode,
       },
       {
         onStatus: ({ message }) => {
@@ -303,13 +304,6 @@ function useSuggestion(value: string) {
 
 <template>
   <section class="chat-page">
-    <SessionHeader
-      :session-id="sessionStore.sessionId"
-      :history-loading="historyLoading"
-      :streaming="streaming"
-      @new-session="startNewSession"
-    />
-
     <div class="chat-workspace">
       <p v-if="chatError" class="chat-error" role="alert">{{ chatError }}</p>
 

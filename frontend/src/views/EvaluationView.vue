@@ -34,7 +34,10 @@ import {
 } from '@/api/evaluations'
 import { getErrorMessage } from '@/api/http'
 import MarkdownContent from '@/components/chat/MarkdownContent.vue'
+import { usePreferencesStore } from '@/stores/preferences'
+import { aiModeLabel } from '@/types/preferences'
 
+const preferencesStore = usePreferencesStore()
 const cases = ref<EvaluationCase[]>([])
 const casePage = ref(1)
 const caseSize = ref(20)
@@ -454,6 +457,7 @@ async function createRun() {
         : null,
       answer_style: answerStyle.value,
       case_scope: caseScope.value,
+      ai_mode: preferencesStore.aiMode,
     })
     stopPolling()
     selectedRunVersion += 1
@@ -746,6 +750,7 @@ onBeforeUnmount(() => {
           <div>
             <h2 id="evaluation-create-title">创建评测批次</h2>
             <p>选择执行范围后创建后台评测批次；历史批次保留执行时的用例版本</p>
+            <p class="evaluation-mode-hint">当前 AI 模式：{{ aiModeLabel(preferencesStore.aiMode) }}（由顶部全局选择器控制）</p>
           </div>
         </div>
         <form class="evaluation-create-form" @submit.prevent="createRun">
@@ -885,6 +890,7 @@ onBeforeUnmount(() => {
           >
             官方基线 v{{ runDetail.config.baseline_version }}
           </p>
+          <p class="evaluation-detail-run-name">AI 模式：{{ aiModeLabel(runDetail?.config.ai_mode) }}</p>
         </div>
         <span class="evaluation-status" :class="statusClass(displayedStatus)">{{ formatStatus(displayedStatus) }}</span>
       </div>

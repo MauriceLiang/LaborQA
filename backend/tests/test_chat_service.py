@@ -10,7 +10,7 @@ from uuid import UUID
 
 from app.core.config import Settings
 from app.rag.decision import AnswerMode, EvidenceDecision, EvidenceJudgement
-from app.schemas.contracts import AnswerStyle, ChatRequest, MissingKnowledgeQuery
+from app.schemas.contracts import AiMode, AnswerStyle, ChatRequest, MissingKnowledgeQuery
 from app.services.chat_service import ChatService
 from app.services.compliance import COMPLIANCE_NOTICE
 from app.services.missing_knowledge import ExecutionMode, MissingKnowledgeReason
@@ -199,9 +199,6 @@ def test_configured_chat_service_builds_role_specific_models() -> None:
             llm_api_key="test-key",
             llm_base_url="https://llm.example.test/v1",
             llm_model="test-model",
-            llm_evidence_thinking_enabled=False,
-            llm_answer_thinking_enabled=True,
-            llm_reasoning_effort="max",
         )
         base_model = AsyncClientChatModel(FakeLlm())
         evidence_model = AsyncClientChatModel(FakeLlm())
@@ -218,11 +215,26 @@ def test_configured_chat_service_builds_role_specific_models() -> None:
 
         assert build_model.call_count == 3
         assert build_model.call_args_list[0].args == (config,)
+        assert build_model.call_args_list[0].kwargs == {
+            "thinking_mode": "enabled",
+            "reasoning_effort": "high",
+        }
         assert build_model.call_args_list[1].kwargs == {"thinking_mode": "disabled"}
-        assert build_model.call_args_list[2].kwargs == {"thinking_mode": "enabled"}
+        assert build_model.call_args_list[2].kwargs == {
+            "thinking_mode": "enabled",
+            "reasoning_effort": "low",
+        }
         assert service.chat_model is base_model
-        assert service.evidence_chat_model is evidence_model
-        assert service.answer_chat_model is answer_model
+        assert service.chat_models["off"] is evidence_model
+        assert service.chat_models["low"] is answer_model
+        assert service.evidence_chat_model is answer_model
+        assert service.answer_chat_model is evidence_model
+        assert service.rag_chains[AiMode.SPEED].evidence_model is evidence_model
+        assert service.rag_chains[AiMode.SPEED].answer_model is evidence_model
+        assert service.rag_chains[AiMode.BALANCED].evidence_model is answer_model
+        assert service.rag_chains[AiMode.BALANCED].answer_model is evidence_model
+        assert service.rag_chains[AiMode.QUALITY].evidence_model is base_model
+        assert service.rag_chains[AiMode.QUALITY].answer_model is base_model
 
 
 def test_rag_stream_persists_answer_and_only_retrieved_citations(caplog) -> None:
@@ -264,9 +276,11 @@ def test_rag_stream_persists_answer_and_only_retrieved_citations(caplog) -> None
         ]
         assert len(latency_logs) == 1
         latency_payload = json.loads(latency_logs[0].removeprefix("chat_latency "))
+        assert latency_payload["ai_mode"] == "balanced"
         assert latency_payload["evidence_thinking"] is True
-        assert latency_payload["answer_thinking"] is True
-        assert latency_payload["reasoning_effort"] == "high"
+        assert latency_payload["evidence_effort"] == "low"
+        assert latency_payload["answer_thinking"] is False
+        assert latency_payload["answer_effort"] is None
         assert "那公司这样解除劳动关系呢？" not in latency_logs[0]
         assert "应结合具体证据判断。建议保留书面材料。" not in latency_logs[0]
         assert "解除劳动合同应符合法定条件。" not in latency_logs[0]

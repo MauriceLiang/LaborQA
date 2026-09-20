@@ -14,12 +14,14 @@ from pydantic import SecretStr
 from app.core.config import Settings, settings
 
 ThinkingMode = Literal["default", "enabled", "disabled"]
+ReasoningEffort = Literal["low", "high", "max"]
 
 
 def build_chat_model(
     config: Settings = settings,
     *,
     thinking_mode: ThinkingMode = "default",
+    reasoning_effort: ReasoningEffort | None = None,
 ) -> BaseChatModel:
     """Build the configured OpenAI-compatible LangChain chat model."""
     from langchain_openai import ChatOpenAI
@@ -34,14 +36,19 @@ def build_chat_model(
         "use_responses_api": False,
     }
     if thinking_mode != "default":
-        kwargs.update(_deepseek_thinking_options(config, thinking_mode=thinking_mode))
+        kwargs.update(
+            _deepseek_thinking_options(
+                thinking_mode=thinking_mode,
+                reasoning_effort=reasoning_effort,
+            )
+        )
     return ChatOpenAI(**kwargs)
 
 
 def _deepseek_thinking_options(
-    config: Settings,
     *,
     thinking_mode: ThinkingMode,
+    reasoning_effort: ReasoningEffort | None = None,
 ) -> dict[str, Any]:
     if thinking_mode == "disabled":
         return {
@@ -50,7 +57,7 @@ def _deepseek_thinking_options(
         }
     if thinking_mode == "enabled":
         return {
-            "reasoning_effort": config.llm_reasoning_effort,
+            "reasoning_effort": reasoning_effort or "high",
             "extra_body": {"thinking": {"type": "enabled"}},
         }
     return {}

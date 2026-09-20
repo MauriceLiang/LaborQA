@@ -534,6 +534,11 @@ export interface components {
          * @enum {string}
          */
         AnswerStyle: "plain" | "legal";
+        /**
+         * AiMode
+         * @enum {string}
+         */
+        AiMode: "speed" | "balanced" | "quality";
         /** ApiResponse[DocumentItem] */
         ApiResponse_DocumentItem_: {
             /** Code */
@@ -774,6 +779,8 @@ export interface components {
             /** Question */
             question: string;
             answer_style: components["schemas"]["AnswerStyle"];
+            /** @default balanced */
+            ai_mode?: components["schemas"]["AiMode"];
         };
         /** ChunkItem */
         ChunkItem: {
@@ -1078,12 +1085,15 @@ export interface components {
             chat_provider: string;
             /** Llm Model */
             llm_model: string;
-            /** Llm Evidence Thinking Enabled */
-            llm_evidence_thinking_enabled: boolean;
-            /** Llm Answer Thinking Enabled */
-            llm_answer_thinking_enabled: boolean;
-            /** Llm Reasoning Effort */
-            llm_reasoning_effort: "low" | "high" | "max";
+            ai_mode: components["schemas"]["AiMode"];
+            /** Evidence Thinking */
+            evidence_thinking: boolean;
+            /** Evidence Effort */
+            evidence_effort: "low" | "high" | "max" | null;
+            /** Answer Thinking */
+            answer_thinking: boolean;
+            /** Answer Effort */
+            answer_effort: "low" | "high" | "max" | null;
             /**
              * Embedding Provider
              * @enum {string}
@@ -1157,6 +1167,8 @@ export interface components {
             case_ids?: number[] | null;
             answer_style: components["schemas"]["AnswerStyle"];
             case_scope?: components["schemas"]["EvaluationCaseScope"] | null;
+            /** @default balanced */
+            ai_mode?: components["schemas"]["AiMode"];
         };
         /** EvaluationRunDetail */
         EvaluationRunDetail: {
@@ -1307,6 +1319,8 @@ export interface components {
             case_ids?: number[] | null;
             /** @default plain */
             answer_style: components["schemas"]["AnswerStyle"];
+            /** @default balanced */
+            ai_mode?: components["schemas"]["AiMode"];
         };
         /** ExperimentDetail */
         ExperimentDetail: {
@@ -1407,12 +1421,15 @@ export interface components {
             chat_provider: string;
             /** Llm Model */
             llm_model: string;
-            /** Llm Evidence Thinking Enabled */
-            llm_evidence_thinking_enabled: boolean;
-            /** Llm Answer Thinking Enabled */
-            llm_answer_thinking_enabled: boolean;
-            /** Llm Reasoning Effort */
-            llm_reasoning_effort: "low" | "high" | "max";
+            ai_mode: components["schemas"]["AiMode"];
+            /** Evidence Thinking */
+            evidence_thinking: boolean;
+            /** Evidence Effort */
+            evidence_effort: "low" | "high" | "max" | null;
+            /** Answer Thinking */
+            answer_thinking: boolean;
+            /** Answer Effort */
+            answer_effort: "low" | "high" | "max" | null;
             /**
              * Embedding Provider
              * @enum {string}
@@ -1468,6 +1485,7 @@ export interface components {
             /** Rewritten Question */
             rewritten_question: string | null;
             answer_style: components["schemas"]["AnswerStyle"] | null;
+            ai_mode: components["schemas"]["AiMode"] | null;
             /** Refused */
             refused: boolean | null;
             /** Created At */
@@ -1594,6 +1612,8 @@ export interface components {
             answer_style: components["schemas"]["AnswerStyle"];
             /** Strategy Id */
             strategy_id: number;
+            /** @default balanced */
+            ai_mode?: components["schemas"]["AiMode"];
         };
         /** RetrievalPreviewResponse */
         RetrievalPreviewResponse: {

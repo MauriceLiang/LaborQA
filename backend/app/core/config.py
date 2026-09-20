@@ -29,9 +29,6 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_model: str = ""
-    llm_evidence_thinking_enabled: bool = True
-    llm_answer_thinking_enabled: bool = True
-    llm_reasoning_effort: Literal["low", "high", "max"] = "high"
     rag_candidate_k: int = Field(default=20, ge=5, le=50)
     rag_top_k: int = Field(default=5, ge=1, le=20)
     rag_score_threshold: float = Field(default=0.35, ge=0, le=1)

@@ -1,5 +1,6 @@
 import type { components, paths } from '@/types/api.generated'
 import { http } from '@/api/http'
+import type { AiMode } from '@/types/preferences'
 
 export type ExperimentConfig = components['schemas']['ExperimentConfig']
 export type ExperimentCaseScope = 'BUILTIN_BASELINE' | 'ALL_ACTIVE' | 'SELECTED'
@@ -10,6 +11,7 @@ export interface ExperimentCreate {
   case_scope: ExperimentCaseScope
   case_ids: number[] | null
   answer_style: 'plain' | 'legal'
+  ai_mode: AiMode
 }
 
 export interface RetrievalStrategySnapshot {
@@ -168,6 +170,7 @@ export async function previewRetrieval(payload: {
   question: string
   answer_style: 'plain' | 'legal'
   strategy_id: number
+  ai_mode: AiMode
 }): Promise<RetrievalPreview> {
   const response = await http.post<RetrievalPreview>(
     '/retrieval-experiments/preview',

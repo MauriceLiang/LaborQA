@@ -67,6 +67,7 @@ const history: MessageItem[] = [
     content: '工资拖欠怎么办？',
     rewritten_question: null,
     answer_style: null,
+    ai_mode: null,
     refused: null,
     created_at: '2026-09-15T00:00:00Z',
     citations: [],
@@ -79,6 +80,7 @@ const history: MessageItem[] = [
     content: '可以先保存工资流水等证据。',
     rewritten_question: null,
     answer_style: 'plain',
+    ai_mode: 'balanced',
     refused: false,
     created_at: '2026-09-15T00:00:01Z',
     citations: [citation],
@@ -122,7 +124,7 @@ describe('ChatView', () => {
       handlers.onSources({ items: [citation] })
       handlers.onDone({ message_id: 22, answer_style: 'plain', refused: false })
     })
-    const wrapper = mountView()
+    const { wrapper, store } = mountViewWithStore()
 
     await wrapper.get('textarea').setValue(' 公司拖欠工资，我应该怎么办？ ')
     await wrapper.get('form').trigger('submit')
@@ -134,6 +136,7 @@ describe('ChatView', () => {
         session_id: session.id,
         question: '公司拖欠工资，我应该怎么办？',
         answer_style: 'plain',
+        ai_mode: 'balanced',
       },
       expect.any(Object),
       expect.any(AbortSignal),
@@ -143,7 +146,7 @@ describe('ChatView', () => {
     expect(wrapper.text()).toContain('工资支付规定.txt')
     expect(wrapper.text()).toContain('参考资料（1）')
 
-    await wrapper.get('.new-session-button').trigger('click')
+    store.clearSession()
     await flushPromises()
     expect(localStorage.getItem('labor-rights-qa.session-id')).toBeNull()
     expect(wrapper.findAll('.message-row')).toHaveLength(0)
@@ -153,7 +156,7 @@ describe('ChatView', () => {
   it('restores a saved session and its citations on mount', async () => {
     localStorage.setItem('labor-rights-qa.session-id', session.id)
     vi.mocked(sessionsApi.getSessionMessages).mockResolvedValue(history)
-    const wrapper = mountView()
+    const { wrapper } = mountViewWithStore()
     await flushPromises()
 
     expect(sessionsApi.getSessionMessages).toHaveBeenCalledWith(session.id)
@@ -164,7 +167,7 @@ describe('ChatView', () => {
   })
 
   it('collapses and expands the question input without losing its draft', async () => {
-    const wrapper = mountView()
+    const { wrapper } = mountViewWithStore()
     await wrapper.get('textarea').setValue('保留这段问题')
 
     const collapseButton = wrapper.get('.question-input-collapse')
@@ -255,7 +258,7 @@ describe('ChatView', () => {
         refused: false,
       })
     })
-    const wrapper = mountView()
+    const { wrapper, store } = mountViewWithStore()
     const ask = async (text: string) => {
       await wrapper.get('textarea').setValue(text)
       await wrapper.get('form').trigger('submit')
@@ -280,7 +283,7 @@ describe('ChatView', () => {
     ])
     expect(sessionsApi.createSession).toHaveBeenCalledTimes(1)
 
-    await wrapper.get('.new-session-button').trigger('click')
+    store.clearSession()
     await flushPromises()
     await ask('新会话的问题')
 

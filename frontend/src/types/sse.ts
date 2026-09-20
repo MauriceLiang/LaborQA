@@ -1,4 +1,5 @@
 import type { components } from './api.generated'
+import type { AiMode } from './preferences'
 
 export type AnswerStyle = 'plain' | 'legal'
 export type CitationItem = components['schemas']['CitationItem']
@@ -26,6 +27,7 @@ export interface ChatRequest {
   session_id: string
   question: string
   answer_style: AnswerStyle
+  ai_mode: AiMode
 }
 
 export interface ChatStreamHandlers {

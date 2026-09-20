@@ -16,6 +16,7 @@ from app.repositories.session_repository import (
     SessionRepository,
 )
 from app.schemas.contracts import (
+    AiMode,
     AnswerStyle,
     CitationItem,
     MessageItem,
@@ -62,10 +63,15 @@ class SessionService:
         ]
 
     def create_user_message(
-        self, session_id: UUID | str, question: str
+        self,
+        session_id: UUID | str,
+        question: str,
+        ai_mode: AiMode | str = AiMode.BALANCED,
     ) -> dict[str, Any]:
         try:
-            row = self.repository.create_user_message(str(session_id), question)
+            row = self.repository.create_user_message(
+                str(session_id), question, ai_mode
+            )
         except SessionNotFoundError as exc:
             raise self._session_not_found() from exc
         return self._message_item(row)
@@ -82,6 +88,7 @@ class SessionService:
         refused: bool,
         citations: Sequence[Mapping[str, Any] | CitationItem],
         tool_executions: Sequence[Mapping[str, Any] | ToolExecutionItem] = (),
+        ai_mode: AiMode | str = AiMode.BALANCED,
     ) -> dict[str, Any]:
         citation_items = [
             CitationItem.model_validate(self._mapping(citation))
@@ -114,6 +121,7 @@ class SessionService:
                     for citation in citation_items
                 ],
                 [execution.model_dump(mode="json") for execution in execution_items],
+                AiMode(ai_mode).value,
             )
         except SessionNotFoundError as exc:
             raise self._session_not_found() from exc

@@ -36,7 +36,10 @@ import {
 import { getErrorMessage } from '@/api/http'
 import { getEvaluationCases, type EvaluationCase } from '@/api/evaluations'
 import MarkdownContent from '@/components/chat/MarkdownContent.vue'
+import { usePreferencesStore } from '@/stores/preferences'
+import { aiModeLabel } from '@/types/preferences'
 
+const preferencesStore = usePreferencesStore()
 const lightweightRagDefaults = {
   candidate_k: 20,
   lightweight_rerank_enabled: true,
@@ -559,6 +562,7 @@ async function runPreview() {
       question,
       answer_style: answerStyle.value || 'plain',
       strategy_id: strategyId,
+      ai_mode: preferencesStore.aiMode,
     })
     if (previewStrategyId.value === strategyId) previewResult.value = result
   } catch (error) {
@@ -592,6 +596,7 @@ async function submitExperiment() {
       case_ids: caseScope.value === 'SELECTED' ? selectedCaseIds.value : null,
       case_scope: caseScope.value,
       answer_style: answerStyle.value || 'plain',
+      ai_mode: preferencesStore.aiMode,
     })
     stopPolling()
     selectionVersion += 1
@@ -1157,6 +1162,7 @@ onBeforeUnmount(() => {
           <p v-if="detail" class="experiment-signature">
             Embedding 快照：{{ detail.embedding_signature.embedding_provider }} · {{ detail.embedding_signature.embedding_model }} · {{ detail.embedding_signature.embedding_dimension }} 维
           </p>
+          <p v-if="detail" class="experiment-signature">AI 模式：{{ aiModeLabel(detail.runtime_config.ai_mode) }}</p>
         </div>
         <span class="experiment-status" :class="statusClass(status)">{{ formatStatus(status) }}</span>
       </div>

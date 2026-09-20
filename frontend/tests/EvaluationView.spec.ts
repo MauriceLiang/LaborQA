@@ -1,3 +1,4 @@
+import { createPinia } from 'pinia'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import { ElInput, ElMessageBox, ElSelect } from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -69,9 +70,11 @@ function runDetail(
       case_scope: 'BUILTIN_BASELINE',
       baseline_version: 2,
       llm_model: 'test-model',
-      llm_evidence_thinking_enabled: true,
-      llm_answer_thinking_enabled: true,
-      llm_reasoning_effort: 'high',
+      ai_mode: 'balanced',
+      evidence_thinking: true,
+      evidence_effort: 'low',
+      answer_thinking: false,
+      answer_effort: null,
       evaluator_model: 'test-model',
       evaluator_prompt_version: 'evaluation_judge_v1',
       embedding_provider: 'local',
@@ -167,7 +170,7 @@ afterEach(() => {
 
 describe('EvaluationView', () => {
   it('loads filtered, paginated cases with the API contract values', async () => {
-    const wrapper = shallowMount(EvaluationView)
+    const wrapper = shallowMount(EvaluationView, { global: { plugins: [createPinia()] } })
     await flushPromises()
 
     expect(evaluationsApi.getEvaluationCases).toHaveBeenCalledWith({
@@ -190,7 +193,7 @@ describe('EvaluationView', () => {
   })
 
   it('creates a run for the selected IDs and uses null when no case is selected', async () => {
-    const wrapper = shallowMount(EvaluationView)
+    const wrapper = shallowMount(EvaluationView, { global: { plugins: [createPinia()] } })
     await flushPromises()
 
     await wrapper.findAllComponents(ElInput)[1].vm.$emit('update:modelValue', '工资回归')
@@ -201,7 +204,7 @@ describe('EvaluationView', () => {
     await wrapper.get('.evaluation-create-form').trigger('submit')
     await flushPromises()
     expect(evaluationsApi.createEvaluationRun).toHaveBeenCalledWith({
-      name: '工资回归', case_ids: null, answer_style: 'legal', case_scope: 'BUILTIN_BASELINE',
+      name: '工资回归', case_ids: null, answer_style: 'legal', case_scope: 'BUILTIN_BASELINE', ai_mode: 'balanced',
     })
 
     vi.mocked(evaluationsApi.createEvaluationRun).mockResolvedValueOnce({
@@ -216,7 +219,7 @@ describe('EvaluationView', () => {
     await wrapper.get('.evaluation-create-form').trigger('submit')
     await flushPromises()
     expect(evaluationsApi.createEvaluationRun).toHaveBeenLastCalledWith({
-      name: '指定用例', case_ids: [3], answer_style: 'legal', case_scope: 'SELECTED',
+      name: '指定用例', case_ids: [3], answer_style: 'legal', case_scope: 'SELECTED', ai_mode: 'balanced',
     })
     wrapper.unmount()
   })
@@ -230,7 +233,7 @@ describe('EvaluationView', () => {
       .mockResolvedValueOnce(runDetail('RUNNING', 8, 60))
       .mockResolvedValueOnce(runDetail('COMPLETED', 60, 60))
 
-    const wrapper = shallowMount(EvaluationView)
+    const wrapper = shallowMount(EvaluationView, { global: { plugins: [createPinia()] } })
     await flushPromises()
     expect(evaluationsApi.getEvaluationRun).not.toHaveBeenCalled()
     expect(wrapper.find('.evaluation-detail-panel').exists()).toBe(false)
@@ -302,7 +305,7 @@ describe('EvaluationView', () => {
     })
     vi.mocked(evaluationsApi.getEvaluationRun).mockResolvedValue(detail)
 
-    const wrapper = shallowMount(EvaluationView)
+    const wrapper = shallowMount(EvaluationView, { global: { plugins: [createPinia()] } })
     await flushPromises()
     await wrapper.get('.evaluation-link').trigger('click')
     await flushPromises()
@@ -327,7 +330,7 @@ describe('EvaluationView', () => {
     })
     vi.mocked(evaluationsApi.getEvaluationRun).mockResolvedValue(detail)
 
-    const wrapper = shallowMount(EvaluationView)
+    const wrapper = shallowMount(EvaluationView, { global: { plugins: [createPinia()] } })
     await flushPromises()
     await wrapper.get('.evaluation-link').trigger('click')
     await flushPromises()
@@ -352,7 +355,7 @@ describe('EvaluationView', () => {
         items: [], page: 1, size: 10, total: 0, pages: 0,
       })
     const confirm = vi.spyOn(ElMessageBox, 'confirm').mockRejectedValueOnce(new Error('cancel'))
-    const wrapper = shallowMount(EvaluationView)
+    const wrapper = shallowMount(EvaluationView, { global: { plugins: [createPinia()] } })
     await flushPromises()
 
     await wrapper.get('.evaluation-run-delete').trigger('click')
