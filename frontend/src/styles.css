@@ -801,23 +801,15 @@ input {
   box-shadow: 0 13px 28px rgb(31 68 54 / 16%);
 }
 
-.ai-mode-popper.el-popper::before {
-  position: absolute;
-  top: -6px;
-  left: 50%;
-  width: 11px;
-  height: 11px;
-  content: '';
-  background: #fff;
-  border-top: 1px solid #dbe7df;
-  border-left: 1px solid #dbe7df;
-  transform: translateX(-50%) rotate(45deg);
-}
-
 .ai-mode-popper .el-dropdown-menu {
   padding: 0;
   background: transparent;
   box-shadow: none;
+}
+
+.ai-mode-popper.el-popper .el-popper__arrow::before {
+  background: #fff;
+  border-color: #dbe7df;
 }
 
 .ai-mode-option {
