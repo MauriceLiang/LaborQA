@@ -29,8 +29,13 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_model: str = ""
+    rag_candidate_k: int = Field(default=20, ge=5, le=50)
     rag_top_k: int = Field(default=5, ge=1, le=20)
     rag_score_threshold: float = Field(default=0.35, ge=0, le=1)
+    lightweight_rerank_enabled: bool = True
+    rag_neighbor_expand_top_n: int = Field(default=3, ge=0, le=10)
+    rag_neighbor_radius: int = Field(default=1, ge=0, le=2)
+    rag_evidence_limit: int = Field(default=10, ge=5, le=20)
     rerank_enabled: bool = False
     rerank_top_n: int = Field(default=5, ge=1, le=20)
     default_answer_style: Literal["plain", "legal"] = "plain"
@@ -47,8 +52,20 @@ class Settings(BaseSettings):
     def require_api_embedding_settings(self) -> "Settings":
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("CHUNK_OVERLAP must be less than CHUNK_SIZE")
-        if self.rerank_enabled and self.rerank_top_n > self.rag_top_k:
-            raise ValueError("RERANK_TOP_N must be less than or equal to RAG_TOP_K")
+        if self.rag_top_k > self.rag_candidate_k:
+            raise ValueError("RAG_TOP_K must be less than or equal to RAG_CANDIDATE_K")
+        if self.rag_evidence_limit < self.rag_top_k:
+            raise ValueError(
+                "RAG_EVIDENCE_LIMIT must be greater than or equal to RAG_TOP_K"
+            )
+        if self.rag_neighbor_expand_top_n > self.rag_top_k:
+            raise ValueError(
+                "RAG_NEIGHBOR_EXPAND_TOP_N must be less than or equal to RAG_TOP_K"
+            )
+        if self.rerank_enabled and self.rerank_top_n > self.rag_candidate_k:
+            raise ValueError(
+                "RERANK_TOP_N must be less than or equal to RAG_CANDIDATE_K"
+            )
         if self.embedding_provider == "api" and not all(
             (self.embedding_api_key, self.embedding_base_url, self.embedding_api_model)
         ):

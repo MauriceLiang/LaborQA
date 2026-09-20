@@ -135,6 +135,7 @@ def _configs() -> list[ExperimentConfig]:
             rerank_enabled=False,
             rerank_top_n=5,
             score_threshold=0,
+            evidence_limit=20,
         ),
         ExperimentConfig(
             chunk_size=120,
@@ -143,6 +144,7 @@ def _configs() -> list[ExperimentConfig]:
             rerank_enabled=False,
             rerank_top_n=5,
             score_threshold=0,
+            evidence_limit=20,
         ),
     ]
 
@@ -163,6 +165,7 @@ def _make_environment(
         chunk_size=600,
         chunk_overlap=100,
         rag_top_k=20,
+        rag_evidence_limit=20,
         rerank_enabled=False,
         local_embedding_model="offline-test-embedding",
         embedding_batch_size=8,
@@ -265,7 +268,10 @@ def test_preview_loads_strategy_and_returns_identity(tmp_path: Path) -> None:
     assert [stage["stage"] for stage in result["trace"]] == [
         "文本分块",
         "初步召回",
+        "轻量重排",
         "重排",
+        "最终 Top-K",
+        "上下文扩展",
         "相似度阈值",
         "证据充分性",
         "Tool 决策",
@@ -351,6 +357,7 @@ def test_experiment_snapshot_keeps_strategy_version_after_strategy_update(
                 rerank_enabled=True,
                 rerank_top_n=5,
                 score_threshold=0.2,
+                evidence_limit=20,
             ),
         ),
     )

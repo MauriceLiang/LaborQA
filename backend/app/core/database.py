@@ -20,6 +20,7 @@ def initialize_database() -> None:
         connection.execute("PRAGMA foreign_keys = ON")
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         _migrate_document_schema(connection)
+        _migrate_citation_schema(connection)
         _migrate_evaluation_schema(connection)
         _migrate_retrieval_experiment_schema(connection)
         _migrate_retrieval_strategy_schema(connection)
@@ -87,6 +88,21 @@ def _migrate_document_schema(connection: sqlite3.Connection) -> None:
         raise
     finally:
         connection.execute("PRAGMA foreign_keys = ON")
+
+
+def _migrate_citation_schema(connection: sqlite3.Connection) -> None:
+    """Add lightweight retrieval metadata to citations from older databases."""
+
+    columns = _table_columns(connection, "citation")
+    additions = {
+        "lexical_score": "REAL NOT NULL DEFAULT 0",
+        "source_score": "REAL NOT NULL DEFAULT 0",
+        "lightweight_score": "REAL NOT NULL DEFAULT 0",
+        "evidence_origin": "VARCHAR(20) NOT NULL DEFAULT 'RETRIEVED'",
+    }
+    for column, definition in additions.items():
+        if column not in columns:
+            connection.execute(f"ALTER TABLE citation ADD COLUMN {column} {definition}")
 
 
 def _migrate_evaluation_schema(connection: sqlite3.Connection) -> None:

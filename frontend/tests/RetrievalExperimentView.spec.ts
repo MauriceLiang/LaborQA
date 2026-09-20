@@ -35,12 +35,12 @@ vi.mock('@/api/evaluations', () => ({
 }))
 
 const configs = [
-  { chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 },
-  { chunk_size: 400, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 },
-  { chunk_size: 800, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 },
-  { chunk_size: 600, chunk_overlap: 100, top_k: 3, rerank_enabled: false, rerank_top_n: 3, score_threshold: 0.35 },
-  { chunk_size: 600, chunk_overlap: 100, top_k: 8, rerank_enabled: false, rerank_top_n: 8, score_threshold: 0.35 },
-  { chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: true, rerank_top_n: 5, score_threshold: 0.35 },
+  { candidate_k: 20, lightweight_rerank_enabled: true, neighbor_expand_top_n: 3, neighbor_radius: 1, evidence_limit: 10, chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 },
+  { candidate_k: 20, lightweight_rerank_enabled: true, neighbor_expand_top_n: 3, neighbor_radius: 1, evidence_limit: 10, chunk_size: 400, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 },
+  { candidate_k: 20, lightweight_rerank_enabled: true, neighbor_expand_top_n: 3, neighbor_radius: 1, evidence_limit: 10, chunk_size: 800, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 },
+  { candidate_k: 20, lightweight_rerank_enabled: true, neighbor_expand_top_n: 3, neighbor_radius: 1, evidence_limit: 10, chunk_size: 600, chunk_overlap: 100, top_k: 3, rerank_enabled: false, rerank_top_n: 3, score_threshold: 0.35 },
+  { candidate_k: 20, lightweight_rerank_enabled: true, neighbor_expand_top_n: 3, neighbor_radius: 1, evidence_limit: 10, chunk_size: 600, chunk_overlap: 100, top_k: 8, rerank_enabled: false, rerank_top_n: 8, score_threshold: 0.35 },
+  { candidate_k: 20, lightweight_rerank_enabled: true, neighbor_expand_top_n: 3, neighbor_radius: 1, evidence_limit: 10, chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: true, rerank_top_n: 5, score_threshold: 0.35 },
 ]
 
 function strategyFixtures(): experimentsApi.RetrievalStrategy[] {
@@ -126,6 +126,10 @@ function experimentDetail(status: experimentsApi.ExperimentDetail['status'] = 'C
         retrieval_score: 0.8,
         rerank_score: 0.9,
         rank_no: 1,
+        lexical_score: 0,
+        source_score: 0,
+        lightweight_score: 0,
+        evidence_origin: 'RETRIEVED',
       }],
       source_hit: true,
       correct: true,

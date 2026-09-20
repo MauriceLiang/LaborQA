@@ -808,6 +808,27 @@ export interface components {
             rerank_score: number | null;
             /** Rank No */
             rank_no: number;
+            /**
+             * Lexical Score
+             * @default 0
+             */
+            lexical_score: number;
+            /**
+             * Source Score
+             * @default 0
+             */
+            source_score: number;
+            /**
+             * Lightweight Score
+             * @default 0
+             */
+            lightweight_score: number;
+            /**
+             * Evidence Origin
+             * @default RETRIEVED
+             * @enum {string}
+             */
+            evidence_origin: "RETRIEVED" | "NEIGHBOR";
         };
         /** CreateSessionRequest */
         CreateSessionRequest: {
@@ -1051,6 +1072,31 @@ export interface components {
             rerank_enabled: boolean;
             /** Score Threshold */
             score_threshold: number;
+            /**
+             * Candidate K
+             * @default 20
+             */
+            candidate_k: number;
+            /**
+             * Lightweight Rerank Enabled
+             * @default true
+             */
+            lightweight_rerank_enabled: boolean;
+            /**
+             * Neighbor Expand Top N
+             * @default 3
+             */
+            neighbor_expand_top_n: number;
+            /**
+             * Neighbor Radius
+             * @default 1
+             */
+            neighbor_radius: number;
+            /**
+             * Evidence Limit
+             * @default 10
+             */
+            evidence_limit: number;
         };
         /** EvaluationRunCreate */
         EvaluationRunCreate: {
@@ -1154,6 +1200,31 @@ export interface components {
             rerank_top_n: number;
             /** Score Threshold */
             score_threshold: number;
+            /**
+             * Candidate K
+             * @default 20
+             */
+            candidate_k: number;
+            /**
+             * Lightweight Rerank Enabled
+             * @default true
+             */
+            lightweight_rerank_enabled: boolean;
+            /**
+             * Neighbor Expand Top N
+             * @default 3
+             */
+            neighbor_expand_top_n: number;
+            /**
+             * Neighbor Radius
+             * @default 1
+             */
+            neighbor_radius: number;
+            /**
+             * Evidence Limit
+             * @default 10
+             */
+            evidence_limit: number;
         };
         /** ExperimentConfigResult */
         ExperimentConfigResult: {

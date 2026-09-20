@@ -321,6 +321,12 @@ def _evidence_from_document(document: Document) -> dict[str, Any]:
         "score": float(metadata["score"]),
         "retrieval_score": float(metadata["retrieval_score"]),
         "rerank_score": metadata.get("rerank_score"),
+        "lexical_score": float(metadata.get("lexical_score", 0.0)),
+        "source_score": float(metadata.get("source_score", 0.0)),
+        "lightweight_score": float(
+            metadata.get("lightweight_score", metadata["retrieval_score"])
+        ),
+        "evidence_origin": str(metadata.get("evidence_origin", "RETRIEVED")),
         "rank_no": int(metadata["rank_no"]),
     }
 

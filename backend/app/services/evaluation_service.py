@@ -199,7 +199,12 @@ class EvaluationService:
             "evaluator_prompt_version": _EVALUATOR_PROMPT_VERSION,
             "chunk_size": self.config.chunk_size,
             "chunk_overlap": self.config.chunk_overlap,
+            "candidate_k": self.config.rag_candidate_k,
             "top_k": self.config.rag_top_k,
+            "lightweight_rerank_enabled": self.config.lightweight_rerank_enabled,
+            "neighbor_expand_top_n": self.config.rag_neighbor_expand_top_n,
+            "neighbor_radius": self.config.rag_neighbor_radius,
+            "evidence_limit": self.config.rag_evidence_limit,
             "rerank_enabled": self.config.rerank_enabled,
             "score_threshold": self.config.rag_score_threshold,
         }

@@ -9,6 +9,7 @@ from app.schemas.common import ApiModel, PageQuery, UtcDateTime
 
 Score = Annotated[float, Field(ge=0, le=1)]
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
+EvidenceOrigin = Literal["RETRIEVED", "NEIGHBOR"]
 
 
 class FileType(StrEnum):
@@ -120,6 +121,10 @@ class CitationItem(ApiModel):
     retrieval_score: Score
     rerank_score: Score | None
     rank_no: int
+    lexical_score: Score = 0.0
+    source_score: Score = 0.0
+    lightweight_score: Score = 0.0
+    evidence_origin: EvidenceOrigin = "RETRIEVED"
 
 
 class MaterialChecklistInput(ApiModel):
@@ -298,6 +303,11 @@ class EvaluationRunConfig(LangChainRuntimeConfig):
     top_k: int
     rerank_enabled: bool
     score_threshold: Score
+    candidate_k: int = Field(default=20, ge=5, le=50)
+    lightweight_rerank_enabled: bool = True
+    neighbor_expand_top_n: int = Field(default=3, ge=0, le=10)
+    neighbor_radius: int = Field(default=1, ge=0, le=2)
+    evidence_limit: int = Field(default=10, ge=5, le=20)
 
 
 class EvaluationResultItem(ApiModel):
@@ -367,13 +377,28 @@ class ExperimentConfig(ApiModel):
     rerank_enabled: bool
     rerank_top_n: int = Field(ge=1)
     score_threshold: Score
+    candidate_k: int = Field(default=20, ge=5, le=50)
+    lightweight_rerank_enabled: bool = True
+    neighbor_expand_top_n: int = Field(default=3, ge=0, le=10)
+    neighbor_radius: int = Field(default=1, ge=0, le=2)
+    evidence_limit: int = Field(default=10, ge=5, le=20)
 
     @model_validator(mode="after")
     def validate_relationships(self) -> "ExperimentConfig":
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("chunk_overlap must be less than chunk_size")
-        if self.rerank_top_n > self.top_k:
-            raise ValueError("rerank_top_n must be less than or equal to top_k")
+        if self.top_k > self.candidate_k:
+            raise ValueError("top_k must be less than or equal to candidate_k")
+        if self.evidence_limit < self.top_k:
+            raise ValueError("evidence_limit must be greater than or equal to top_k")
+        if self.neighbor_expand_top_n > self.top_k:
+            raise ValueError(
+                "neighbor_expand_top_n must be less than or equal to top_k"
+            )
+        if self.rerank_enabled and self.rerank_top_n > self.candidate_k:
+            raise ValueError(
+                "rerank_top_n must be less than or equal to candidate_k"
+            )
         return self
 
 

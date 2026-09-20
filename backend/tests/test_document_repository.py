@@ -79,6 +79,38 @@ def test_foreign_keys_are_enabled_for_every_repository_connection(
         repository.insert_chunks(999999, [{"chunk_no": 1, "content": "孤立 chunk"}])
 
 
+def test_neighbor_chunks_are_limited_to_the_same_successful_document(
+    repository: DocumentRepository,
+) -> None:
+    first = repository.create_document(
+        file_name="第一份资料.md", file_type="md", file_path="/tmp/first.md"
+    )
+    second = repository.create_document(
+        file_name="第二份资料.md", file_type="md", file_path="/tmp/second.md"
+    )
+    repository.update_document(first["id"], status="SUCCESS", chunk_count=3)
+    repository.update_document(second["id"], status="SUCCESS", chunk_count=1)
+    repository.insert_chunks(
+        first["id"],
+        [
+            {"chunk_no": 10, "content": "第一份前文"},
+            {"chunk_no": 11, "content": "第一份主文"},
+            {"chunk_no": 12, "content": "第一份后文"},
+        ],
+    )
+    repository.insert_chunks(
+        second["id"], [{"chunk_no": 11, "content": "第二份同号文"}]
+    )
+
+    neighbors = repository.get_neighbor_chunks(first["id"], 11, radius=1)
+
+    assert [chunk["content"] for chunk in neighbors] == [
+        "第一份前文",
+        "第一份主文",
+        "第一份后文",
+    ]
+
+
 def test_chunk_insert_is_transactional_on_unique_number_conflict(
     repository: DocumentRepository,
 ) -> None:

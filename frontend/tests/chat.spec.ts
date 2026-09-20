@@ -29,6 +29,10 @@ const citation: CitationItem = {
   retrieval_score: 0.84,
   rerank_score: null,
   rank_no: 1,
+  lexical_score: 0,
+  source_score: 0,
+  lightweight_score: 0,
+  evidence_origin: 'RETRIEVED',
 }
 
 const handlers: ChatStreamHandlers = {

@@ -46,6 +46,11 @@ CREATE TABLE IF NOT EXISTS citation (
     score REAL NOT NULL CHECK (score >= 0 AND score <= 1),
     retrieval_score REAL NOT NULL CHECK (retrieval_score >= 0 AND retrieval_score <= 1),
     rerank_score REAL CHECK (rerank_score IS NULL OR (rerank_score >= 0 AND rerank_score <= 1)),
+    lexical_score REAL NOT NULL DEFAULT 0 CHECK (lexical_score >= 0 AND lexical_score <= 1),
+    source_score REAL NOT NULL DEFAULT 0 CHECK (source_score >= 0 AND source_score <= 1),
+    lightweight_score REAL NOT NULL DEFAULT 0 CHECK (lightweight_score >= 0 AND lightweight_score <= 1),
+    evidence_origin VARCHAR(20) NOT NULL DEFAULT 'RETRIEVED'
+        CHECK (evidence_origin IN ('RETRIEVED', 'NEIGHBOR')),
     rank_no INTEGER NOT NULL CHECK (rank_no >= 1),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

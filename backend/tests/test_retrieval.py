@@ -113,7 +113,11 @@ class FakeCrossEncoder:
 
 
 def test_retrieval_maps_only_successful_chunks_and_preserves_faiss_order() -> None:
-    config = Settings(database_url="sqlite:////tmp/retrieval-test.db", rag_top_k=4)
+    config = Settings(
+        database_url="sqlite:////tmp/retrieval-test.db",
+        rag_candidate_k=5,
+        rag_top_k=4,
+    )
     embedding = FakeEmbedding()
     vector_store = FakeVectorStore()
     repository = FakeRepository()
@@ -128,7 +132,7 @@ def test_retrieval_maps_only_successful_chunks_and_preserves_faiss_order() -> No
 
     assert embedding.query == "测试问题"
     assert vector_store.query_vector == [0.1, 0.2]
-    assert vector_store.top_k == 4
+    assert vector_store.top_k == 5
     assert repository.requested_chunk_ids == [2, 99, 1]
     assert repository.list_success_chunks_calls == 0
     assert [item["chunk_id"] for item in evidence] == [2, 1]
@@ -145,6 +149,7 @@ def test_domain_retrieval_uses_langchain_vectorstore_retriever_and_sqlite_source
         _env_file=None,
         database_url="sqlite:////tmp/domain-retrieval-test.db",
         rag_top_k=2,
+        rag_neighbor_expand_top_n=2,
         faiss_dir=tmp_path / "faiss",
     )
     vector_store = VectorStoreService(
@@ -236,3 +241,118 @@ def test_rerank_failure_keeps_vector_order_and_original_scores() -> None:
     assert [item["chunk_id"] for item in evidence] == [2, 1]
     assert [item["rerank_score"] for item in evidence] == [None, None]
     assert [item["score"] for item in evidence] == [0.91, 0.72]
+
+
+def test_lightweight_retrieval_does_not_load_heavy_reranker(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_if_loaded(*_: Any, **__: Any) -> Any:
+        raise AssertionError("CrossEncoder must not load when disabled")
+
+    monkeypatch.setattr("app.services.rerank._load_cross_encoder", fail_if_loaded)
+    config = Settings(
+        _env_file=None,
+        database_url="sqlite:////tmp/retrieval-lightweight-test.db",
+        rag_candidate_k=5,
+        rag_top_k=2,
+        rag_neighbor_expand_top_n=0,
+        lightweight_rerank_enabled=True,
+        rerank_enabled=False,
+    )
+
+    service = RetrievalService(
+        config,
+        repository=FakeRepository(),
+        embedding_service=FakeEmbedding(),
+        vector_store=FakeVectorStore(),
+    )
+
+    evidence = service.retrieve("测试问题")
+
+    assert len(evidence) == 2
+    assert all(item["lightweight_score"] >= 0 for item in evidence)
+
+
+def test_neighbor_expansion_keeps_main_top_k_and_stays_in_same_document() -> None:
+    class NeighborRepository(FakeRepository):
+        def _chunks(self) -> list[dict[str, Any]]:
+            return [
+                {
+                    "id": 1,
+                    "document_id": 2,
+                    "file_name": "08_辅助案例与政策解读.md",
+                    "chunk_no": 11,
+                    "content": "文档二主片段",
+                },
+                {
+                    "id": 2,
+                    "document_id": 1,
+                    "file_name": "01_劳动关系与劳动合同.md",
+                    "chunk_no": 11,
+                    "content": "文档一主片段",
+                },
+                {
+                    "id": 10,
+                    "document_id": 1,
+                    "file_name": "01_劳动关系与劳动合同.md",
+                    "chunk_no": 10,
+                    "content": "文档一前置片段",
+                },
+                {
+                    "id": 12,
+                    "document_id": 1,
+                    "file_name": "01_劳动关系与劳动合同.md",
+                    "chunk_no": 12,
+                    "content": "文档一后续片段",
+                },
+                {
+                    "id": 20,
+                    "document_id": 2,
+                    "file_name": "08_辅助案例与政策解读.md",
+                    "chunk_no": 12,
+                    "content": "文档二邻接片段",
+                },
+            ]
+
+        def get_neighbor_chunks(
+            self,
+            document_id: int,
+            chunk_no: int,
+            *,
+            radius: int = 1,
+        ) -> list[dict[str, Any]]:
+            return [
+                chunk
+                for chunk in self._chunks()
+                if chunk["document_id"] == document_id
+                and abs(chunk["chunk_no"] - chunk_no) <= radius
+            ]
+
+    config = Settings(
+        _env_file=None,
+        database_url="sqlite:////tmp/retrieval-neighbor-test.db",
+        rag_candidate_k=5,
+        rag_top_k=2,
+        rag_neighbor_expand_top_n=1,
+        rag_neighbor_radius=1,
+        rag_evidence_limit=5,
+        lightweight_rerank_enabled=True,
+        rerank_enabled=False,
+    )
+    service = RetrievalService(
+        config,
+        repository=NeighborRepository(),
+        embedding_service=FakeEmbedding(),
+        vector_store=FakeVectorStore(),
+    )
+
+    evidence = service.retrieve("测试问题")
+
+    assert [item["chunk_id"] for item in evidence] == [2, 1, 10, 12]
+    assert [item["evidence_origin"] for item in evidence] == [
+        "RETRIEVED",
+        "RETRIEVED",
+        "NEIGHBOR",
+        "NEIGHBOR",
+    ]
+    assert all(item["document_id"] == 1 for item in evidence[2:])
