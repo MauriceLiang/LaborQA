@@ -96,6 +96,9 @@ function runDetail(
       reject_rate: 0.2,
       refusal_rate: 0.1,
       citation_hit_rate: 0.8,
+      retrieval_hit_rate: 0.85,
+      context_retention_rate: 0.75,
+      execution_success_rate: 1,
       multi_turn_pass_rate: 0.75,
       compliance_hit_rate: 1,
     } : null,
@@ -106,6 +109,8 @@ function runDetail(
       refused: false,
       correct: true,
       source_hit: true,
+      retrieval_hit: true,
+      context_retained: null,
       multi_turn_correct: null,
       compliance_hit: true,
       answer_mode: 'RAG_ANSWER',
@@ -253,7 +258,7 @@ describe('EvaluationView', () => {
     expect(wrapper.text()).toContain('回答正确率')
     expect(wrapper.text()).toContain('90.0%')
     expect(wrapper.text()).toContain('应拒答命中率')
-    expect(wrapper.text()).toContain('实际拒答率')
+    expect(wrapper.text()).toContain('实际拒答占比')
     expect(wrapper.text()).toContain('10.0%')
     expect(wrapper.text()).toContain('多轮通过率')
     expect(wrapper.text()).not.toContain('此批次没有可计算的指标。')
@@ -283,6 +288,9 @@ describe('EvaluationView', () => {
       reject_rate: null,
       refusal_rate: null,
       citation_hit_rate: 0.65,
+      retrieval_hit_rate: null,
+      context_retention_rate: null,
+      execution_success_rate: 1,
       multi_turn_pass_rate: null,
       compliance_hit_rate: null,
     }

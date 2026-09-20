@@ -125,6 +125,8 @@ class CitationItem(ApiModel):
     source_score: Score = 0.0
     lightweight_score: Score = 0.0
     evidence_origin: EvidenceOrigin = "RETRIEVED"
+    anchor_chunk_id: int | None = None
+    anchor_retrieval_score: Score | None = None
 
 
 class MaterialChecklistInput(ApiModel):
@@ -310,6 +312,22 @@ class EvaluationRunConfig(LangChainRuntimeConfig):
     evidence_limit: int = Field(default=10, ge=5, le=20)
 
 
+class EvaluationTurnDiagnostic(ApiModel):
+    turn_no: int = Field(ge=1)
+    question: str
+    rewritten_question: str
+    answer: str
+    refused: bool
+    answer_mode: Literal["RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"] | None
+    evidence_decision: Literal["SUFFICIENT", "PARTIAL", "INSUFFICIENT"] | None
+    evidence_reason: str | None
+    supported_points: list[str] = Field(default_factory=list)
+    missing_points: list[str] = Field(default_factory=list)
+    retrieved_sources: list[CitationItem]
+    citations: list[CitationItem]
+    retrieval_ms: int = Field(ge=0)
+
+
 class EvaluationResultItem(ApiModel):
     case_id: int
     status: Literal["COMPLETED", "FAILED"]
@@ -317,6 +335,8 @@ class EvaluationResultItem(ApiModel):
     refused: bool | None
     correct: bool | None
     source_hit: bool | None
+    retrieval_hit: bool | None
+    context_retained: bool | None
     multi_turn_correct: bool | None
     compliance_hit: bool | None
     answer_mode: Literal["RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"] | None
@@ -325,6 +345,7 @@ class EvaluationResultItem(ApiModel):
     matched_points: list[str] = Field(default_factory=list)
     missing_points: list[str] = Field(default_factory=list)
     contradictions: list[str] = Field(default_factory=list)
+    turn_diagnostics: list[EvaluationTurnDiagnostic] = Field(default_factory=list)
     citations: list[CitationItem]
     latency_ms: int | None
     error_message: str | None
@@ -335,6 +356,9 @@ class EvaluationMetrics(ApiModel):
     reject_rate: Score | None
     refusal_rate: Score | None
     citation_hit_rate: Score | None
+    retrieval_hit_rate: Score | None
+    context_retention_rate: Score | None
+    execution_success_rate: Score | None
     multi_turn_pass_rate: Score | None
     compliance_hit_rate: Score | None
 

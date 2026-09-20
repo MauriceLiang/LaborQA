@@ -106,6 +106,8 @@ def test_history_is_session_scoped_and_aggregates_sources_and_tools(
                 "source_score": 0.6,
                 "lightweight_score": 0.695,
                 "evidence_origin": "NEIGHBOR",
+                "anchor_chunk_id": None,
+                "anchor_retrieval_score": None,
                 "rank_no": 1,
             }
         ],
@@ -143,6 +145,8 @@ def test_history_is_session_scoped_and_aggregates_sources_and_tools(
             "source_score": 0.6,
             "lightweight_score": 0.695,
             "evidence_origin": "NEIGHBOR",
+            "anchor_chunk_id": None,
+            "anchor_retrieval_score": None,
             "rank_no": 1,
         }
     ]

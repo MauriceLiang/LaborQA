@@ -348,11 +348,13 @@ def test_neighbor_expansion_keeps_main_top_k_and_stays_in_same_document() -> Non
 
     evidence = service.retrieve("测试问题")
 
-    assert [item["chunk_id"] for item in evidence] == [2, 1, 10, 12]
+    assert [item["chunk_id"] for item in evidence] == [2, 10, 12, 1]
     assert [item["evidence_origin"] for item in evidence] == [
         "RETRIEVED",
+        "NEIGHBOR",
+        "NEIGHBOR",
         "RETRIEVED",
-        "NEIGHBOR",
-        "NEIGHBOR",
     ]
-    assert all(item["document_id"] == 1 for item in evidence[2:])
+    assert all(item["document_id"] == 1 for item in evidence[:3])
+    assert evidence[1]["anchor_chunk_id"] == 2
+    assert evidence[1]["anchor_retrieval_score"] == pytest.approx(0.91)

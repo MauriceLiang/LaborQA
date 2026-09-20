@@ -36,7 +36,7 @@ from app.services.vector_store import (
 )
 
 logger = logging.getLogger(__name__)
-_EVALUATOR_PROMPT_VERSION = "evaluation_judge_v1"
+_EVALUATOR_PROMPT_VERSION = "evaluation_judge_v2"
 _RESTART_ERROR = "服务重启导致任务中断"
 
 
@@ -294,10 +294,9 @@ class EvaluationService:
     ) -> dict[str, Any]:
         history: list[dict[str, str]] = []
         outputs: list[dict[str, Any]] = []
-        citations: list[dict[str, Any]] = []
-        seen_chunks: set[int] = set()
+        turn_diagnostics: list[dict[str, Any]] = []
         latency_ms = 0
-        for question in case["turns"]:
+        for turn_no, question in enumerate(case["turns"], start=1):
             output = await self.chat_service.answer_once(
                 question,
                 history,
@@ -305,6 +304,27 @@ class EvaluationService:
                 mode=ExecutionMode.EVALUATION,
             )
             outputs.append(output)
+            retrieved_sources = output.get(
+                "retrieved_sources", output.get("citations", [])
+            )
+            citations = output.get("citations", [])
+            turn_diagnostics.append(
+                {
+                    "turn_no": turn_no,
+                    "question": question,
+                    "rewritten_question": output.get("rewritten_question", question),
+                    "answer": output.get("answer", ""),
+                    "refused": bool(output.get("refused", False)),
+                    "answer_mode": output.get("answer_mode"),
+                    "evidence_decision": output.get("evidence_decision"),
+                    "evidence_reason": output.get("evidence_reason"),
+                    "supported_points": output.get("supported_points", []),
+                    "missing_points": output.get("missing_points", []),
+                    "retrieved_sources": retrieved_sources,
+                    "citations": citations,
+                    "retrieval_ms": int(output.get("retrieval_ms", 0)),
+                }
+            )
             history.extend(
                 [
                     {"role": "user", "content": question},
@@ -312,20 +332,20 @@ class EvaluationService:
                 ]
             )
             latency_ms += output["retrieval_ms"]
-            for citation in output["citations"]:
-                chunk_id = int(citation["chunk_id"])
-                if chunk_id not in seen_chunks:
-                    citations.append(citation)
-                    seen_chunks.add(chunk_id)
 
         final = outputs[-1]
         refused = final["refused"]
+        final_retrieved_sources = final.get(
+            "retrieved_sources", final.get("citations", [])
+        )
+        final_citations = final.get("citations", [])
         judge_reason: str | None = None
         matched_points: list[str] = []
         missing_points: list[str] = []
         contradictions: list[str] = []
+        context_retained: bool | None = None
         if case["expected_type"] == "REJECT":
-            correct = refused and not final["citations"]
+            correct = refused and not final_citations
             multi_turn_correct = None
         else:
             judgement = await self.judge_answer(case, final)
@@ -334,6 +354,7 @@ class EvaluationService:
             matched_points = judgement["matched_points"]
             missing_points = judgement["missing_points"]
             contradictions = judgement["contradictions"]
+            context_retained = judgement["context_retained"]
             multi_turn_correct = (
                 correct and judgement["context_retained"]
                 if len(case["turns"]) > 1
@@ -341,15 +362,11 @@ class EvaluationService:
             )
 
         source_hit = None
+        retrieval_hit = None
         if case["expected_sources"]:
-            source_hit = any(
-                actual["file_name"] == expected["file_name"]
-                and (
-                    expected["chunk_no"] is None
-                    or actual["chunk_no"] == expected["chunk_no"]
-                )
-                for actual in citations
-                for expected in case["expected_sources"]
+            source_hit = _source_matches(final_citations, case["expected_sources"])
+            retrieval_hit = _source_matches(
+                final_retrieved_sources, case["expected_sources"]
             )
         compliance_hit = (
             bool(final["compliance_shown"]) if case["should_show_compliance"] else None
@@ -361,6 +378,8 @@ class EvaluationService:
             "refused": refused,
             "correct": correct,
             "source_hit": source_hit,
+            "retrieval_hit": retrieval_hit,
+            "context_retained": context_retained,
             "multi_turn_correct": multi_turn_correct,
             "compliance_hit": compliance_hit,
             "answer_mode": final.get("answer_mode"),
@@ -369,7 +388,8 @@ class EvaluationService:
             "matched_points": matched_points,
             "missing_points": missing_points,
             "contradictions": contradictions,
-            "citations": citations,
+            "turn_diagnostics": turn_diagnostics,
+            "citations": final_citations,
             "latency_ms": latency_ms,
             "error_message": None,
         }
@@ -459,6 +479,20 @@ def _validated_string_list(value: Any, field_name: str) -> list[str]:
     return value
 
 
+def _source_matches(
+    actual_sources: list[dict[str, Any]], expected_sources: list[dict[str, Any]]
+) -> bool:
+    return any(
+        actual.get("file_name") == expected.get("file_name")
+        and (
+            expected.get("chunk_no") is None
+            or actual.get("chunk_no") == expected.get("chunk_no")
+        )
+        for actual in actual_sources
+        for expected in expected_sources
+    )
+
+
 def _failed_result(case_id: int, error_message: str) -> dict[str, Any]:
     return {
         "case_id": case_id,
@@ -467,6 +501,8 @@ def _failed_result(case_id: int, error_message: str) -> dict[str, Any]:
         "refused": None,
         "correct": None,
         "source_hit": None,
+        "retrieval_hit": None,
+        "context_retained": None,
         "multi_turn_correct": None,
         "compliance_hit": None,
         "answer_mode": None,
@@ -475,6 +511,7 @@ def _failed_result(case_id: int, error_message: str) -> dict[str, Any]:
         "matched_points": [],
         "missing_points": [],
         "contradictions": [],
+        "turn_diagnostics": [],
         "citations": [],
         "latency_ms": None,
         "error_message": error_message[:500],
@@ -503,15 +540,20 @@ def _calculate_metrics(
         if case["expected_type"] == "REJECT" and case["id"] in completed
     ]
     citation_cases = [case for case in answers if case["expected_sources"]]
-    multi_turn_cases = [
-        case for case in cases if len(case["turns"]) > 1 and case["id"] in completed
-    ]
     compliance_cases = [
         case
         for case in cases
         if case["should_show_compliance"] and case["id"] in completed
     ]
+    context_cases = [
+        case
+        for case in cases
+        if len(case["turns"]) > 1
+        and case["id"] in completed
+        and completed[case["id"]]["context_retained"] is not None
+    ]
     return {
+        "execution_success_rate": rate(len(completed), len(cases)),
         "accuracy": rate(
             sum(completed[case["id"]]["correct"] is True for case in answers),
             len(answers),
@@ -528,12 +570,26 @@ def _calculate_metrics(
             sum(completed[case["id"]]["source_hit"] is True for case in citation_cases),
             len(citation_cases),
         ),
+        "retrieval_hit_rate": rate(
+            sum(
+                completed[case["id"]]["retrieval_hit"] is True
+                for case in citation_cases
+            ),
+            len(citation_cases),
+        ),
+        "context_retention_rate": rate(
+            sum(
+                completed[case["id"]]["context_retained"] is True
+                for case in context_cases
+            ),
+            len(context_cases),
+        ),
         "multi_turn_pass_rate": rate(
             sum(
                 completed[case["id"]]["multi_turn_correct"] is True
-                for case in multi_turn_cases
+                for case in context_cases
             ),
-            len(multi_turn_cases),
+            len(context_cases),
         ),
         "compliance_hit_rate": rate(
             sum(

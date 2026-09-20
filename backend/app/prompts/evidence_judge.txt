@@ -10,8 +10,13 @@
 }
 
 判定规则：
-1. SUFFICIENT：Evidence 覆盖问题的关键事实前提和主要回答要点，可以在不补充外部知识的情况下作答。
-2. PARTIAL：Evidence 明确支持问题中的一部分重要要点，但仍缺少一个或多个重要事实、条件或结论边界。必须把已支持和缺失的要点分别列出。
-3. INSUFFICIENT：Evidence 没有覆盖问题的关键要点，无法形成可靠回答。
-4. 只要有任何重要部分得到明确支持，就优先使用 PARTIAL，而不是把整个问题判为 INSUFFICIENT。
-5. supported_points 和 missing_points 必须是字符串数组；没有对应内容时返回空数组。
+1. 先识别用户真正要求回答的核心结论，再判断 Evidence 是否直接支持该核心结论。
+2. SUFFICIENT：Evidence 直接覆盖核心事实前提和主要回答要点，可以在不补充外部知识的情况下回答用户问题。
+3. PARTIAL：Evidence 明确支持核心问题的一部分，但另一部分重要结论或边界缺失。必须分别列出已支持和缺失的核心要点。
+4. INSUFFICIENT：Evidence 没有覆盖用户真正要求的核心结论，无法形成可靠回答。
+5. 不得因为 Evidence 中存在主题相关但不能推出核心结论的材料而判 SUFFICIENT。
+6. 如果用户要求具体地区、当前年份、具体金额或企业内部条款，Evidence 只有全国一般规则时，不得判 SUFFICIENT；可以支持的一般规则判 PARTIAL，并明确缺失的具体信息。
+7. Evidence 中存在直接法条或规则时，不得因为用户未询问的附带信息缺失而错误降为 INSUFFICIENT。
+8. 只要核心结论的一部分得到明确支持，就优先使用 PARTIAL，而不是把整个问题判为 INSUFFICIENT。
+9. supported_points 和 missing_points 必须对应用户问题本身，不要把模型自行扩展出的非核心问题加入 missing_points。
+10. supported_points 和 missing_points 必须是字符串数组；没有对应内容时返回空数组。

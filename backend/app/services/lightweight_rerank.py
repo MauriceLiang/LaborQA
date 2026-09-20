@@ -23,6 +23,18 @@ LEGAL_QUERY_EXPANSIONS: dict[str, tuple[str, ...]] = {
     "加班": ("延长工作时间",),
     "工伤": ("工伤认定",),
     "裁员": ("裁减人员",),
+    "拖欠工资": ("未及时足额支付劳动报酬", "拖欠劳动报酬", "无故拖欠工资"),
+    "没发工资": ("未及时足额支付劳动报酬", "拖欠劳动报酬"),
+    "受伤": ("事故伤害",),
+    "工作时间": ("工作时间",),
+    "工作场所": ("工作场所",),
+    "因工作": ("工作原因",),
+    "最低工资": ("最低工资标准",),
+    "加班工资": ("延长工作时间工资", "加班加点工资"),
+    "约定不明": ("重新协商", "集体合同", "同工同酬"),
+    "仲裁时效": ("申请仲裁的时效期间", "时效期间为一年"),
+    "劳动监察": ("劳动行政部门", "投诉", "举报"),
+    "投诉": ("劳动行政部门", "举报"),
 }
 
 _DOMAIN_TERMS = (
@@ -38,6 +50,35 @@ _DOMAIN_TERMS = (
     "延长工作时间",
     "工伤认定",
     "裁减人员",
+)
+
+_QUERY_KEYWORDS = (
+    "最低工资",
+    "加班工资",
+    "工资",
+    "劳动报酬",
+    "拖欠工资",
+    "工作时间",
+    "工作场所",
+    "工作原因",
+    "事故伤害",
+    "工伤",
+    "工伤认定",
+    "仲裁",
+    "仲裁时效",
+    "投诉",
+    "举报",
+    "劳动监察",
+    "劳动行政部门",
+    "集体合同",
+    "同工同酬",
+    "经济补偿",
+    "社会保险",
+    "劳动合同",
+    "试用期",
+    "孕期",
+    "产假",
+    "年休假",
 )
 
 
@@ -74,8 +115,13 @@ class LightweightRerankService:
         terms.extend(
             term for term in _DOMAIN_TERMS if normalize_text(term) in normalized_query
         )
+        terms.extend(
+            term for term in _QUERY_KEYWORDS if normalize_text(term) in normalized_query
+        )
         if not terms:
             terms.extend(part for part in query.split() if len(part.strip()) > 1)
+        if not terms and query.strip():
+            terms.append(query.strip())
         return _dedupe(term for term in terms if term.strip())
 
     def lexical_score(self, query: str, content: str) -> float:

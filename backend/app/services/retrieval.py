@@ -100,14 +100,18 @@ class DomainRetrievalService:
 
     def _retrieve_documents(self, query: str) -> list[Document]:
         self._ensure_ready()
-        expanded_query = (
-            self.lightweight_rerank_service.expand_query(query)
-            if self.config.lightweight_rerank_enabled
-            else query
+        expanded_query = self.lightweight_rerank_service.expand_query(query)
+        original_documents = list(self.candidate_retriever.invoke(query))
+        expanded_documents = (
+            list(self.candidate_retriever.invoke(expanded_query))
+            if expanded_query.strip() != query.strip()
+            else []
         )
-        candidate_documents = self.candidate_retriever.invoke(expanded_query)
+        candidate_documents = _merge_candidate_documents(
+            original_documents, expanded_documents
+        )
         return self._documents_from_evidence(
-            self._finalize_evidence(query, list(candidate_documents))
+            self._finalize_evidence(query, candidate_documents)
         )
 
     def _finalize_evidence(
@@ -115,8 +119,13 @@ class DomainRetrievalService:
     ) -> list[dict[str, Any]]:
         evidence = self._candidate_evidence(candidate_documents)
         ranked_evidence = self._apply_rerank(query, evidence)
-        final_evidence = ranked_evidence[: self.config.rag_top_k]
-        return self._expand_neighbors(query, final_evidence)
+        anchors = ranked_evidence[: self.config.rag_top_k]
+        expanded_evidence = self._expand_neighbors(query, anchors)
+        if len(expanded_evidence) == len(anchors):
+            return expanded_evidence[: self.config.rag_evidence_limit]
+        return self._apply_rerank(query, expanded_evidence)[
+            : self.config.rag_evidence_limit
+        ]
 
     def _candidate_evidence(
         self, candidate_documents: list[Document]
@@ -164,14 +173,13 @@ class DomainRetrievalService:
     def _expand_neighbors(
         self, query: str, evidence: list[dict[str, Any]]
     ) -> list[dict[str, Any]]:
-        limit = self.config.rag_evidence_limit
         main_evidence = [dict(item) for item in evidence[: self.config.rag_top_k]]
         if not main_evidence or self.config.rag_neighbor_expand_top_n == 0:
-            return main_evidence[:limit]
+            return main_evidence
 
         get_neighbors = getattr(self.repository, "get_neighbor_chunks", None)
         if not callable(get_neighbors):
-            return main_evidence[:limit]
+            return main_evidence
 
         expanded = list(main_evidence)
         seen_chunk_ids = {int(item["chunk_id"]) for item in expanded}
@@ -191,24 +199,13 @@ class DomainRetrievalService:
                     len(expanded) + 1,
                 )
                 neighbor["evidence_origin"] = "NEIGHBOR"
-                neighbor["lexical_score"] = (
-                    self.lightweight_rerank_service.lexical_score(
-                        query, neighbor["content"]
-                    )
-                )
-                neighbor["source_score"] = self.lightweight_rerank_service.source_score(
-                    neighbor["file_name"]
-                )
-                neighbor["lightweight_score"] = (
-                    neighbor["retrieval_score"] * 0.75
-                    + neighbor["lexical_score"] * 0.20
-                    + neighbor["source_score"] * 0.05
+                neighbor["anchor_chunk_id"] = int(anchor["chunk_id"])
+                neighbor["anchor_retrieval_score"] = float(
+                    anchor.get("retrieval_score", anchor.get("score", 0.0))
                 )
                 expanded.append(neighbor)
                 seen_chunk_ids.add(chunk_id)
-                if len(expanded) >= limit:
-                    return expanded[:limit]
-        return expanded[:limit]
+        return expanded
 
     @staticmethod
     def _documents_from_evidence(evidence: list[dict[str, Any]]) -> list[Document]:
@@ -237,6 +234,8 @@ def _evidence_item(
         "source_score": 0.0,
         "lightweight_score": retrieval_score,
         "evidence_origin": "RETRIEVED",
+        "anchor_chunk_id": None,
+        "anchor_retrieval_score": None,
         "rank_no": rank_no,
     }
 
@@ -265,6 +264,8 @@ def _document_from_evidence(item: Mapping[str, Any]) -> Document:
             item.get("lightweight_score", item.get("retrieval_score", 0.0))
         ),
         "evidence_origin": str(item.get("evidence_origin", "RETRIEVED")),
+        "anchor_chunk_id": item.get("anchor_chunk_id"),
+        "anchor_retrieval_score": item.get("anchor_retrieval_score"),
         "rank_no": int(item["rank_no"]),
     }
     return Document(
@@ -291,5 +292,37 @@ def _evidence_from_document(document: Document) -> dict[str, Any]:
             metadata.get("lightweight_score", metadata["retrieval_score"])
         ),
         "evidence_origin": str(metadata.get("evidence_origin", "RETRIEVED")),
+        "anchor_chunk_id": metadata.get("anchor_chunk_id"),
+        "anchor_retrieval_score": metadata.get("anchor_retrieval_score"),
         "rank_no": int(metadata["rank_no"]),
     }
+
+
+def _merge_candidate_documents(
+    original_documents: list[Document], expanded_documents: list[Document]
+) -> list[Document]:
+    """Merge two retrieval passes while keeping first-seen order stable."""
+
+    merged: list[Document] = []
+    positions: dict[int, int] = {}
+    for document in [*original_documents, *expanded_documents]:
+        chunk_id = _document_chunk_id(document)
+        position = positions.get(chunk_id)
+        if position is None:
+            positions[chunk_id] = len(merged)
+            merged.append(document)
+            continue
+        current = merged[position]
+        if _document_retrieval_score(document) > _document_retrieval_score(current):
+            merged[position] = document
+    return merged
+
+
+def _document_retrieval_score(document: Document) -> float:
+    value = document.metadata.get(
+        "retrieval_score", document.metadata.get("score", 0.0)
+    )
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0

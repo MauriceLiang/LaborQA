@@ -25,7 +25,7 @@ from app.services.evaluation_cases import (
     baseline_version,
     fixed_evaluation_cases,
 )
-from app.services.evaluation_service import EvaluationService
+from app.services.evaluation_service import EvaluationService, _calculate_metrics
 from tests.support import AsyncClientChatModel
 
 
@@ -109,12 +109,67 @@ class FakeChat:
                     "rank_no": 1,
                 }
             ],
+            "retrieved_sources": []
+            if refused
+            else [
+                {
+                    "chunk_id": 1,
+                    "document_id": 1,
+                    "file_name": "01_劳动关系与劳动合同.md",
+                    "chunk_no": 1,
+                    "content": "劳动关系自用工之日起建立。",
+                    "score": 0.9,
+                    "retrieval_score": 0.9,
+                    "rerank_score": None,
+                    "rank_no": 1,
+                }
+            ],
             "rewritten_question": question,
             "retrieval_ms": 4,
             "compliance_shown": False,
             "answer_mode": self.answer_mode or ("REFUSAL" if refused else "RAG_ANSWER"),
             "evidence_decision": self.evidence_decision
             or ("INSUFFICIENT" if refused else "SUFFICIENT"),
+            "evidence_reason": "测试证据判断",
+            "supported_points": [],
+            "missing_points": [],
+        }
+
+
+class DiagnosticChat(FakeChat):
+    async def answer_once(
+        self,
+        question: str,
+        history: list[dict[str, str]],
+        answer_style: Any,
+        *,
+        mode: Any,
+    ) -> dict[str, Any]:
+        self.calls.append((question, list(history)))
+        citation = {
+            "chunk_id": 1,
+            "document_id": 1,
+            "file_name": "01_劳动关系与劳动合同.md",
+            "chunk_no": 1,
+            "content": "劳动关系自用工之日起建立。",
+            "score": 0.9,
+            "retrieval_score": 0.9,
+            "rerank_score": None,
+            "rank_no": 1,
+        }
+        return {
+            "answer": "已检索到相关资料。",
+            "refused": False,
+            "retrieved_sources": [citation],
+            "citations": [citation] if len(self.calls) == 1 else [],
+            "rewritten_question": question,
+            "retrieval_ms": 4,
+            "compliance_shown": False,
+            "answer_mode": "RAG_ANSWER",
+            "evidence_decision": "SUFFICIENT",
+            "evidence_reason": "直接命中规则",
+            "supported_points": ["核心要点"],
+            "missing_points": [],
         }
 
 
@@ -172,7 +227,8 @@ def test_fixed_cases_have_the_documented_distribution_and_json_arrays() -> None:
     assert any(len(case["turns"]) > 1 for case in cases)
     assert any(case["expected_type"] == "REJECT" for case in cases)
     assert sum(case["should_show_compliance"] for case in cases) == 3
-    assert baseline_version() == 2
+    assert sum(len(case["turns"]) == 3 for case in cases) == 3
+    assert baseline_version() == 3
 
 
 @pytest.mark.parametrize(
@@ -242,6 +298,63 @@ def test_judge_diagnostics_are_returned_and_persisted() -> None:
         assert result["matched_points"] == ["已覆盖要点"]
         assert result["missing_points"] == ["遗漏要点"]
         assert result["contradictions"] == ["冲突内容"]
+
+
+def test_evaluation_persists_per_turn_diagnostics_and_final_turn_hits() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        database_path = Path(directory) / "eval.db"
+        _create_database(database_path)
+        chat = DiagnosticChat()
+        service = _service(database_path, chat)
+        run = service.create_run(
+            EvaluationRunCreate(
+                name="turn diagnostics", case_ids=[35], answer_style="plain"
+            )
+        )
+
+        asyncio.run(service.execute_run(run["id"]))
+
+        result = service.get_run(run["id"])["results"][0]
+        assert result["retrieval_hit"] is True
+        assert result["source_hit"] is False
+        assert result["context_retained"] is True
+        assert result["citations"] == []
+        assert len(result["turn_diagnostics"]) == 3
+        assert result["turn_diagnostics"][0]["citations"]
+        assert result["turn_diagnostics"][-1]["retrieved_sources"]
+        assert result["turn_diagnostics"][-1]["citations"] == []
+        assert service.get_run(run["id"])["metrics"]["retrieval_hit_rate"] == 1.0
+        assert service.get_run(run["id"])["metrics"]["citation_hit_rate"] == 0.0
+
+
+def test_context_retention_rate_is_independent_from_answer_accuracy() -> None:
+    cases = [
+        {
+            "id": 1,
+            "expected_type": "ANSWER",
+            "turns": ["第一轮", "第二轮"],
+            "expected_sources": [],
+            "should_show_compliance": False,
+        }
+    ]
+    metrics = _calculate_metrics(
+        cases,
+        {
+            1: {
+                "status": "COMPLETED",
+                "correct": False,
+                "refused": False,
+                "source_hit": None,
+                "retrieval_hit": None,
+                "context_retained": True,
+                "multi_turn_correct": False,
+                "compliance_hit": None,
+            }
+        },
+    )
+
+    assert metrics["context_retention_rate"] == 1.0
+    assert metrics["multi_turn_pass_rate"] == 0.0
 
 
 def test_invalid_judge_diagnostics_fail_the_case() -> None:
@@ -331,6 +444,9 @@ def test_run_executes_subset_calculates_metrics_and_does_not_write_chat_tables()
             "reject_rate": 1.0,
             "refusal_rate": 0.5,
             "citation_hit_rate": 1.0,
+            "retrieval_hit_rate": 1.0,
+            "context_retention_rate": None,
+            "execution_success_rate": 1.0,
             "multi_turn_pass_rate": None,
             "compliance_hit_rate": None,
         }
@@ -576,7 +692,7 @@ def test_builtin_case_can_be_updated_and_run_scope_is_explicit() -> None:
         )
         assert (
             service.repository.get_run(baseline["id"])["config"]["baseline_version"]
-            == 2
+            == 3
         )
 
 

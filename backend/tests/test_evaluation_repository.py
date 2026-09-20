@@ -151,6 +151,9 @@ def test_old_evaluation_result_migration_adds_nullable_mode_columns() -> None:
             "matched_points_json",
             "missing_points_json",
             "contradictions_json",
+            "turn_diagnostics_json",
+            "context_retained",
+            "retrieval_hit",
         }.issubset(columns)
         assert connection.execute(
             """
@@ -159,3 +162,12 @@ def test_old_evaluation_result_migration_adds_nullable_mode_columns() -> None:
             FROM evaluation_result WHERE id = 1
             """
         ).fetchone() == (None, None, None, None, None, None)
+
+        run_columns = {
+            row[1] for row in connection.execute("PRAGMA table_info(evaluation_run)")
+        }
+        assert {
+            "retrieval_hit_rate",
+            "context_retention_rate",
+            "execution_success_rate",
+        }.issubset(run_columns)

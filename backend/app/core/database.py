@@ -99,6 +99,8 @@ def _migrate_citation_schema(connection: sqlite3.Connection) -> None:
         "source_score": "REAL NOT NULL DEFAULT 0",
         "lightweight_score": "REAL NOT NULL DEFAULT 0",
         "evidence_origin": "VARCHAR(20) NOT NULL DEFAULT 'RETRIEVED'",
+        "anchor_chunk_id": "INTEGER",
+        "anchor_retrieval_score": "REAL",
     }
     for column, definition in additions.items():
         if column not in columns:
@@ -130,6 +132,16 @@ def _migrate_evaluation_schema(connection: sqlite3.Connection) -> None:
             WHERE status = 'COMPLETED'
             """
         )
+    run_additions = {
+        "retrieval_hit_rate": "REAL",
+        "context_retention_rate": "REAL",
+        "execution_success_rate": "REAL",
+    }
+    for column, definition in run_additions.items():
+        if column not in run_columns:
+            connection.execute(
+                f"ALTER TABLE evaluation_run ADD COLUMN {column} {definition}"
+            )
 
     result_columns = _table_columns(connection, "evaluation_result")
     result_additions = {
@@ -139,6 +151,9 @@ def _migrate_evaluation_schema(connection: sqlite3.Connection) -> None:
         "matched_points_json": "TEXT",
         "missing_points_json": "TEXT",
         "contradictions_json": "TEXT",
+        "turn_diagnostics_json": "TEXT NOT NULL DEFAULT '[]'",
+        "context_retained": "INTEGER",
+        "retrieval_hit": "INTEGER",
     }
     for column, definition in result_additions.items():
         if column not in result_columns:

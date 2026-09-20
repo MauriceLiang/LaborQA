@@ -332,11 +332,12 @@ class EvaluationRepository:
                 """
                 INSERT INTO evaluation_result (
                     run_id, case_id, status, answer, refused, correct, source_hit,
-                    multi_turn_correct, compliance_hit, answer_mode,
+                    retrieval_hit, context_retained, multi_turn_correct,
+                    compliance_hit, answer_mode,
                     evidence_decision, judge_reason, matched_points_json,
-                    missing_points_json, contradictions_json, citations_json,
-                    latency_ms, error_message
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    missing_points_json, contradictions_json, turn_diagnostics_json,
+                    citations_json, latency_ms, error_message
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     run_id,
@@ -346,6 +347,8 @@ class EvaluationRepository:
                     _db_bool(result.get("refused")),
                     _db_bool(result.get("correct")),
                     _db_bool(result.get("source_hit")),
+                    _db_bool(result.get("retrieval_hit")),
+                    _db_bool(result.get("context_retained")),
                     _db_bool(result.get("multi_turn_correct")),
                     _db_bool(result.get("compliance_hit")),
                     result.get("answer_mode"),
@@ -354,6 +357,9 @@ class EvaluationRepository:
                     json.dumps(result.get("matched_points") or [], ensure_ascii=False),
                     json.dumps(result.get("missing_points") or [], ensure_ascii=False),
                     json.dumps(result.get("contradictions") or [], ensure_ascii=False),
+                    json.dumps(
+                        result.get("turn_diagnostics") or [], ensure_ascii=False
+                    ),
                     json.dumps(result.get("citations", []), ensure_ascii=False),
                     result.get("latency_ms"),
                     result.get("error_message"),
@@ -370,7 +376,9 @@ class EvaluationRepository:
                 """
                 UPDATE evaluation_run SET status = 'COMPLETED', error_message = NULL,
                     accuracy = ?, reject_rate = ?, refusal_rate = ?, citation_hit_rate = ?,
-                    multi_turn_pass_rate = ?, compliance_hit_rate = ?,
+                    retrieval_hit_rate = ?, context_retention_rate = ?,
+                    execution_success_rate = ?, multi_turn_pass_rate = ?,
+                    compliance_hit_rate = ?,
                     updated_at = CURRENT_TIMESTAMP
                 WHERE id = ?
                 """,
@@ -379,8 +387,11 @@ class EvaluationRepository:
                     metrics["reject_rate"],
                     metrics["refusal_rate"],
                     metrics["citation_hit_rate"],
-                    metrics["multi_turn_pass_rate"],
-                    metrics["compliance_hit_rate"],
+                    metrics.get("retrieval_hit_rate"),
+                    metrics.get("context_retention_rate"),
+                    metrics.get("execution_success_rate"),
+                    metrics.get("multi_turn_pass_rate"),
+                    metrics.get("compliance_hit_rate"),
                     run_id,
                 ),
             )
@@ -454,6 +465,9 @@ class EvaluationRepository:
                         "reject_rate",
                         "refusal_rate",
                         "citation_hit_rate",
+                        "retrieval_hit_rate",
+                        "context_retention_rate",
+                        "execution_success_rate",
                         "multi_turn_pass_rate",
                         "compliance_hit_rate",
                     )
@@ -509,6 +523,12 @@ class EvaluationRepository:
             "refused": _python_bool(row["refused"]),
             "correct": _python_bool(row["correct"]),
             "source_hit": _python_bool(row["source_hit"]),
+            "retrieval_hit": _python_bool(row["retrieval_hit"])
+            if "retrieval_hit" in columns
+            else None,
+            "context_retained": _python_bool(row["context_retained"])
+            if "context_retained" in columns
+            else None,
             "multi_turn_correct": _python_bool(row["multi_turn_correct"]),
             "compliance_hit": _python_bool(row["compliance_hit"]),
             "answer_mode": row["answer_mode"] if "answer_mode" in columns else None,
@@ -519,7 +539,8 @@ class EvaluationRepository:
             "matched_points": _json_list(row, columns, "matched_points_json"),
             "missing_points": _json_list(row, columns, "missing_points_json"),
             "contradictions": _json_list(row, columns, "contradictions_json"),
-            "citations": json.loads(row["citations_json"]),
+            "turn_diagnostics": _json_list(row, columns, "turn_diagnostics_json"),
+            "citations": json.loads(row["citations_json"] or "[]"),
             "latency_ms": row["latency_ms"],
             "error_message": row["error_message"],
         }
