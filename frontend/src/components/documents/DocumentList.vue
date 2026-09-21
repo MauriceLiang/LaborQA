@@ -110,6 +110,7 @@ function selectWithKeyboard(event: KeyboardEvent, document: DocumentItem) {
         <thead>
           <tr>
             <th scope="col">文件名</th>
+            <th scope="col">归属</th>
             <th scope="col">格式</th>
             <th scope="col">状态</th>
             <th scope="col">Chunk 数</th>
@@ -131,8 +132,13 @@ function selectWithKeyboard(event: KeyboardEvent, document: DocumentItem) {
           >
             <td class="document-name-cell" :title="document.file_name">
               <span>{{ document.file_name }}</span>
-              <ElTag v-if="document.source_type === 'BUILTIN'" size="small" type="success">
-                系统资料
+            </td>
+            <td class="document-source-cell">
+              <ElTag
+                size="small"
+                :type="document.source_type === 'BUILTIN' ? 'success' : 'info'"
+              >
+                {{ document.source_type === 'BUILTIN' ? '系统资料' : '用户上传' }}
               </ElTag>
             </td>
             <td class="document-format-cell">{{ document.file_type.toUpperCase() }}</td>
@@ -175,7 +181,7 @@ function selectWithKeyboard(event: KeyboardEvent, document: DocumentItem) {
             </td>
           </tr>
           <tr v-if="!loading && documents.length === 0" class="document-empty-row">
-            <td colspan="7">暂无资料</td>
+            <td colspan="8">暂无资料</td>
           </tr>
         </tbody>
       </table>
