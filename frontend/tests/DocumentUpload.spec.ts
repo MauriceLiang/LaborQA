@@ -38,6 +38,7 @@ function documentStatus(documentId: number, fileName: string, status: DocumentIt
     id: documentId,
     file_name: fileName,
     file_type: fileName.split('.').pop() as DocumentItem['file_type'],
+    source_type: 'UPLOAD',
     status,
     chunk_count: status === 'SUCCESS' ? 1 : 0,
     error_message: null,

@@ -4,6 +4,9 @@ import { http } from '@/api/http'
 export type DocumentItem = components['schemas']['DocumentItem']
 export type ChunkItem = components['schemas']['ChunkItem']
 export type DocumentUploadAccepted = components['schemas']['DocumentUploadAccepted']
+export type BuiltinDocumentStatus = components['schemas']['BuiltinDocumentStatus']
+export type BuiltinDocumentImportAccepted =
+  components['schemas']['BuiltinDocumentImportAccepted']
 export type DocumentPage = NonNullable<
   paths['/api/documents']['get']['responses'][200]['content']['application/json']['data']
 >
@@ -25,6 +28,16 @@ export async function getDocuments(query: DocumentQuery): Promise<DocumentPage> 
 
 export async function getDocument(id: number): Promise<DocumentItem> {
   const response = await http.get<DocumentItem>(`/documents/${id}`)
+  return response.data
+}
+
+export async function getBuiltinDocumentStatus(): Promise<BuiltinDocumentStatus> {
+  const response = await http.get<BuiltinDocumentStatus>('/documents/builtin/status')
+  return response.data
+}
+
+export async function importBuiltinDocuments(): Promise<BuiltinDocumentImportAccepted> {
+  const response = await http.post<BuiltinDocumentImportAccepted>('/documents/builtin/import')
   return response.data
 }
 

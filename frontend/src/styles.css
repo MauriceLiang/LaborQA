@@ -1178,6 +1178,14 @@ input {
   padding: 2px 2px 4px;
 }
 
+.documents-page-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
 .documents-page-intro h1 {
   margin: 0;
   color: #155a42;
@@ -1452,13 +1460,14 @@ input {
   padding-right: 20px;
 }
 
-.document-data-table th:nth-child(1) { width: 20%; }
-.document-data-table th:nth-child(2) { width: 9%; }
-.document-data-table th:nth-child(3) { width: 13%; }
-.document-data-table th:nth-child(4) { width: 10%; }
-.document-data-table th:nth-child(5) { width: 17%; }
-.document-data-table th:nth-child(6) { width: 17%; }
-.document-data-table th:nth-child(7) { width: 14%; }
+.document-data-table th:nth-child(1) { width: 23%; }
+.document-data-table th:nth-child(2) { width: 10%; }
+.document-data-table th:nth-child(3) { width: 8%; }
+.document-data-table th:nth-child(4) { width: 12%; }
+.document-data-table th:nth-child(5) { width: 9%; }
+.document-data-table th:nth-child(6) { width: 16%; }
+.document-data-table th:nth-child(7) { width: 12%; }
+.document-data-table th:nth-child(8) { width: 10%; }
 
 .document-data-row {
   cursor: pointer;
@@ -1486,6 +1495,10 @@ input {
 .document-name-cell {
   color: #263548 !important;
   font-weight: 600;
+}
+
+.document-source-cell {
+  white-space: nowrap;
 }
 
 .document-format-cell {

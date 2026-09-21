@@ -16,6 +16,7 @@ services:
       - ./data:/app/data
       - ./uploads:/app/uploads
       - ./model-cache:/app/model-cache
+      - ./reference-data:/app/reference-data:ro
 
     expose:
       - "8000"

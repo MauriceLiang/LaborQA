@@ -20,6 +20,7 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     database_url: str = "sqlite:///./data/app.db"
     upload_dir: Path = Path("./uploads")
+    builtin_document_dir: Path = Path("./reference-data/documents")
     faiss_dir: Path = Path("./data/faiss")
     max_upload_size_mb: int = Field(default=20, ge=1)
     doc_parser_backend: Literal["package", "libreoffice"] = "package"
@@ -103,6 +104,10 @@ class Settings(BaseSettings):
     @property
     def upload_path(self) -> Path:
         return self._project_path(self.upload_dir)
+
+    @property
+    def builtin_document_path(self) -> Path:
+        return self._project_path(self.builtin_document_dir)
 
     @staticmethod
     def _project_path(path: Path) -> Path:

@@ -55,6 +55,40 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/documents/builtin/status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get builtin document import status */
+        get: operations["get_builtin_document_status_api_documents_builtin_status_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/documents/builtin/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Import repository-provided builtin documents */
+        post: operations["import_builtin_documents_api_documents_builtin_import_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/documents/{id}": {
         parameters: {
             query?: never;
@@ -530,15 +564,31 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /**
-         * AnswerStyle
-         * @enum {string}
-         */
-        AnswerStyle: "plain" | "legal";
-        /**
          * AiMode
          * @enum {string}
          */
         AiMode: "speed" | "balanced" | "quality";
+        /**
+         * AnswerStyle
+         * @enum {string}
+         */
+        AnswerStyle: "plain" | "legal";
+        /** ApiResponse[BuiltinDocumentImportAccepted] */
+        ApiResponse_BuiltinDocumentImportAccepted_: {
+            /** Code */
+            code: number;
+            /** Message */
+            message: string;
+            data: components["schemas"]["BuiltinDocumentImportAccepted"] | null;
+        };
+        /** ApiResponse[BuiltinDocumentStatus] */
+        ApiResponse_BuiltinDocumentStatus_: {
+            /** Code */
+            code: number;
+            /** Message */
+            message: string;
+            data: components["schemas"]["BuiltinDocumentStatus"] | null;
+        };
         /** ApiResponse[DocumentItem] */
         ApiResponse_DocumentItem_: {
             /** Code */
@@ -769,6 +819,55 @@ export interface components {
              */
             file: string;
         };
+        /** BuiltinDocumentImportAccepted */
+        BuiltinDocumentImportAccepted: {
+            /** Total */
+            total: number;
+            /** Already Imported */
+            already_imported: number;
+            /** Scheduled */
+            scheduled: number;
+            /** Processing */
+            processing: number;
+            /** Tracked Document Ids */
+            tracked_document_ids: number[];
+            /** All Imported */
+            all_imported: boolean;
+        };
+        /**
+         * BuiltinDocumentState
+         * @enum {string}
+         */
+        BuiltinDocumentState: "MISSING" | "PROCESSING" | "SUCCESS" | "FAILED" | "OUTDATED";
+        /** BuiltinDocumentStatus */
+        BuiltinDocumentStatus: {
+            /** Total */
+            total: number;
+            /** Success */
+            success: number;
+            /** Processing */
+            processing: number;
+            /** Failed */
+            failed: number;
+            /** Missing */
+            missing: number;
+            /** Outdated */
+            outdated: number;
+            /** All Imported */
+            all_imported: boolean;
+            /** Items */
+            items: components["schemas"]["BuiltinDocumentStatusItem"][];
+        };
+        /** BuiltinDocumentStatusItem */
+        BuiltinDocumentStatusItem: {
+            /** Source Key */
+            source_key: string;
+            /** File Name */
+            file_name: string;
+            state: components["schemas"]["BuiltinDocumentState"];
+            /** Document Id */
+            document_id: number | null;
+        };
         /** ChatRequest */
         ChatRequest: {
             /**
@@ -780,7 +879,7 @@ export interface components {
             question: string;
             answer_style: components["schemas"]["AnswerStyle"];
             /** @default balanced */
-            ai_mode?: components["schemas"]["AiMode"];
+            ai_mode: components["schemas"]["AiMode"];
         };
         /** ChunkItem */
         ChunkItem: {
@@ -853,6 +952,9 @@ export interface components {
             /** File Name */
             file_name: string;
             file_type: components["schemas"]["FileType"];
+            source_type: components["schemas"]["DocumentSourceType"];
+            /** Source Key */
+            source_key?: string | null;
             status: components["schemas"]["DocumentStatus"];
             /** Chunk Count */
             chunk_count: number;
@@ -869,6 +971,11 @@ export interface components {
             document_id: number;
             status: components["schemas"]["DocumentStatus"];
         };
+        /**
+         * DocumentSourceType
+         * @enum {string}
+         */
+        DocumentSourceType: "UPLOAD" | "BUILTIN";
         /**
          * DocumentStatus
          * @enum {string}
@@ -1028,9 +1135,9 @@ export interface components {
             /** Compliance Hit */
             compliance_hit: boolean | null;
             /** Answer Mode */
-            answer_mode: "RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL" | null;
+            answer_mode: ("RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL") | null;
             /** Evidence Decision */
-            evidence_decision: "SUFFICIENT" | "PARTIAL" | "INSUFFICIENT" | null;
+            evidence_decision: ("SUFFICIENT" | "PARTIAL" | "INSUFFICIENT") | null;
             /** Judge Reason */
             judge_reason?: string | null;
             /** Matched Points */
@@ -1048,35 +1155,6 @@ export interface components {
             /** Error Message */
             error_message: string | null;
         };
-        /** EvaluationTurnDiagnostic */
-        EvaluationTurnDiagnostic: {
-            /** Turn No */
-            turn_no: number;
-            /** Question */
-            question: string;
-            /** Rewritten Question */
-            rewritten_question: string;
-            /** Answer */
-            answer: string;
-            /** Refused */
-            refused: boolean;
-            /** Answer Mode */
-            answer_mode: "RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL" | null;
-            /** Evidence Decision */
-            evidence_decision: "SUFFICIENT" | "PARTIAL" | "INSUFFICIENT" | null;
-            /** Evidence Reason */
-            evidence_reason: string | null;
-            /** Supported Points */
-            supported_points?: string[];
-            /** Missing Points */
-            missing_points?: string[];
-            /** Retrieved Sources */
-            retrieved_sources: components["schemas"]["CitationItem"][];
-            /** Citations */
-            citations: components["schemas"]["CitationItem"][];
-            /** Retrieval Ms */
-            retrieval_ms: number;
-        };
         /** EvaluationRunConfig */
         EvaluationRunConfig: {
             /** Langchain Version */
@@ -1089,11 +1167,11 @@ export interface components {
             /** Evidence Thinking */
             evidence_thinking: boolean;
             /** Evidence Effort */
-            evidence_effort: "low" | "high" | "max" | null;
+            evidence_effort: ("low" | "high" | "max") | null;
             /** Answer Thinking */
             answer_thinking: boolean;
             /** Answer Effort */
-            answer_effort: "low" | "high" | "max" | null;
+            answer_effort: ("low" | "high" | "max") | null;
             /**
              * Embedding Provider
              * @enum {string}
@@ -1168,7 +1246,7 @@ export interface components {
             answer_style: components["schemas"]["AnswerStyle"];
             case_scope?: components["schemas"]["EvaluationCaseScope"] | null;
             /** @default balanced */
-            ai_mode?: components["schemas"]["AiMode"];
+            ai_mode: components["schemas"]["AiMode"];
         };
         /** EvaluationRunDetail */
         EvaluationRunDetail: {
@@ -1217,6 +1295,35 @@ export interface components {
             created_at: string;
             /** Updated At */
             updated_at: string;
+        };
+        /** EvaluationTurnDiagnostic */
+        EvaluationTurnDiagnostic: {
+            /** Turn No */
+            turn_no: number;
+            /** Question */
+            question: string;
+            /** Rewritten Question */
+            rewritten_question: string;
+            /** Answer */
+            answer: string;
+            /** Refused */
+            refused: boolean;
+            /** Answer Mode */
+            answer_mode: ("RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL") | null;
+            /** Evidence Decision */
+            evidence_decision: ("SUFFICIENT" | "PARTIAL" | "INSUFFICIENT") | null;
+            /** Evidence Reason */
+            evidence_reason: string | null;
+            /** Supported Points */
+            supported_points?: string[];
+            /** Missing Points */
+            missing_points?: string[];
+            /** Retrieved Sources */
+            retrieved_sources: components["schemas"]["CitationItem"][];
+            /** Citations */
+            citations: components["schemas"]["CitationItem"][];
+            /** Retrieval Ms */
+            retrieval_ms: number;
         };
         /** ExpectedSource */
         ExpectedSource: {
@@ -1320,7 +1427,7 @@ export interface components {
             /** @default plain */
             answer_style: components["schemas"]["AnswerStyle"];
             /** @default balanced */
-            ai_mode?: components["schemas"]["AiMode"];
+            ai_mode: components["schemas"]["AiMode"];
         };
         /** ExperimentDetail */
         ExperimentDetail: {
@@ -1425,11 +1532,11 @@ export interface components {
             /** Evidence Thinking */
             evidence_thinking: boolean;
             /** Evidence Effort */
-            evidence_effort: "low" | "high" | "max" | null;
+            evidence_effort: ("low" | "high" | "max") | null;
             /** Answer Thinking */
             answer_thinking: boolean;
             /** Answer Effort */
-            answer_effort: "low" | "high" | "max" | null;
+            answer_effort: ("low" | "high" | "max") | null;
             /**
              * Embedding Provider
              * @enum {string}
@@ -1613,7 +1720,7 @@ export interface components {
             /** Strategy Id */
             strategy_id: number;
             /** @default balanced */
-            ai_mode?: components["schemas"]["AiMode"];
+            ai_mode: components["schemas"]["AiMode"];
         };
         /** RetrievalPreviewResponse */
         RetrievalPreviewResponse: {
@@ -1635,9 +1742,15 @@ export interface components {
             answer: string;
             /** Refused */
             refused: boolean;
-            /** Answer Mode */
+            /**
+             * Answer Mode
+             * @enum {string}
+             */
             answer_mode: "RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL";
-            /** Evidence Decision */
+            /**
+             * Evidence Decision
+             * @enum {string}
+             */
             evidence_decision: "SUFFICIENT" | "PARTIAL" | "INSUFFICIENT";
             /** Evidence Reason */
             evidence_reason: string;
@@ -1645,7 +1758,6 @@ export interface components {
             supported_points: string[];
             /** Missing Points */
             missing_points: string[];
-            /** Tool Execution */
             tool_execution: components["schemas"]["ToolExecutionItem"] | null;
             /** Retrieval Ms */
             retrieval_ms: number;
@@ -1918,6 +2030,190 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_PageResult_DocumentItem__"];
+                };
+            };
+            /** @description Invalid business request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Resource state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Uploaded file is too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Business implementation is scheduled for a later phase */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description A required service is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+        };
+    };
+    get_builtin_document_status_api_documents_builtin_status_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_BuiltinDocumentStatus_"];
+                };
+            };
+            /** @description Invalid business request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Resource not found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Resource state conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Uploaded file is too large */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Request validation failed */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Internal server error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Business implementation is scheduled for a later phase */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description A required service is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+        };
+    };
+    import_builtin_documents_api_documents_builtin_import_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_BuiltinDocumentImportAccepted_"];
                 };
             };
             /** @description Invalid business request */
@@ -2643,7 +2939,7 @@ export interface operations {
             };
         };
         responses: {
-            /** @description SSE events: optional tool, one or more token events, sources, then done; errors use a terminal error event. */
+            /** @description SSE events: status stages, optional tool, one or more token events, sources, then done; errors use a terminal error event. */
             200: {
                 headers: {
                     [name: string]: unknown;

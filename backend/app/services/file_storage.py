@@ -22,6 +22,13 @@ _MIME_TYPES_BY_SUFFIX = {
     ".md": frozenset({"text/markdown", "text/x-markdown", "text/plain", "application/octet-stream"}),
 }
 _READ_CHUNK_SIZE = 64 * 1024
+_DEFAULT_MIME_TYPES = {
+    ".pdf": "application/pdf",
+    ".doc": "application/msword",
+    ".docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    ".md": "text/markdown",
+    ".txt": "text/plain",
+}
 
 
 class FileProcessingError(Exception):
@@ -161,6 +168,24 @@ class FileStorage:
         if not parent.is_relative_to(self.upload_dir):
             raise ValueError("file path must be inside the upload directory")
         candidate.unlink(missing_ok=True)
+
+    def copy_from_path(
+        self,
+        source_path: str | Path,
+        *,
+        filename: str,
+    ) -> StoredFile:
+        """Copy a trusted source file through the normal upload validation path."""
+        source = Path(source_path)
+        file_name, suffix = self._validated_name(filename)
+        if not source.is_file():
+            raise FileNotFoundError(source)
+        with source.open("rb") as input_file:
+            return self.save(
+                input_file,
+                file_name,
+                _DEFAULT_MIME_TYPES[suffix],
+            )
 
     @staticmethod
     def _validated_name(filename: str | None) -> tuple[str, str]:
