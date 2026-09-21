@@ -77,6 +77,16 @@
 
 示例检查入口：
 
+#### Windows PowerShell
+
+```powershell
+curl.exe -fsS http://127.0.0.1:8000/api/documents/builtin/status
+cd backend
+.\.venv\Scripts\python.exe -m app.scripts.audit_evaluation_baseline
+```
+
+#### macOS / Linux
+
 ```bash
 curl -fsS http://127.0.0.1:8000/api/documents/builtin/status
 cd backend

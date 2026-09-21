@@ -231,21 +231,42 @@ FAISS
 
 ## 开发与验证
 
-在仓库根目录执行：
+以下命令从仓库根目录执行。主流程直接调用虚拟环境中的 Python，不要求先激活虚拟环境。
+
+### Windows PowerShell
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check app tests
+.\.venv\Scripts\python.exe -m ruff format --check app tests
+```
+
+### macOS / Linux
 
 ```bash
 cd backend
 .venv/bin/python -m pytest -q
-.venv/bin/ruff check app tests
-.venv/bin/ruff format --check app tests
+.venv/bin/python -m ruff check app tests
+.venv/bin/python -m ruff format --check app tests
 ```
 
 涉及资料、Embedding 或索引的改动，建议补充对应测试并执行：
 
+### Windows PowerShell
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m pytest tests/test_builtin_documents.py tests/test_document_api.py tests/test_vector_store.py -q
+.\.venv\Scripts\python.exe -m app.scripts.audit_evaluation_baseline
+```
+
+### macOS / Linux
+
 ```bash
+cd backend
 .venv/bin/python -m pytest tests/test_builtin_documents.py tests/test_document_api.py tests/test_vector_store.py -q
 .venv/bin/python -m app.scripts.audit_evaluation_baseline
 ```
 
 配置或索引兼容性发生变化时，先确认 `/api/health`，再重新导入资料和运行 baseline；不要只用单个 Chat 请求判断改动是否正确。
-

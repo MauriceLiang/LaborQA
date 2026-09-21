@@ -129,7 +129,7 @@ configure_logging
 
 ### 环境要求
 
-- Python 3.11 或更高版本
+- Python 3.11（推荐，当前项目主要基于 Python 3.11 开发与验证）
 - Node.js 20.19 或更高版本
 - npm（前端依赖通过 `package-lock.json` 锁定）
 - 可访问的 OpenAI-compatible LLM 服务
@@ -137,11 +137,26 @@ configure_logging
 
 ### 1. 准备后端环境
 
-在仓库根目录执行：
+以下命令均在仓库根目录执行。主流程直接调用虚拟环境中的 Python，不要求先激活虚拟环境，因此不会受到 PowerShell `ExecutionPolicy` 或 Shell 激活状态影响。
+
+#### Windows PowerShell
+
+```powershell
+py -3.11 --version
+Copy-Item .env.example .env
+py -3.11 -m venv backend\.venv
+.\backend\.venv\Scripts\python.exe -m pip install --upgrade pip
+.\backend\.venv\Scripts\python.exe -m pip install -r backend\requirements.txt
+```
+
+预期 `py -3.11 --version` 输出 `Python 3.11.x`。如果命令失败，可运行 `py --list` 查看已安装的 Python 版本；不要假设 Windows 一定提供 `python3.11` 命令。
+
+#### macOS / Linux
 
 ```bash
 cp .env.example .env
 python3.11 -m venv backend/.venv
+backend/.venv/bin/python -m pip install --upgrade pip
 backend/.venv/bin/python -m pip install -r backend/requirements.txt
 ```
 
@@ -154,6 +169,15 @@ LLM_MODEL=你的模型名称
 ```
 
 默认使用本地 `BAAI/bge-small-zh-v1.5` 生成向量。首次使用前可以主动检查 Embedding：
+
+#### Windows PowerShell
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m app.scripts.verify_embedding
+```
+
+#### macOS / Linux
 
 ```bash
 cd backend
@@ -171,11 +195,20 @@ EMBEDDING_API_MODEL=你的_Embedding_模型名称
 
 ### 2. 启动后端
 
-在第一个终端运行：
+在第一个终端运行。统一使用 `python -m uvicorn`，确保调用的是当前虚拟环境中的 Uvicorn。
+
+#### Windows PowerShell
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+#### macOS / Linux
 
 ```bash
 cd backend
-.venv/bin/uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+.venv/bin/python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 后端入口：
@@ -189,9 +222,24 @@ cd backend
 
 ### 3. 启动前端
 
-在第二个终端运行：
+在第二个终端运行。Node.js 和 npm 可通过下面的检查确认版本：
+
+#### Windows PowerShell
+
+```powershell
+node --version
+npm --version
+cd frontend
+Copy-Item .env.example .env
+npm ci
+npm run dev
+```
+
+#### macOS / Linux
 
 ```bash
+node --version
+npm --version
 cd frontend
 cp .env.example .env
 npm ci
@@ -315,7 +363,9 @@ error    终止性错误事件
 
 ## 部署与运维
 
-### Docker Compose 一键启动
+### Docker Compose 一键部署（Linux 服务器）
+
+> 以下生产部署和运维命令面向 Linux 服务器环境。Windows / macOS 本地开发请使用前文“快速开始”中的平台对应流程。
 
 服务器只需要安装 Docker Engine 和 Docker Compose v2，并将 `mauriceliang.xyz` 的 DNS 指向服务器公网 IP：
 
@@ -357,12 +407,24 @@ docker compose down
 
 ### 后端
 
+#### Windows PowerShell
+
+```powershell
+cd backend
+.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
+.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m ruff check app tests
+.\.venv\Scripts\python.exe -m ruff format --check app tests
+```
+
+#### macOS / Linux
+
 ```bash
 cd backend
 .venv/bin/python -m pip install -r requirements-dev.txt
 .venv/bin/python -m pytest -q
-.venv/bin/ruff check app tests
-.venv/bin/ruff format --check app tests
+.venv/bin/python -m ruff check app tests
+.venv/bin/python -m ruff format --check app tests
 ```
 
 ### 前端
