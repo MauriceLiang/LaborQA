@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <code>Vue 3</code> · <code>FastAPI</code> · <code>LangChain</code> · <code>FAISS</code> · <code>SQLite</code> · <code>Docker Compose</code>
+  <code>Vue 3</code> · <code>FastAPI</code> · <code>LangChain</code> · <code>FAISS</code> · <code>SQLite</code> · <code>Docker Compose</code> · <code>Caddy</code> · <code>Nginx</code>
 </p>
 
 <p align="center">
@@ -62,7 +62,7 @@ flowchart LR
     T --> G{证据门控}
     G -->|证据充分| W[回答生成]
     G -->|证据不足| N[拒答并记录知识缺口]
-    W --> S[SSE<br/>tool · token · sources · done]
+    W --> S[SSE<br/>status · tool · token · sources · done]
     N --> S
     S --> F
 ```
@@ -82,6 +82,34 @@ flowchart LR
 - **生产问答与评测 / 实验复用同一条 RAG 链路**：减少“评测路径和线上路径不一致”造成的误判。
 - **配置变更会影响索引兼容性**：Embedding Provider、模型、归一化方式、分块参数变化后，旧索引可能不再兼容，需要重建知识库索引。
 
+## AI 运行模式
+
+AI 模式是随请求传递的产品级运行档位，不写入 `.env`。前端的全局 `AiModeSelector` 将当前选择保存到浏览器 `localStorage`，聊天请求携带该模式；评测和检索实验会在运行配置快照中记录模式，保证结果可复现。
+
+| 模式 | 默认标签 | Evidence Judge | Answer thinking | 适用场景 |
+| --- | --- | --- | --- | --- |
+| `speed` | 快速 | 关闭 | 关闭 | 优先响应速度 |
+| `balanced` | 均衡（默认） | `LOW` | 关闭 | 日常咨询，在速度和质量间平衡 |
+| `quality` | 高质量 | `HIGH` | `HIGH` | 复杂问题和更高质量要求 |
+
+三档模式只改变 RAG 运行时的模型推理配置，不改变资料、SQLite 或 FAISS 的持久化结构。回答风格（通俗解读 / 严谨条款）是另一项独立设置。
+
+### 后端启动生命周期
+
+```text
+configure_logging
+→ initialize_database
+→ DocumentService（恢复中断的资料导入）
+→ SessionService
+→ RetrievalService（复用资料服务的 Repository、Embedding 和 production VectorStore）
+→ ChatService
+→ EvaluationService.initialize
+→ RetrievalExperimentService.initialize
+→ 写入 app.state，供 API Depends 获取
+```
+
+应用启动时还会注册统一异常处理、CORS、`X-Request-ID` middleware 和健康检查；具体模块边界见 [backend/README.md](backend/README.md)。
+
 ## 技术栈
 
 | 层次 | 技术与职责 |
@@ -93,7 +121,9 @@ flowchart LR
 | 向量检索 | FAISS CPU；默认本地 `BAAI/bge-small-zh-v1.5`，也支持 OpenAI-compatible Embedding API |
 | 生成模型 | OpenAI-compatible Chat Completions API |
 | 持久化 | SQLite、本地原始文件存储、FAISS 生产索引与实验索引 |
-| 交付方式 | 本地开发、Docker Compose + Nginx 单机部署 |
+| 交付方式 | 本地开发、Docker Compose + Caddy + Nginx 单机部署 |
+
+生产部署中，Caddy 负责公网 80/443、TLS 和证书续期；frontend 容器中的 Nginx 负责 Vue 静态资源、SPA fallback、`/api` 反向代理和 SSE 代理；backend 提供 FastAPI、RAG 和运行时数据服务。
 
 ## 快速开始
 
@@ -193,6 +223,15 @@ npm run dev
 4. 在“问答评测”运行内置用例，确认回答、拒答和引用行为。
 5. 在“检索实验”中比较策略前，先确保生产知识库已经完成初始化。
 
+### 系统资料导入机制
+
+系统资料不是启动时自动导入，而是由“资料管理 → 导入系统资料”触发。导入过程遵循以下约定：
+
+- `reference-data/documents/` 是 Git 管理的只读源资料；导入时复制到 `uploads/` 作为运行时工作副本。
+- 每份系统资料都有稳定的 `source_key`（形如 `builtin:<相对路径>`）和文件 `source_hash`（SHA-256），用于识别资料身份和内容版本。
+- 系统资料状态包括 `MISSING`、`PROCESSING`、`SUCCESS`、`FAILED` 和 `OUTDATED`。源文件内容变化后，哈希不一致会变为 `OUTDATED`，再次点击导入才会重建对应内容和向量。
+- `source_type=BUILTIN` 表示仓库系统资料，`source_type=UPLOAD` 表示用户上传资料。系统资料会按顺序进入普通的解析、分块、Embedding、SQLite 和生产 FAISS 导入链路。
+
 ## 产品工作台
 
 前端路由与用途如下：
@@ -217,6 +256,7 @@ npm run dev
 | `LOCAL_EMBEDDING_MODEL` | `BAAI/bge-small-zh-v1.5` | 本地向量模型名称 |
 | `EMBEDDING_NORMALIZE` | `true` | 是否对向量进行归一化；变更后需要重建索引 |
 | `CHUNK_SIZE` / `CHUNK_OVERLAP` | `600` / `100` | 文本分块大小和重叠长度；`CHUNK_OVERLAP` 必须小于 `CHUNK_SIZE` |
+| `RAG_CANDIDATE_K` | `20` | 初始候选召回数量；`RAG_TOP_K` 和启用时的 `RERANK_TOP_N` 都不能超过它 |
 | `RAG_TOP_K` | `5` | 初始召回数量，范围为 1–20 |
 | `RAG_SCORE_THRESHOLD` | `0.35` | 低于阈值时进入证据不足判断 |
 | `RERANK_ENABLED` / `RERANK_TOP_N` | `false` / `5` | 是否启用重排，以及重排候选上限 |
@@ -227,7 +267,7 @@ npm run dev
 配置校验规则：
 
 - 当 `EMBEDDING_PROVIDER=api` 时，必须同时填写 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL` 和 `EMBEDDING_API_MODEL`。
-- 当 `RERANK_ENABLED=true` 时，`RERANK_TOP_N` 不能大于 `RAG_TOP_K`。
+- 当 `RAG_TOP_K` 大于 `RAG_CANDIDATE_K` 时配置无效；启用重排时，`RERANK_TOP_N` 不能大于 `RAG_CANDIDATE_K`。
 - 修改 Embedding 模型、Provider、归一化方式或分块参数后，旧 FAISS 索引可能与当前签名不兼容；请先备份，再重新导入资料或按部署流程重建索引。
 - API Key、上传文件、数据库和生成的索引属于运行时数据，不要提交到 Git。
 
@@ -248,6 +288,7 @@ FastAPI 会自动生成完整 OpenAPI 契约，启动后访问 `/docs` 或 `/ope
 `/api/chat/stream` 返回 `text/event-stream`，正常流程包含以下事件：
 
 ```text
+status   当前处理阶段：understanding、retrieving、verifying 或 generating
 tool     可选，材料清单等工具执行结果
 token    一个或多个回答片段
 sources  命中的来源与证据分块
@@ -267,6 +308,8 @@ error    终止性错误事件
 | `uploads/` | 用户上传的原始文件 | 不提交，需纳入备份 |
 | `model-cache/` | HuggingFace / Sentence Transformers 模型缓存 | 不提交，可重新下载 |
 | `backups/` | 备份包和恢复前快照 | 不提交，按运维策略保存 |
+
+`reference-data/documents/` 是系统资料的源，`uploads/` 是导入后的运行时工作副本；系统资料的元数据、分块和 FAISS 索引仍属于 `data/` 中的运行态。SQLite 保存业务真源，FAISS 只保存以 chunk id 为外部标识的可重建向量索引。
 
 删除容器不会自动删除上述宿主机挂载目录；Caddy 的证书状态保存在 Docker 命名卷 `caddy_data` 和 `caddy_config` 中，切勿使用 `docker compose down -v`。生产环境应将 `data/`、`uploads/`、Caddy 命名卷和配置文件纳入访问控制与备份策略。
 
@@ -357,24 +400,36 @@ npm run build
 ```text
 LaborQA/
 ├── backend/
-│   ├── app/api/              # REST、SSE 与 OpenAPI 接口
-│   ├── app/core/             # 配置、数据库、错误处理、日志
-│   ├── app/rag/              # LangChain 链路、Embedding、分块、向量检索
-│   ├── app/repositories/     # SQLite 数据访问
-│   ├── app/services/         # 问答、资料、评测、实验、工具服务
-│   ├── app/prompts/          # 回答、改写、证据判断与评测提示词
-│   ├── app/scripts/          # Embedding 等运维检查脚本
-│   ├── tests/                # 后端测试
+│   ├── app/
+│   │   ├── api/              # HTTP、SSE、健康检查和 FastAPI 依赖
+│   │   ├── core/             # 配置、数据库、错误处理、日志
+│   │   ├── rag/              # AI Mode、链路、Embedding、分块和 RAG 决策
+│   │   ├── repositories/     # SQLite CRUD、查询和事务边界
+│   │   ├── schemas/          # API / Domain 数据契约
+│   │   ├── services/         # 问答、资料、评测、实验和工具业务流程
+│   │   ├── prompts/          # 改写、证据判断、回答和评测提示词
+│   │   ├── scripts/          # Embedding 验证和基线审计
+│   │   └── main.py           # FastAPI 生命周期和 Service 组装入口
+│   ├── tests/                # 单元、契约、集成和基线测试
+│   ├── README.md             # 后端代码地图和依赖边界
 │   ├── Dockerfile
 │   └── requirements*.txt
 ├── frontend/
-│   ├── src/views/            # 问答、资料、系统、评测、实验页面
-│   ├── src/components/       # 聊天和资料管理组件
-│   ├── src/api/              # 后端接口客户端
-│   ├── public/assets/        # 品牌资源（含 brand-mark.png）
+│   ├── src/
+│   │   ├── api/              # HTTP / SSE Client
+│   │   ├── components/       # 聊天、资料和全局 UI 组件
+│   │   ├── router/           # Vue Router
+│   │   ├── stores/           # Pinia 状态
+│   │   ├── types/            # OpenAPI 生成类型和 UI / SSE 类型
+│   │   ├── utils/            # 通用工具
+│   │   ├── views/            # 页面级组件
+│   │   ├── App.vue           # 全局 App Shell
+│   │   └── main.ts           # Vue、Pinia、Router 初始化
 │   ├── tests/                # 前端测试
+│   ├── public/assets/        # 品牌资源（含 brand-mark.png）
+│   ├── README.md             # 前端页面、状态和 API 代码地图
 │   └── package.json
-├── docs/                     # 本地需求、设计、接口、原型和测试数据（不随仓库发布）
+├── docs/                     # 本地需求、设计、接口、原型和测试数据（当前不随仓库发布）
 ├── reference-data/           # 随仓库维护的可审阅参考资料
 ├── data/                     # 运行时 SQLite 与 FAISS 数据
 ├── uploads/                  # 运行时上传文件
@@ -383,11 +438,136 @@ LaborQA/
 └── README.md
 ```
 
+更细的模块职责和依赖约束见 [后端代码地图](backend/README.md) 与 [前端代码地图](frontend/README.md)。
+
+## 代码依赖方向
+
+```text
+FastAPI Router
+      │
+      ▼
+   Service ─────────► RAG Chain / Retrieval / Parser / Storage
+      │
+      ▼
+ Repository
+      │
+      ▼
+   SQLite
+
+DocumentService ─► Loader / Parser ─► Splitter ─► Embedding
+       └──────────────────────────────────────────────► VectorStore ─► FAISS
+```
+
+工程边界如下：
+
+- API 层通过 FastAPI `Depends` 获取 Service，不直接写 SQLite，也不编排底层导入流程。
+- Service 层编排业务流程，按需调用 Repository 和 RAG / 文件处理模块。
+- Repository 只负责 SQLite CRUD、查询和事务，不反向依赖 Service。
+- `RagChain` 负责改写、证据判断和回答编排，不负责会话持久化；`RetrievalService` 负责召回和证据整理，不负责最终回答生成。
+- `VectorStoreService` 负责 FAISS 生命周期和签名兼容性，但不是真实业务数据源；索引可由 SQLite 中的成功分块重建。
+- Evaluation 复用 `ChatService.answer_once` 的真实 RAG 路径；Retrieval Experiment 使用隔离实验索引，不覆盖 production index。
+
+## 核心业务流程
+
+### Chat
+
+```text
+ChatView
+→ POST /api/chat/stream
+→ ChatService
+→ 问题改写
+→ RetrievalService
+→ Evidence Judge / 工具
+→ 回答生成或拒答
+→ SSE status / tool / token / sources / done
+→ Session、Message、Citation 持久化
+```
+
+### 普通资料导入
+
+```text
+上传
+→ FileStorage 安全校验与写入
+→ document=PROCESSING
+→ BackgroundTask
+→ Loader / Parser
+→ LegalTextSplitter
+→ Embedding
+→ SQLite chunks
+→ production FAISS
+→ document=SUCCESS 或 FAILED
+```
+
+### 系统资料一键导入
+
+```text
+reference-data/documents
+→ source_key / SHA-256
+→ 与 SQLite 中的 BUILTIN 状态比较
+→ 复制到 uploads 工作副本
+→ 按顺序调用普通 import_document 链路
+→ 更新 Chunk、引用和 production FAISS
+```
+
+缺失资料、导入失败或哈希变化分别表现为 `MISSING`、`FAILED` 或 `OUTDATED`，再次导入时只调度需要处理的资料。
+
+### Evaluation 与 Retrieval Experiment
+
+```text
+Evaluation：运行配置快照 → ChatService.answer_once → Evaluation Judge → 指标与逐题结果
+Experiment：策略快照 → 隔离实验索引 → RAG 执行 → 结果比较与归档
+```
+
+## 数据模型概览
+
+主要业务实体包括：
+
+```text
+document、chunk、session、message、citation、tool_execution
+missing_knowledge、evaluation_case、evaluation_run、evaluation_result
+retrieval_strategy、retrieval_experiment
+```
+
+关键关系：
+
+- `document 1 → N chunk`；删除或重导入资料时同步清理旧分块和向量。
+- `session 1 → N message`；`message 1 → N citation`；`citation → chunk`。
+- FAISS 的 external id 使用 `chunk.id`，引用详情回到 SQLite 读取原文、文件和来源元数据。
+- `evaluation_run` 和 `retrieval_experiment` 保存运行配置 / 策略快照，使历史结果不依赖当前全局配置。
+
+## 常见改动应该改哪里
+
+| 需求 | 主要修改位置 |
+| --- | --- |
+| 新增 API | `backend/app/schemas/contracts.py` + `backend/app/api/contracts.py` + 对应 Service |
+| 修改 Chat 主流程 | `backend/app/services/chat_service.py` / `backend/app/rag/chains.py` |
+| 修改 Evidence Judge | `backend/app/prompts/evidence_judge.txt` + `backend/app/rag/chains.py` |
+| 修改检索逻辑 | `backend/app/services/retrieval.py` |
+| 修改 FAISS 生命周期 | `backend/app/services/vector_store.py` |
+| 修改分块 | `backend/app/rag/splitters.py` |
+| 修改 AI 三档 | `backend/app/rag/ai_modes.py` / `backend/app/rag/providers.py` |
+| 修改系统资料 | `reference-data/documents/` + 一键导入 + baseline 回归 |
+| 新增前端页面 | `frontend/src/views/` + `frontend/src/router/index.ts` |
+| 修改全局 AI Mode | `frontend/src/components/AiModeSelector.vue` + `frontend/src/stores/preferences.ts` |
+| 修改 SSE | `backend/app/services/chat_service.py` + `frontend/src/api/chat.ts` + `frontend/src/types/sse.ts` |
+
+## 工程禁区 / Invariants
+
+- 不要把 FAISS 当作业务真源；索引损坏时应从 SQLite 成功分块重建。
+- 不要手工修改 `frontend/src/types/api.generated.ts`；先更新后端契约并重新生成 OpenAPI 类型。
+- 不要在 Repository 写业务编排，也不要让 Repository 反向依赖 Service。
+- 不要让 Evaluation 使用另一套 RAG 实现；离线评测必须能解释线上链路的行为。
+- 不要通过修改全局 `Settings` 来实现单次 AI Mode；使用请求参数和运行配置快照。
+- 修改 `reference-data` 后必须重新导入、确认 BUILTIN 全部 `SUCCESS`，并运行官方 baseline 与关键主题回归。
+- 生产升级和恢复时不要使用 `docker compose down -v`，否则可能删除 Caddy 证书命名卷。
+
 ## 文档索引
 
 以下链接均指向会随仓库提交、远端可直接访问的文档：
 
 - [参考资料说明](reference-data/README.md)
+- [后端代码地图](backend/README.md)
+- [前端代码地图](frontend/README.md)
 - [Docker 部署与运维](deploy/README.md)
 
 项目本地的 `docs/` 目录还包含需求文档、系统设计、接口设计、开发规范、原型图和 `.docx` 交付物。这些资料已由仓库忽略规则排除，不上传到远端，因此不在这里创建远端链接；需要完整项目资料时，请从本地交付包或团队文档库获取。

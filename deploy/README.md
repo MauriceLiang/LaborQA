@@ -1,6 +1,8 @@
 # LaborQA HTTPS Docker 部署与运维
 
-本文档描述 mauriceliang.xyz 的 Docker Compose 部署方式。部署完成后，用户统一通过 https://mauriceliang.xyz 访问；Caddy 负责 TLS 终止、证书申请与续期，frontend Nginx 继续负责 Vue 静态资源、API 反向代理、SSE 和 SPA 路由回退。
+本文档描述当前实例 `mauriceliang.xyz` 的 Docker Compose 部署方式。部署完成后，用户统一通过 `https://mauriceliang.xyz` 访问；Caddy 负责 TLS 终止、证书申请与续期，frontend Nginx 继续负责 Vue 静态资源、API 反向代理、SSE 和 SPA 路由回退。
+
+如果部署到其他域名，请将下文命令中的 `mauriceliang.xyz` 和 `deploy/Caddyfile` 中的站点地址替换为实际域名；`<YOUR_DOMAIN>` 可作为通用文档占位符。
 
 ## 1. 部署架构
 
@@ -42,14 +44,17 @@ Internet
 
 | 存储 | 内容 | 备份 / 保留策略 |
 | --- | --- | --- |
-| data/ | SQLite、生产 FAISS 索引和检索实验索引 | 业务备份 |
-| uploads/ | 用户上传的 PDF、DOC、DOCX、MD、TXT 原文件 | 业务备份 |
+| reference-data/ | Git 管理的只读系统源资料 | 随代码版本恢复，不由 runtime backup 归档 |
+| data/ | SQLite 元数据 / Chunk、生产 FAISS 索引和检索实验索引 | 业务备份 |
+| uploads/ | 用户上传文件和系统资料导入后的工作副本 | 业务备份 |
 | model-cache/ | HuggingFace / Sentence Transformers 模型缓存 | 可重新下载，可选备份 |
 | backups/ | 运行数据备份包和恢复前快照 | 按运维策略保留 |
 | caddy_data | 证书、ACME 状态和 Caddy 运行数据 | 必须保留，避免不必要的重新申请 |
 | caddy_config | Caddy 配置状态 | 与 caddy_data 一起保留 |
 
 caddy_data 和 caddy_config 是 Docker 命名卷，不包含在 deploy/backup.sh 的业务数据归档中。不要执行 docker compose down -v，否则会删除证书相关卷。
+
+运行态恢复需要同时考虑三类内容：`reference-data/` 由 Git commit 恢复，`data/` 保存系统资料元数据、Chunk 和 FAISS，`uploads/` 保存导入后的工作副本。因此当前备份脚本归档 `data/ + uploads/`；代码版本和 `reference-data/` 则通过 Git 版本恢复。Caddy 证书状态仍由 `caddy_data` / `caddy_config` 命名卷持久化。
 
 ## 2. 服务器环境
 
@@ -164,6 +169,7 @@ docker compose run --rm --no-deps caddy \
 - frontend 使用 expose: ["80"]，没有 80:80 宿主机端口映射。
 - caddy 映射 80:80 和 443:443。
 - deploy/Caddyfile 被只读挂载到 /etc/caddy/Caddyfile。
+- backend 将 `./reference-data` 以 `/app/reference-data:ro` 只读挂载，系统资料源不能由容器写回。
 - caddy_data、caddy_config 两个命名卷存在于 Compose 配置中。
 
 ## 7. 构建与启动
@@ -262,6 +268,7 @@ https://mauriceliang.xyz
 2. 进入 AI 问答页发送问题，确认回答逐步流式出现，而不是等待结束后一次性返回。
 3. 检查来源面板、材料清单工具和知识缺口记录。
 4. 上传 TXT、PDF、DOCX、DOC，确认上传、解析和知识库导入均正常。
+5. 进入“资料管理”点击“导入系统资料”，确认系统资料状态可以查询并完成导入。
 
 现有 frontend/nginx.conf 中的以下配置必须保留，以保证 SSE 和 Vue Router 正常工作：
 
@@ -279,6 +286,19 @@ VITE_API_BASE_URL=/api
 ~~~
 
 不要改为 https://mauriceliang.xyz:8000/api 或 http://backend:8000。
+
+### 8.5 系统资料一键导入验收
+
+首次部署或更新 `reference-data/` 后，必须单独验收系统资料：
+
+```text
+资料管理 → 导入系统资料
+→ 等待所有资料处理结束
+→ GET /api/documents/builtin/status
+→ total=10、success=10、all_imported=true
+```
+
+如果存在 `MISSING`、`FAILED` 或 `OUTDATED`，不要把部署标记为知识库验收通过；先查看 backend 日志和对应资料处理说明。
 
 ## 9. 运维命令
 
@@ -325,7 +345,7 @@ docker volume ls | grep caddy
 find backups -maxdepth 2 -type f
 ~~~
 
-备份包位于 backups/<时间戳>/laborqa-runtime.tar.gz，包含 SQLite、FAISS 和上传文件；模型缓存和 Caddy 命名卷不进入该归档。
+备份包位于 backups/<时间戳>/laborqa-runtime.tar.gz，包含 `data/`（SQLite、Chunk、FAISS）和 `uploads/`（用户文件、系统资料工作副本）；`reference-data/` 通过 Git 恢复，模型缓存和 Caddy 命名卷不进入该归档。
 
 ### 恢复
 
@@ -354,6 +374,19 @@ docker compose logs --tail=200 backend
 
 升级后至少检查首页、HTTPS 证书、/api/health、资料上传和问答流式输出。
 
+如果本次代码更新同时改变了 `reference-data/`：
+
+```text
+git pull
+→ 源文件 SHA-256 变化
+→ builtin/status 出现 OUTDATED
+→ 再次点击“导入系统资料”
+→ 重建对应 Chunk / production FAISS
+→ 确认 all_imported=true
+```
+
+系统资料更新不能只靠重启容器完成，必须执行一键导入并完成 baseline / 关键主题回归。
+
 ### 回滚
 
 升级前记录稳定 commit。发生严重故障时切回已确认的稳定版本，然后重建服务：
@@ -365,7 +398,7 @@ docker compose up -d --build
 docker compose ps
 ~~~
 
-本次 HTTPS 接入不修改 SQLite、FAISS、上传文件和业务代码；如果故障涉及运行数据，再恢复对应业务备份。
+代码升级通常不替换 `data/` 和 `uploads/`，数据库 migration 会由应用启动流程处理；如果故障涉及运行数据，先保留当前目录快照，再恢复对应业务备份。不要删除 Caddy 命名卷来处理普通应用升级问题。
 
 ## 11. 常见故障
 
@@ -436,6 +469,7 @@ curl -fsS https://mauriceliang.xyz/api/health
 [ ] frontend 不再绑定宿主机 80
 [ ] Caddy 绑定 80 和 443
 [ ] Caddyfile 域名正确
+[ ] backend 只读挂载 reference-data/
 [ ] caddy_data、caddy_config 已持久化
 [ ] docker compose config 通过
 [ ] backend healthy
@@ -447,6 +481,7 @@ curl -fsS https://mauriceliang.xyz/api/health
 [ ] Vue 页面和路由刷新正常
 [ ] SSE 流式回答正常
 [ ] 文件上传和导入正常
+[ ] builtin/status 返回 all_imported=true
 [ ] Safari、Chrome、Edge 可访问
 ~~~
 
