@@ -22,6 +22,8 @@ from app.core.error_codes import ErrorCode
 from app.core.errors import AppError
 from app.schemas.common import ApiResponse, PageQuery, PageResult
 from app.schemas.contracts import (
+    BuiltinDocumentImportAccepted,
+    BuiltinDocumentStatus,
     ChatRequest,
     ChunkItem,
     CreateSessionRequest,
@@ -149,6 +151,55 @@ def list_documents(
             size=query.size,
             total=total,
             pages=(total + query.size - 1) // query.size,
+        ),
+    )
+
+
+@router.get(
+    "/documents/builtin/status",
+    response_model=ApiResponse[BuiltinDocumentStatus],
+    responses=CONTRACT_RESPONSES,
+    tags=["documents"],
+    summary="Get builtin document import status",
+)
+def get_builtin_document_status(
+    service: Annotated[DocumentService, Depends(get_document_service)],
+) -> ApiResponse[BuiltinDocumentStatus]:
+    return ApiResponse(
+        code=0,
+        message="success",
+        data=BuiltinDocumentStatus.model_validate(service.get_builtin_status()),
+    )
+
+
+@router.post(
+    "/documents/builtin/import",
+    response_model=ApiResponse[BuiltinDocumentImportAccepted],
+    status_code=202,
+    responses=CONTRACT_RESPONSES,
+    tags=["documents"],
+    summary="Import repository-provided builtin documents",
+)
+def import_builtin_documents(
+    background_tasks: BackgroundTasks,
+    service: Annotated[DocumentService, Depends(get_document_service)],
+) -> ApiResponse[BuiltinDocumentImportAccepted]:
+    plan = service.prepare_builtin_import()
+    if plan.scheduled_ids:
+        background_tasks.add_task(
+            service.import_builtin_batch,
+            list(plan.scheduled_ids),
+        )
+    return ApiResponse(
+        code=0,
+        message="accepted",
+        data=BuiltinDocumentImportAccepted(
+            total=plan.total,
+            already_imported=plan.already_imported,
+            scheduled=len(plan.scheduled_ids),
+            processing=len(plan.processing_ids),
+            tracked_document_ids=plan.tracked_document_ids,
+            all_imported=plan.all_imported,
         ),
     )
 

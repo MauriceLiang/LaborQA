@@ -31,6 +31,8 @@ EXPECTED_OPERATIONS = {
     ("get", "/api/health"),
     ("post", "/api/documents/upload"),
     ("get", "/api/documents"),
+    ("get", "/api/documents/builtin/status"),
+    ("post", "/api/documents/builtin/import"),
     ("get", "/api/documents/{id}"),
     ("delete", "/api/documents/{id}"),
     ("post", "/api/documents/{id}/reimport"),

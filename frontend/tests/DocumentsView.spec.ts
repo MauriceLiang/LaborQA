@@ -1,9 +1,15 @@
 import { nextTick } from 'vue'
 import { flushPromises, shallowMount } from '@vue/test-utils'
-import { ElMessageBox } from 'element-plus'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
-import type { ChunkPage, DocumentItem, DocumentPage } from '@/api/documents'
+import type {
+  BuiltinDocumentImportAccepted,
+  BuiltinDocumentStatus,
+  ChunkPage,
+  DocumentItem,
+  DocumentPage,
+} from '@/api/documents'
 import * as documentsApi from '@/api/documents'
 import { ApiError } from '@/api/http'
 import DocumentsView from '@/views/DocumentsView.vue'
@@ -14,9 +20,11 @@ import DocumentUpload from '@/components/documents/DocumentUpload.vue'
 
 vi.mock('@/api/documents', () => ({
   deleteDocument: vi.fn(),
+  getBuiltinDocumentStatus: vi.fn(),
   getDocument: vi.fn(),
   getDocumentChunks: vi.fn(),
   getDocuments: vi.fn(),
+  importBuiltinDocuments: vi.fn(),
   reimportDocument: vi.fn(),
   uploadDocument: vi.fn(),
 }))
@@ -25,6 +33,7 @@ const processingDocument: DocumentItem = {
   id: 7,
   file_name: '法规.txt',
   file_type: 'txt',
+  source_type: 'UPLOAD',
   status: 'PROCESSING',
   chunk_count: 0,
   error_message: null,
@@ -74,6 +83,16 @@ beforeEach(() => {
   vi.useRealTimers()
   vi.mocked(documentsApi.getDocuments).mockResolvedValue(page([]))
   vi.mocked(documentsApi.getDocument).mockResolvedValue(successDocument)
+  vi.mocked(documentsApi.getBuiltinDocumentStatus).mockResolvedValue({
+    total: 0,
+    success: 0,
+    processing: 0,
+    failed: 0,
+    missing: 0,
+    outdated: 0,
+    all_imported: false,
+    items: [],
+  })
   vi.mocked(documentsApi.getDocumentChunks).mockResolvedValue({
     items: [{ id: 11, document_id: 7, chunk_no: 1, content: '完整原文', vector_key: 'chunk-11' }],
     page: 1,
@@ -89,6 +108,106 @@ afterEach(() => {
 })
 
 describe('DocumentsView', () => {
+  it('imports builtin documents and reports the final success status', async () => {
+    vi.useFakeTimers()
+    const accepted: BuiltinDocumentImportAccepted = {
+      total: 1,
+      already_imported: 0,
+      scheduled: 1,
+      processing: 0,
+      tracked_document_ids: [processingDocument.id],
+      all_imported: false,
+    }
+    const completed: BuiltinDocumentStatus = {
+      total: 1,
+      success: 1,
+      processing: 0,
+      failed: 0,
+      missing: 0,
+      outdated: 0,
+      all_imported: true,
+      items: [{
+        source_key: 'builtin:法规.txt',
+        file_name: processingDocument.file_name,
+        state: 'SUCCESS',
+        document_id: processingDocument.id,
+      }],
+    }
+    vi.mocked(documentsApi.importBuiltinDocuments).mockResolvedValue(accepted)
+    vi.mocked(documentsApi.getDocuments)
+      .mockResolvedValueOnce(page([]))
+      .mockResolvedValueOnce(page([processingDocument]))
+      .mockResolvedValueOnce(page([successDocument]))
+    vi.mocked(documentsApi.getDocument).mockResolvedValueOnce(successDocument)
+    vi.mocked(documentsApi.getBuiltinDocumentStatus).mockResolvedValueOnce(completed)
+    const successMessage = vi.spyOn(ElMessage, 'success').mockImplementation(() => ({
+      close: vi.fn(),
+    }) as never)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('.document-builtin-import-button').trigger('click')
+    await flushPromises()
+    expect(documentsApi.importBuiltinDocuments).toHaveBeenCalledOnce()
+    expect(vi.getTimerCount()).toBe(1)
+
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+
+    expect(documentsApi.getBuiltinDocumentStatus).toHaveBeenCalledOnce()
+    expect(successMessage).toHaveBeenCalledWith('系统资料已全部导入完成')
+    expect(vi.getTimerCount()).toBe(0)
+    wrapper.unmount()
+  })
+
+  it('warns instead of reporting success when a builtin document fails', async () => {
+    vi.useFakeTimers()
+    vi.mocked(documentsApi.importBuiltinDocuments).mockResolvedValue({
+      total: 1,
+      already_imported: 0,
+      scheduled: 1,
+      processing: 0,
+      tracked_document_ids: [processingDocument.id],
+      all_imported: false,
+    })
+    vi.mocked(documentsApi.getDocuments)
+      .mockResolvedValueOnce(page([]))
+      .mockResolvedValueOnce(page([processingDocument]))
+      .mockResolvedValueOnce(page([failedDocument]))
+    vi.mocked(documentsApi.getDocument).mockResolvedValueOnce(failedDocument)
+    vi.mocked(documentsApi.getBuiltinDocumentStatus).mockResolvedValueOnce({
+      total: 1,
+      success: 0,
+      processing: 0,
+      failed: 1,
+      missing: 0,
+      outdated: 0,
+      all_imported: false,
+      items: [{
+        source_key: 'builtin:法规.txt',
+        file_name: failedDocument.file_name,
+        state: 'FAILED',
+        document_id: failedDocument.id,
+      }],
+    })
+    const warningMessage = vi.spyOn(ElMessage, 'warning').mockImplementation(() => ({
+      close: vi.fn(),
+    }) as never)
+
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.find('.document-builtin-import-button').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(2000)
+    await flushPromises()
+
+    expect(warningMessage).toHaveBeenCalledWith(
+      '系统资料处理完成，但有 1 份导入失败，可再次点击“导入系统资料”重试',
+    )
+    expect(vi.getTimerCount()).toBe(0)
+    wrapper.unmount()
+  })
+
   it('passes an empty page to the list after loading completes', async () => {
     const wrapper = mountView()
     await flushPromises()

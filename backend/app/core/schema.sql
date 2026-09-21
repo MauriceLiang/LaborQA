@@ -3,6 +3,10 @@ CREATE TABLE IF NOT EXISTS document (
     file_name VARCHAR(255) NOT NULL,
     file_type VARCHAR(20) NOT NULL CHECK (file_type IN ('pdf', 'doc', 'docx', 'md', 'txt')),
     file_path VARCHAR(500) NOT NULL,
+    source_type VARCHAR(20) NOT NULL DEFAULT 'UPLOAD'
+        CHECK (source_type IN ('UPLOAD', 'BUILTIN')),
+    source_key VARCHAR(255),
+    source_hash VARCHAR(64),
     status VARCHAR(20) NOT NULL DEFAULT 'PROCESSING'
         CHECK (status IN ('PROCESSING', 'SUCCESS', 'FAILED')),
     chunk_count INTEGER NOT NULL DEFAULT 0 CHECK (chunk_count >= 0),
@@ -225,6 +229,8 @@ CREATE TABLE IF NOT EXISTS retrieval_strategy_version (
 );
 
 CREATE INDEX IF NOT EXISTS idx_document_status_created_at ON document(status, created_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_document_source_key
+    ON document(source_key) WHERE source_key IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_chunk_document_id ON chunk(document_id);
 CREATE INDEX IF NOT EXISTS idx_message_session_created_at ON message(session_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_evaluation_case_topic ON evaluation_case(topic);

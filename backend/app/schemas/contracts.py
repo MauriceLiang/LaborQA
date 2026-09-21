@@ -26,6 +26,19 @@ class DocumentStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class DocumentSourceType(StrEnum):
+    UPLOAD = "UPLOAD"
+    BUILTIN = "BUILTIN"
+
+
+class BuiltinDocumentState(StrEnum):
+    MISSING = "MISSING"
+    PROCESSING = "PROCESSING"
+    SUCCESS = "SUCCESS"
+    FAILED = "FAILED"
+    OUTDATED = "OUTDATED"
+
+
 class JobStatus(StrEnum):
     PENDING = "PENDING"
     RUNNING = "RUNNING"
@@ -75,6 +88,8 @@ class DocumentItem(ApiModel):
     id: int
     file_name: str
     file_type: FileType
+    source_type: DocumentSourceType
+    source_key: str | None = None
     status: DocumentStatus
     chunk_count: int
     error_message: str | None
@@ -91,6 +106,33 @@ class DocumentUploadAccepted(ApiModel):
 class DocumentReimportAccepted(ApiModel):
     document_id: int
     status: DocumentStatus
+
+
+class BuiltinDocumentStatusItem(ApiModel):
+    source_key: str
+    file_name: str
+    state: BuiltinDocumentState
+    document_id: int | None
+
+
+class BuiltinDocumentStatus(ApiModel):
+    total: int = Field(ge=0)
+    success: int = Field(ge=0)
+    processing: int = Field(ge=0)
+    failed: int = Field(ge=0)
+    missing: int = Field(ge=0)
+    outdated: int = Field(ge=0)
+    all_imported: bool
+    items: list[BuiltinDocumentStatusItem]
+
+
+class BuiltinDocumentImportAccepted(ApiModel):
+    total: int = Field(ge=0)
+    already_imported: int = Field(ge=0)
+    scheduled: int = Field(ge=0)
+    processing: int = Field(ge=0)
+    tracked_document_ids: list[int]
+    all_imported: bool
 
 
 class DocumentQuery(PageQuery):

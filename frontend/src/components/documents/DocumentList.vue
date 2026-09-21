@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { ElButton, ElInput, ElOption, ElPagination, ElSelect } from 'element-plus'
+import { ElButton, ElInput, ElOption, ElPagination, ElSelect, ElTag } from 'element-plus'
 import { ArrowRight, Delete, Filter, Search } from '@element-plus/icons-vue'
 
 import type { DocumentItem } from '@/api/documents'
@@ -129,7 +129,12 @@ function selectWithKeyboard(event: KeyboardEvent, document: DocumentItem) {
             @click="selectRow(document)"
             @keydown="selectWithKeyboard($event, document)"
           >
-            <td class="document-name-cell" :title="document.file_name">{{ document.file_name }}</td>
+            <td class="document-name-cell" :title="document.file_name">
+              <span>{{ document.file_name }}</span>
+              <ElTag v-if="document.source_type === 'BUILTIN'" size="small" type="success">
+                系统资料
+              </ElTag>
+            </td>
             <td class="document-format-cell">{{ document.file_type.toUpperCase() }}</td>
             <td>
               <span class="document-status" :class="statusClass(document.status)">

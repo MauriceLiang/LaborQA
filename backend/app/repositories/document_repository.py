@@ -21,14 +21,28 @@ class DocumentRepository:
         file_type: str,
         file_path: str,
         status: str = "PROCESSING",
+        source_type: str = "UPLOAD",
+        source_key: str | None = None,
+        source_hash: str | None = None,
     ) -> dict[str, Any]:
         with self._connection() as connection:
             cursor = connection.execute(
                 """
-                INSERT INTO document (file_name, file_type, file_path, status)
-                VALUES (?, ?, ?, ?)
+                INSERT INTO document (
+                    file_name, file_type, file_path, status,
+                    source_type, source_key, source_hash
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
                 """,
-                (file_name, file_type, file_path, status),
+                (
+                    file_name,
+                    file_type,
+                    file_path,
+                    status,
+                    source_type,
+                    source_key,
+                    source_hash,
+                ),
             )
             row = connection.execute(
                 "SELECT * FROM document WHERE id = ?", (cursor.lastrowid,)
@@ -41,6 +55,22 @@ class DocumentRepository:
                 "SELECT * FROM document WHERE id = ?", (document_id,)
             ).fetchone()
             return dict(row) if row is not None else None
+
+    def get_document_by_source_key(self, source_key: str) -> dict[str, Any] | None:
+        with self._connection() as connection:
+            row = connection.execute(
+                "SELECT * FROM document WHERE source_key = ?", (source_key,)
+            ).fetchone()
+            return dict(row) if row is not None else None
+
+    def list_documents_by_file_name(self, file_name: str) -> list[dict[str, Any]]:
+        with self._connection() as connection:
+            rows = connection.execute(
+                "SELECT * FROM document WHERE file_name = ? "
+                "ORDER BY id",
+                (file_name,),
+            ).fetchall()
+            return [dict(row) for row in rows]
 
     def delete_document(self, document_id: int) -> dict[str, Any] | None:
         """Delete a document and all database rows derived from its chunks."""
@@ -138,6 +168,46 @@ class DocumentRepository:
             ).fetchone()
             return dict(row) if row is not None else None
 
+    def update_document_source(
+        self,
+        document_id: int,
+        *,
+        file_path: str | None = None,
+        source_type: str | None = None,
+        source_key: str | None = None,
+        source_hash: str | None = None,
+    ) -> dict[str, Any] | None:
+        values_by_column = {
+            "file_path": file_path,
+            "source_type": source_type,
+            "source_key": source_key,
+            "source_hash": source_hash,
+        }
+        assignments = [
+            f"{column} = ?"
+            for column, value in values_by_column.items()
+            if value is not None
+        ]
+        values = [
+            value
+            for value in values_by_column.values()
+            if value is not None
+        ]
+        if not assignments:
+            return self.get_document(document_id)
+
+        assignments.append("updated_at = CURRENT_TIMESTAMP")
+        values.append(document_id)
+        with self._connection() as connection:
+            connection.execute(
+                f"UPDATE document SET {', '.join(assignments)} WHERE id = ?",
+                values,
+            )
+            row = connection.execute(
+                "SELECT * FROM document WHERE id = ?", (document_id,)
+            ).fetchone()
+            return dict(row) if row is not None else None
+
     def insert_chunks(
         self,
         document_id: int,
@@ -179,6 +249,30 @@ class DocumentRepository:
                     (document_id,),
                 ).fetchall()
             ]
+            connection.execute(
+                "DELETE FROM chunk WHERE document_id = ?", (document_id,)
+            )
+            return ids
+
+    def reset_document_content(self, document_id: int) -> list[int]:
+        """Remove a document's chunks and their citations atomically."""
+        with self._connection() as connection:
+            ids = [
+                int(row[0])
+                for row in connection.execute(
+                    "SELECT id FROM chunk WHERE document_id = ? ORDER BY id",
+                    (document_id,),
+                ).fetchall()
+            ]
+            connection.execute(
+                """
+                DELETE FROM citation
+                WHERE chunk_id IN (
+                    SELECT id FROM chunk WHERE document_id = ?
+                )
+                """,
+                (document_id,),
+            )
             connection.execute(
                 "DELETE FROM chunk WHERE document_id = ?", (document_id,)
             )

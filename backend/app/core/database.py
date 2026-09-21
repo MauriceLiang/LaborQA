@@ -18,8 +18,11 @@ def initialize_database() -> None:
         connection,
     ):
         connection.execute("PRAGMA foreign_keys = ON")
-        connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
+        # Upgrade the document table before executing schema.sql. The schema
+        # creates an index on source_key, which would fail against an older
+        # database unless the columns exist first.
         _migrate_document_schema(connection)
+        connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         _migrate_message_schema(connection)
         _migrate_citation_schema(connection)
         _migrate_evaluation_schema(connection)
@@ -28,67 +31,100 @@ def initialize_database() -> None:
 
 
 def _migrate_document_schema(connection: sqlite3.Connection) -> None:
-    """Allow Markdown uploads in databases created before Markdown support."""
+    """Upgrade document format support and add builtin-source metadata."""
 
     row = connection.execute(
         "SELECT sql FROM sqlite_master "
         "WHERE type = 'table' AND name = 'document'"
     ).fetchone()
     table_sql = str(row[0] or "").lower() if row else ""
-    if not table_sql or "'md'" in table_sql:
+    if not table_sql:
         return
 
-    connection.commit()
-    connection.execute("PRAGMA foreign_keys = OFF")
-    try:
-        connection.executescript(
-            """
-            BEGIN;
-            CREATE TABLE document_new (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_name VARCHAR(255) NOT NULL,
-                file_type VARCHAR(20) NOT NULL
-                    CHECK (file_type IN ('pdf', 'doc', 'docx', 'md', 'txt')),
-                file_path VARCHAR(500) NOT NULL,
-                status VARCHAR(20) NOT NULL DEFAULT 'PROCESSING'
-                    CHECK (status IN ('PROCESSING', 'SUCCESS', 'FAILED')),
-                chunk_count INTEGER NOT NULL DEFAULT 0 CHECK (chunk_count >= 0),
-                error_message VARCHAR(500),
-                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
-            );
-            INSERT INTO document_new (
-                id,
-                file_name,
-                file_type,
-                file_path,
-                status,
-                chunk_count,
-                error_message,
-                created_at,
-                updated_at
+    columns = _table_columns(connection, "document")
+    if "'md'" not in table_sql:
+        connection.commit()
+        connection.execute("PRAGMA foreign_keys = OFF")
+        try:
+            source_type = "source_type" if "source_type" in columns else "'UPLOAD'"
+            source_key = "source_key" if "source_key" in columns else "NULL"
+            source_hash = "source_hash" if "source_hash" in columns else "NULL"
+            connection.executescript(
+                f"""
+                BEGIN;
+                CREATE TABLE document_new (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    file_name VARCHAR(255) NOT NULL,
+                    file_type VARCHAR(20) NOT NULL
+                        CHECK (file_type IN ('pdf', 'doc', 'docx', 'md', 'txt')),
+                    file_path VARCHAR(500) NOT NULL,
+                    source_type VARCHAR(20) NOT NULL DEFAULT 'UPLOAD'
+                        CHECK (source_type IN ('UPLOAD', 'BUILTIN')),
+                    source_key VARCHAR(255),
+                    source_hash VARCHAR(64),
+                    status VARCHAR(20) NOT NULL DEFAULT 'PROCESSING'
+                        CHECK (status IN ('PROCESSING', 'SUCCESS', 'FAILED')),
+                    chunk_count INTEGER NOT NULL DEFAULT 0 CHECK (chunk_count >= 0),
+                    error_message VARCHAR(500),
+                    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                );
+                INSERT INTO document_new (
+                    id,
+                    file_name,
+                    file_type,
+                    file_path,
+                    source_type,
+                    source_key,
+                    source_hash,
+                    status,
+                    chunk_count,
+                    error_message,
+                    created_at,
+                    updated_at
+                )
+                SELECT
+                    id,
+                    file_name,
+                    file_type,
+                    file_path,
+                    {source_type},
+                    {source_key},
+                    {source_hash},
+                    status,
+                    chunk_count,
+                    error_message,
+                    created_at,
+                    updated_at
+                FROM document;
+                DROP TABLE document;
+                ALTER TABLE document_new RENAME TO document;
+                COMMIT;
+                """
             )
-            SELECT
-                id,
-                file_name,
-                file_type,
-                file_path,
-                status,
-                chunk_count,
-                error_message,
-                created_at,
-                updated_at
-            FROM document;
-            DROP TABLE document;
-            ALTER TABLE document_new RENAME TO document;
-            COMMIT;
-            """
-        )
-    except sqlite3.Error:
-        connection.rollback()
-        raise
-    finally:
-        connection.execute("PRAGMA foreign_keys = ON")
+        except sqlite3.Error:
+            connection.rollback()
+            raise
+        finally:
+            connection.execute("PRAGMA foreign_keys = ON")
+
+    columns = _table_columns(connection, "document")
+    additions = {
+        "source_type": (
+            "VARCHAR(20) NOT NULL DEFAULT 'UPLOAD' "
+            "CHECK (source_type IN ('UPLOAD', 'BUILTIN'))"
+        ),
+        "source_key": "VARCHAR(255)",
+        "source_hash": "VARCHAR(64)",
+    }
+    for column, definition in additions.items():
+        if column not in columns:
+            connection.execute(f"ALTER TABLE document ADD COLUMN {column} {definition}")
+
+    connection.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS idx_document_source_key "
+        "ON document(source_key) WHERE source_key IS NOT NULL"
+    )
 
 
 def _migrate_message_schema(connection: sqlite3.Connection) -> None:

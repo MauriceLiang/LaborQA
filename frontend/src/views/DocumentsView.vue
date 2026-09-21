@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { ElAlert, ElButton, ElMessageBox } from 'element-plus'
+import { ElAlert, ElButton, ElMessage, ElMessageBox } from 'element-plus'
 import { Refresh } from '@element-plus/icons-vue'
 
 import ChunkDetail from '@/components/documents/ChunkDetail.vue'
@@ -11,7 +11,9 @@ import {
   deleteDocument,
   getDocument,
   getDocumentChunks,
+  getBuiltinDocumentStatus,
   getDocuments,
+  importBuiltinDocuments,
   reimportDocument,
   type ChunkItem,
   type DocumentItem,
@@ -32,6 +34,7 @@ const pageLoading = ref(false)
 const pageError = ref('')
 const actionError = ref('')
 const deletingDocumentId = ref<number>()
+const builtinImportActive = ref(false)
 
 const chunks = ref<ChunkItem[]>([])
 const totalChunks = ref(0)
@@ -47,6 +50,7 @@ let isMounted = false
 let documentRequestId = 0
 let chunkRequestId = 0
 const trackedProcessingIds = new Set<number>()
+const builtinTrackedIds = new Set<number>()
 
 const selectedDocument = computed(() =>
   documents.value.find((document) => document.id === selectedDocumentId.value),
@@ -63,6 +67,45 @@ function syncPolling() {
   stopPolling()
   if (!isMounted || trackedProcessingIds.size === 0) return
   pollingTimer = setInterval(() => void pollProcessingDocuments(), POLL_INTERVAL_MS)
+}
+
+async function finishBuiltinImportIfReady() {
+  if (!isMounted || !builtinImportActive.value || builtinTrackedIds.size > 0) return
+
+  try {
+    const status = await getBuiltinDocumentStatus()
+    if (status.processing > 0) {
+      for (const item of status.items) {
+        if (item.state === 'PROCESSING' && item.document_id !== null) {
+          builtinTrackedIds.add(item.document_id)
+          trackedProcessingIds.add(item.document_id)
+        }
+      }
+      syncPolling()
+      return
+    }
+
+    builtinImportActive.value = false
+    if (status.all_imported) {
+      ElMessage.success('系统资料已全部导入完成')
+    } else if (status.failed > 0) {
+      ElMessage.warning(
+        `系统资料处理完成，但有 ${status.failed} 份导入失败，可再次点击“导入系统资料”重试`,
+      )
+    } else if (status.outdated > 0 || status.missing > 0) {
+      ElMessage.warning(
+        `仍有 ${status.outdated + status.missing} 份系统资料未完成导入或更新`,
+      )
+    } else if (status.total === 0) {
+      ElMessage.warning('未找到系统资料文件')
+    }
+    builtinTrackedIds.clear()
+    await loadDocuments()
+  } catch (error) {
+    builtinImportActive.value = false
+    builtinTrackedIds.clear()
+    actionError.value = `读取系统资料状态失败：${getErrorMessage(error)}`
+  }
 }
 
 function clearSelection() {
@@ -183,6 +226,7 @@ async function pollProcessingDocuments() {
         } catch (error) {
           if (error instanceof ApiError && error.code === 40401) {
             trackedProcessingIds.delete(id)
+            builtinTrackedIds.delete(id)
             return undefined
           }
           throw error
@@ -196,6 +240,7 @@ async function pollProcessingDocuments() {
       if (updated.status === 'PROCESSING') trackedProcessingIds.add(updated.id)
       else {
         trackedProcessingIds.delete(updated.id)
+        builtinTrackedIds.delete(updated.id)
         reachedTerminalStatus = true
       }
       if (index < 0) {
@@ -218,6 +263,41 @@ async function pollProcessingDocuments() {
   }
 
   if (reachedTerminalStatus && isMounted) await loadDocuments()
+  if (builtinImportActive.value && builtinTrackedIds.size === 0) {
+    await finishBuiltinImportIfReady()
+  }
+}
+
+async function onImportBuiltin() {
+  if (builtinImportActive.value) return
+
+  builtinImportActive.value = true
+  actionError.value = ''
+  try {
+    const result = await importBuiltinDocuments()
+    if (!isMounted) return
+
+    builtinTrackedIds.clear()
+    for (const id of result.tracked_document_ids) {
+      builtinTrackedIds.add(id)
+      trackedProcessingIds.add(id)
+    }
+
+    if (result.all_imported) {
+      builtinImportActive.value = false
+      ElMessage.info('系统自带资料已全部导入')
+      await loadDocuments()
+      return
+    }
+
+    await loadDocuments()
+    syncPolling()
+    if (builtinTrackedIds.size === 0) await finishBuiltinImportIfReady()
+  } catch (error) {
+    builtinImportActive.value = false
+    builtinTrackedIds.clear()
+    actionError.value = `导入系统资料失败：${getErrorMessage(error)}`
+  }
 }
 
 async function selectDocument(document: DocumentItem) {
@@ -380,6 +460,8 @@ onMounted(() => {
 })
 onUnmounted(() => {
   isMounted = false
+  builtinImportActive.value = false
+  builtinTrackedIds.clear()
   documentRequestId += 1
   chunkRequestId += 1
   stopPolling()
@@ -393,10 +475,20 @@ onUnmounted(() => {
         <h1>资料管理</h1>
         <p>导入法规和政策资料，查看解析状态及文本分块。</p>
       </div>
-      <ElButton class="document-refresh-button" :loading="pageLoading" @click="loadDocuments">
-        <Refresh aria-hidden="true" />
-        刷新列表
-      </ElButton>
+      <div class="documents-page-actions">
+        <ElButton
+          class="document-builtin-import-button"
+          type="primary"
+          :loading="builtinImportActive"
+          @click="onImportBuiltin"
+        >
+          导入系统资料
+        </ElButton>
+        <ElButton class="document-refresh-button" :loading="pageLoading" @click="loadDocuments">
+          <Refresh aria-hidden="true" />
+          刷新列表
+        </ElButton>
+      </div>
     </section>
 
     <ElAlert v-if="pageError" :title="pageError" type="error" show-icon :closable="false" />
