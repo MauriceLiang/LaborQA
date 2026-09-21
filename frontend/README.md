@@ -163,10 +163,28 @@ AI Mode 是产品级请求参数，回答风格是独立的 `answer_style` 参�
 
 ## 开发与验证
 
-在仓库根目录执行：
+以下命令从仓库根目录执行。
+
+### Windows PowerShell
+
+```powershell
+node --version
+npm --version
+cd frontend
+Copy-Item .env.example .env
+npm ci
+npm run dev
+npm test
+npm run build
+```
+
+### macOS / Linux
 
 ```bash
+node --version
+npm --version
 cd frontend
+cp .env.example .env
 npm ci
 npm run dev
 npm test
@@ -186,4 +204,3 @@ npm test -- --run tests/DocumentList.spec.ts tests/DocumentUpload.spec.ts tests/
 ```
 
 类型检查由项目配置提供的 `vue-tsc --noEmit` 完成；生产构建前确认 `VITE_API_BASE_URL` 使用同源 `/api` 或明确的开发后端地址。
-

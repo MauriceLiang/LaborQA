@@ -4,6 +4,10 @@
 
 如果部署到其他域名，请将下文命令中的 `mauriceliang.xyz` 和 `deploy/Caddyfile` 中的站点地址替换为实际域名；`<YOUR_DOMAIN>` 可作为通用文档占位符。
 
+## 适用环境
+
+本文档面向 Linux 服务器上的 Docker Compose 生产部署。Windows / macOS 本地开发请参考根目录 README 的“快速开始”和各代码包 README；本文件中的 `mkdir -p`、`./deploy/*.sh` 等命令不需要改写为 PowerShell 版本。
+
 ## 1. 部署架构
 
 ~~~text
