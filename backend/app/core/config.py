@@ -30,6 +30,15 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     llm_base_url: str = ""
     llm_model: str = ""
+    llm_rewrite_temperature: float = Field(default=0.1, ge=0.0, le=2.0)
+    llm_rewrite_top_p: float = Field(default=1.0, ge=0.0, le=1.0)
+    llm_rewrite_max_tokens: int = Field(default=512, ge=1)
+    llm_evidence_temperature: float = Field(default=0.0, ge=0.0, le=2.0)
+    llm_evidence_top_p: float = Field(default=1.0, ge=0.0, le=1.0)
+    llm_evidence_max_tokens: int = Field(default=1024, ge=1)
+    llm_answer_temperature: float = Field(default=0.2, ge=0.0, le=2.0)
+    llm_answer_top_p: float = Field(default=1.0, ge=0.0, le=1.0)
+    llm_answer_max_tokens: int = Field(default=4096, ge=1)
     rag_candidate_k: int = Field(default=20, ge=5, le=50)
     rag_top_k: int = Field(default=5, ge=1, le=20)
     rag_score_threshold: float = Field(default=0.35, ge=0, le=1)

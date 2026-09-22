@@ -227,10 +227,21 @@ def test_runtime_snapshot_records_thinking_profile() -> None:
     snapshot = runtime_config_snapshot(config, ai_mode=AiMode.SPEED)
 
     assert snapshot["ai_mode"] == AiMode.SPEED.value
+    assert snapshot["rewrite_thinking"] is True
+    assert snapshot["rewrite_effort"] == "high"
+    assert snapshot["rewrite_temperature"] == config.llm_rewrite_temperature
+    assert snapshot["rewrite_top_p"] == config.llm_rewrite_top_p
+    assert snapshot["rewrite_max_tokens"] == config.llm_rewrite_max_tokens
     assert snapshot["evidence_thinking"] is False
     assert snapshot["evidence_effort"] is None
+    assert snapshot["evidence_temperature"] == config.llm_evidence_temperature
+    assert snapshot["evidence_top_p"] == config.llm_evidence_top_p
+    assert snapshot["evidence_max_tokens"] == config.llm_evidence_max_tokens
     assert snapshot["answer_thinking"] is False
     assert snapshot["answer_effort"] is None
+    assert snapshot["answer_temperature"] == config.llm_answer_temperature
+    assert snapshot["answer_top_p"] == config.llm_answer_top_p
+    assert snapshot["answer_max_tokens"] == config.llm_answer_max_tokens
     assert DEFAULT_AI_MODE is AiMode.BALANCED
 
 

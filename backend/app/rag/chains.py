@@ -77,15 +77,31 @@ class RagChain:
         self.chat_model = model
         self.evidence_model = evidence_model or model
         self.answer_model = answer_model or model
-        self.rewrite_chain = self.rewrite_prompt | self.chat_model | StrOutputParser()
+        rewrite_model = self.chat_model.bind(
+            temperature=self.config.llm_rewrite_temperature,
+            top_p=self.config.llm_rewrite_top_p,
+            max_tokens=self.config.llm_rewrite_max_tokens,
+        )
+        evidence_model = self.evidence_model.bind(
+            temperature=self.config.llm_evidence_temperature,
+            top_p=self.config.llm_evidence_top_p,
+            max_tokens=self.config.llm_evidence_max_tokens,
+            response_format={"type": "json_object"},
+        )
+        answer_model = self.answer_model.bind(
+            temperature=self.config.llm_answer_temperature,
+            top_p=self.config.llm_answer_top_p,
+            max_tokens=self.config.llm_answer_max_tokens,
+        )
+        self.rewrite_chain = self.rewrite_prompt | rewrite_model | StrOutputParser()
         self.evidence_chain = (
             self.evidence_prompt
-            | self.evidence_model.bind(response_format={"type": "json_object"})
+            | evidence_model
             | JsonOutputParser()
         )
         self.answer_chain = RunnableBranch(
             (lambda state: bool(state["refused"]), RunnableLambda(_refusal)),
-            self.answer_prompt | self.answer_model | StrOutputParser(),
+            self.answer_prompt | answer_model | StrOutputParser(),
         )
 
     def set_chat_model(self, model: BaseChatModel) -> None:

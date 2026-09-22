@@ -312,6 +312,24 @@ npm run dev
 | `MAX_UPLOAD_SIZE_MB` | `20` | 后端单文件业务大小限制 |
 | `DOC_PARSER_BACKEND` / `DOC_CONVERTER` | `package` / `libreoffice` | 文档解析和旧版 DOC 转换策略 |
 
+### LLM 调用参数
+
+模型生成参数按调用角色独立配置，默认基线如下：
+
+| 角色 | Temperature | Top-P | Max Tokens | Thinking |
+| --- | ---: | ---: | ---: | --- |
+| Rewrite | 0.1 | 1.0 | 512 | High |
+| Evidence | 0.0 | 1.0 | 1024 | 随 AI Mode |
+| Answer | 0.2 | 1.0 | 4096 | 随 AI Mode |
+
+AI Mode 对 Evidence 和 Answer 的 Thinking 配置为：
+
+- Speed：Evidence Off / Answer Off
+- Balanced：Evidence Low / Answer Off
+- Quality：Evidence High / Answer High
+
+Rewrite 仅在存在对话历史时调用；单轮问题会直接跳过 Rewrite。
+
 配置校验规则：
 
 - 当 `EMBEDDING_PROVIDER=api` 时，必须同时填写 `EMBEDDING_API_KEY`、`EMBEDDING_BASE_URL` 和 `EMBEDDING_API_MODEL`。

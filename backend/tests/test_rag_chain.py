@@ -40,7 +40,11 @@ class FakeLlm:
         self.completions: list[tuple[list[dict[str, str]], bool]] = []
 
     async def complete(
-        self, messages: list[dict[str, str]], *, json_mode: bool = False
+        self,
+        messages: list[dict[str, str]],
+        *,
+        json_mode: bool = False,
+        temperature: float | None = None,
     ) -> str:
         self.completions.append((messages, json_mode))
         if json_mode:
@@ -139,6 +143,39 @@ def test_rag_chain_binds_separate_models_by_role() -> None:
     assert judgement.decision is EvidenceDecision.SUFFICIENT
     assert refusal_reason is None
     assert answer == "基于证据的回答"
+
+
+def test_rag_chain_binds_generation_parameters_by_role() -> None:
+    base_model = FakeListChatModel(responses=["改写后的问题"])
+    evidence_model = FakeListChatModel(responses=["{}"])
+    answer_model = FakeListChatModel(responses=["回答"])
+    chain = RagChain(
+        FakeRetrieval(),
+        base_model,
+        _config(),
+        evidence_model=evidence_model,
+        answer_model=answer_model,
+    )
+
+    assert chain.rewrite_chain.steps[1].kwargs == {
+        "temperature": 0.1,
+        "top_p": 1.0,
+        "max_tokens": 512,
+    }
+    assert chain.evidence_chain.steps[1].kwargs == {
+        "temperature": 0.0,
+        "top_p": 1.0,
+        "max_tokens": 1024,
+        "response_format": {"type": "json_object"},
+    }
+    assert chain.answer_chain.default.steps[1].kwargs == {
+        "temperature": 0.2,
+        "top_p": 1.0,
+        "max_tokens": 4096,
+    }
+    assert chain.chat_model is base_model
+    assert chain.evidence_model is evidence_model
+    assert chain.answer_model is answer_model
 
 
 def test_rag_chain_uses_domain_retrieval_service_fallback() -> None:
