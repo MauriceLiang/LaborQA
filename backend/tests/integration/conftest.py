@@ -39,7 +39,11 @@ class FixedLlm:
         self.streams: list[list[dict[str, str]]] = []
 
     async def complete(
-        self, messages: list[dict[str, str]], *, json_mode: bool = False
+        self,
+        messages: list[dict[str, str]],
+        *,
+        json_mode: bool = False,
+        temperature: float | None = None,
     ) -> str:
         self.completions.append((messages, json_mode))
         if json_mode:

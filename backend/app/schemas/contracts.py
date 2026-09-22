@@ -335,10 +335,21 @@ class LangChainRuntimeConfig(ApiModel):
     chat_provider: str
     llm_model: str
     ai_mode: AiMode
+    rewrite_thinking: bool
+    rewrite_effort: Literal["low", "high", "max"] | None
+    rewrite_temperature: float = Field(ge=0.0, le=2.0)
+    rewrite_top_p: float = Field(ge=0.0, le=1.0)
+    rewrite_max_tokens: int = Field(ge=1)
     evidence_thinking: bool
     evidence_effort: Literal["low", "high", "max"] | None
+    evidence_temperature: float = Field(ge=0.0, le=2.0)
+    evidence_top_p: float = Field(ge=0.0, le=1.0)
+    evidence_max_tokens: int = Field(ge=1)
     answer_thinking: bool
     answer_effort: Literal["low", "high", "max"] | None
+    answer_temperature: float = Field(ge=0.0, le=2.0)
+    answer_top_p: float = Field(ge=0.0, le=1.0)
+    answer_max_tokens: int = Field(ge=1)
     embedding_provider: Literal["local", "api"]
     embedding_model: str
     embedding_normalize: bool

@@ -53,7 +53,11 @@ class FakeLlm:
         self.streams: list[list[dict[str, str]]] = []
 
     async def complete(
-        self, messages: list[dict[str, str]], *, json_mode: bool = False
+        self,
+        messages: list[dict[str, str]],
+        *,
+        json_mode: bool = False,
+        temperature: float | None = None,
     ) -> str:
         self.completions.append((messages, json_mode))
         if json_mode:
@@ -333,6 +337,12 @@ def test_rag_stream_persists_answer_and_only_retrieved_citations(caplog) -> None
         assert latency_payload["evidence_effort"] == "low"
         assert latency_payload["answer_thinking"] is False
         assert latency_payload["answer_effort"] is None
+        assert latency_payload["rewrite_temperature"] == 0.1
+        assert latency_payload["rewrite_max_tokens"] == 512
+        assert latency_payload["evidence_temperature"] == 0.0
+        assert latency_payload["evidence_max_tokens"] == 1024
+        assert latency_payload["answer_temperature"] == 0.2
+        assert latency_payload["answer_max_tokens"] == 4096
         assert "那公司这样解除劳动关系呢？" not in latency_logs[0]
         assert "应结合具体证据判断。建议保留书面材料。" not in latency_logs[0]
         assert "解除劳动合同应符合法定条件。" not in latency_logs[0]
@@ -371,7 +381,11 @@ def test_evaluation_answer_once_reuses_rag_without_production_persistence() -> N
 def test_answer_once_exposes_answer_modes_and_diagnostics() -> None:
     class PartialJudge(FakeLlm):
         async def complete(
-            self, messages: list[dict[str, str]], *, json_mode: bool = False
+            self,
+            messages: list[dict[str, str]],
+            *,
+            json_mode: bool = False,
+            temperature: float | None = None,
         ) -> str:
             self.completions.append((messages, json_mode))
             if json_mode:
@@ -381,7 +395,11 @@ def test_answer_once_exposes_answer_modes_and_diagnostics() -> None:
 
     class InsufficientJudge(FakeLlm):
         async def complete(
-            self, messages: list[dict[str, str]], *, json_mode: bool = False
+            self,
+            messages: list[dict[str, str]],
+            *,
+            json_mode: bool = False,
+            temperature: float | None = None,
         ) -> str:
             self.completions.append((messages, json_mode))
             if json_mode:
@@ -508,7 +526,11 @@ def test_empty_retrieval_result_is_recorded_with_its_evidence_reason() -> None:
 def test_insufficient_evidence_judgement_is_recorded() -> None:
     class InsufficientJudge(FakeLlm):
         async def complete(
-            self, messages: list[dict[str, str]], *, json_mode: bool = False
+            self,
+            messages: list[dict[str, str]],
+            *,
+            json_mode: bool = False,
+            temperature: float | None = None,
         ) -> str:
             return '{"decision":"INSUFFICIENT","reason":"not supported",' \
                 '"supported_points":[],"missing_points":["关键事实"]}'
@@ -529,7 +551,11 @@ def test_insufficient_evidence_judgement_is_recorded() -> None:
 def test_partial_evidence_generates_scoped_answer_without_missing_record() -> None:
     class PartialJudge(FakeLlm):
         async def complete(
-            self, messages: list[dict[str, str]], *, json_mode: bool = False
+            self,
+            messages: list[dict[str, str]],
+            *,
+            json_mode: bool = False,
+            temperature: float | None = None,
         ) -> str:
             self.completions.append((messages, json_mode))
             if json_mode:
@@ -592,7 +618,11 @@ def test_failure_to_record_does_not_break_refusal_stream() -> None:
 def test_evidence_judge_failure_refuses_without_recording_missing_knowledge() -> None:
     class BrokenJudge(FakeLlm):
         async def complete(
-            self, messages: list[dict[str, str]], *, json_mode: bool = False
+            self,
+            messages: list[dict[str, str]],
+            *,
+            json_mode: bool = False,
+            temperature: float | None = None,
         ) -> str:
             raise RuntimeError("judge unavailable")
 

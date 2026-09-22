@@ -1,5 +1,8 @@
 from unittest.mock import patch
 
+import pytest
+from pydantic import ValidationError
+
 from app.core.config import Settings
 from app.rag import providers as providers_module
 from app.rag.providers import build_chat_model, build_embeddings
@@ -11,6 +14,37 @@ def test_settings_do_not_store_request_thinking_overrides() -> None:
     assert not hasattr(config, "llm_evidence_thinking_enabled")
     assert not hasattr(config, "llm_answer_thinking_enabled")
     assert not hasattr(config, "llm_reasoning_effort")
+
+
+def test_llm_generation_parameter_defaults() -> None:
+    config = Settings(_env_file=None)
+
+    assert config.llm_rewrite_temperature == 0.1
+    assert config.llm_rewrite_top_p == 1.0
+    assert config.llm_rewrite_max_tokens == 512
+    assert config.llm_evidence_temperature == 0.0
+    assert config.llm_evidence_top_p == 1.0
+    assert config.llm_evidence_max_tokens == 1024
+    assert config.llm_answer_temperature == 0.2
+    assert config.llm_answer_top_p == 1.0
+    assert config.llm_answer_max_tokens == 4096
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("llm_rewrite_temperature", -0.01),
+        ("llm_rewrite_temperature", 2.01),
+        ("llm_evidence_top_p", -0.01),
+        ("llm_evidence_top_p", 1.01),
+        ("llm_answer_max_tokens", 0),
+    ],
+)
+def test_llm_generation_parameter_boundaries_are_validated(
+    field: str, value: float | int
+) -> None:
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None, **{field: value})
 
 
 def test_build_chat_model_maps_existing_openai_compatible_settings() -> None:
