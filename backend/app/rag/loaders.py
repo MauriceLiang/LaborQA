@@ -36,9 +36,9 @@ class LaborQADocumentLoader(BaseLoader):
         self.path = Path(path)  # 规范化后的待解析文件路径。
         # 成员变量 file_type：根据文件扩展名识别出的文档类型。
         self.file_type = file_type or self.path.suffix.lstrip(".")  # 使用传入格式或从扩展名推断格式。
-        # 成员变量 config：当前请求、服务或实验所使用的配置。
+        # 成员变量 config：文档解析 Settings，决定旧版 DOC 使用的转换器及相关路径；加载器据此选择解析或转换流程。
         self.config = config  # 文档解析所使用的应用配置。
-        # 成员变量 metadata：当前文档或索引的结构化元数据。
+        # 成员变量 metadata：调用方传入的文档来源信息副本，随解析生成的 LangChain Document 一并返回，供切块后写入数据库和索引。
         self.metadata = dict(metadata or {})  # 复制调用方元数据，避免共享可变映射。
 
     def lazy_load(self) -> Iterator[Document]:

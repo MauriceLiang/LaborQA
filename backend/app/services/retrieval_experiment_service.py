@@ -1,5 +1,5 @@
 # 文件作用：编排检索策略实验、参数变体运行、评价和结果对比。
-"""Isolated asynchronous experiments for comparing retrieval configurations."""
+"""在隔离的临时索引和配置快照上运行检索对比实验，记录逐策略、逐用例的指标与失败原因，不覆盖生产索引或用户会话。"""
 
 from __future__ import annotations
 
@@ -64,7 +64,7 @@ _RESTART_ERROR = "服务重启导致任务中断"
 
 
 class _ExperimentChunkRepository:
-    """Expose this profile's chunks to RetrievalService without touching SQLite."""
+    """为单个实验配置提供内存中的文本块读取适配，使 RetrievalService 能复用生产检索流程；数据来自实验索引快照，不查询或修改生产 SQLite。"""
 
     def __init__(self, chunks: list[dict[str, Any]]) -> None:
         """初始化检索实验服务及策略、实验和评估数据依赖。
@@ -153,7 +153,7 @@ class RetrievalExperimentService:
         """
         # 成员变量 chat_service：处理聊天请求的业务服务实例。
         self.chat_service = chat_service
-        # 成员变量 config：当前请求、服务或实验所使用的配置。
+        # 成员变量 config：应用级 Settings 基础配置，提供模型、数据库和索引目录等默认值；创建实验时据此生成独立参数快照和隔离索引路径。
         self.config = config
         # 成员变量 document_repository：负责文档及分块持久化的数据仓库。
         self.document_repository = document_repository or DocumentRepository(
@@ -221,7 +221,7 @@ class RetrievalExperimentService:
         strategy_id：目标检索策略标识。
         payload：经过校验的业务输入对象。
         """
-        # 局部变量 current：当前处理的对象或状态快照。
+        # 局部变量 current：按 strategy_id 从仓储重新读取的最新策略记录，包含内置、归档、启用、版本及参数字段；后续据此校验当前状态并决定能否编辑或变更生命周期。
         current = self.strategy_repository.get_strategy(strategy_id)
         if current is None:
             raise AppError(
@@ -424,7 +424,7 @@ class RetrievalExperimentService:
         参数：
         experiment_id：目标检索实验标识。
         """
-        # 局部变量 experiment：当前检索实验记录或运行配置。
+        # 局部变量 experiment：按 ID 从实验仓储读取的持久化记录，含运行状态、配置快照和归档信息；后续先确认资源存在，再校验是否允许当前生命周期操作。
         experiment = self.repository.get_experiment(experiment_id)
         if experiment is None:
             raise AppError(
@@ -562,10 +562,10 @@ class RetrievalExperimentService:
         return strategy
 
     async def preview(self, payload: RetrievalPreviewRequest) -> dict[str, Any]:
-        """Run one question through the production index for a saved strategy.
+        """使用指定策略和当前生产索引对单个问题执行一次完整检索与回答，汇总阶段轨迹、证据和限制说明，不创建持久化实验运行。
 
-        参数：
-        payload：经过校验的请求数据或持久化内容。
+            参数：
+            payload：经过校验的请求数据或持久化内容。
         """
 
         # 局部变量 strategy：当前检索策略及其参数配置。
@@ -616,7 +616,7 @@ class RetrievalExperimentService:
                 mode=ExecutionMode.EXPERIMENT,
                 ai_mode=payload.ai_mode,
             )
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except ModelUnavailableError as exc:
             raise AppError(
                 ErrorCode.MODEL_UNAVAILABLE,
@@ -643,7 +643,7 @@ class RetrievalExperimentService:
         # 局部变量 retrieved_sources：检索阶段返回的来源列表。
         retrieved_sources = output.get("retrieved_sources", [])
         # 局部变量 primary_sources：主要检索命中的资料来源。
-        # 局部变量 item：当前列表或结果集合中的一条数据。
+        # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
         primary_sources = [
             item
             for item in retrieved_sources
@@ -867,7 +867,7 @@ class RetrievalExperimentService:
         # 局部变量 signature：描述嵌入模型和向量维度的配置签名。
         signature = self._embedding_signature()
         # 局部变量 snapshot：任务创建时保存的不可变输入快照。
-        # 局部变量 case：当前评估用例记录。
+        # 局部变量 case：当前评测用例数据，包含问题轮次和预期要点/来源；本流程据这些字段构造输入、执行判定或汇总该用例结果。
         snapshot = {
             "answer_style": payload.answer_style.value,
             "ai_mode": payload.ai_mode.value,
@@ -955,7 +955,7 @@ class RetrievalExperimentService:
                 "引用文件",
             ]
         )
-        # 局部变量 result：当前函数调用或计算产生、供后续处理或返回的结果数据。
+        # 局部变量 result：当前实验的一条用例结果，包含检索来源、命中情况和耗时等字段；导出时会将其整理为 CSV 中的一行。
         for result in experiment["results"]:
             # 局部变量 source_files：本次扫描或导入的源文件列表。
             # 局部变量 source：文档、引用或记录的来源信息。
@@ -1060,7 +1060,7 @@ class RetrievalExperimentService:
             # 局部变量 config_index：当前配置在实验对照组中的序号。
             # 局部变量 config_data：从持久化快照解析出的实验配置。
             for config_index, config_data in enumerate(configs):
-                # 局部变量 config：当前请求、服务或实验所使用的配置。
+                # 局部变量 config：从当前实验对照组配置列表中取出的单组参数，决定该组的切分、召回、重排和证据扩展设置。
                 config = ExperimentConfig.model_validate(config_data)
                 # 局部变量 profile_key：当前模型配置对应的缓存或识别键。
                 profile_key = (config.chunk_size, config.chunk_overlap)
@@ -1074,10 +1074,10 @@ class RetrievalExperimentService:
                 # 局部变量 variant_chat：针对当前策略参数创建的聊天服务。
                 variant_chat = self._build_chat_service(config, chunks, vector_store)
 
-                # 局部变量 case：当前评估用例记录。
+                # 局部变量 case：当前评测用例数据，包含问题轮次和预期要点/来源；本流程据这些字段构造输入、执行判定或汇总该用例结果。
                 for case in cases:
                     try:
-                        # 局部变量 result：当前函数调用或计算产生、供后续处理或返回的结果数据。
+                        # 局部变量 result：当前用例的一次检索与回答评估结果，包含执行状态、引用和指标；成功后会与配置序号一起持久化。
                         result = await self._evaluate_case(
                             variant_chat,
                             case,
@@ -1085,7 +1085,7 @@ class RetrievalExperimentService:
                             AnswerStyle(snapshot["answer_style"]),
                             ai_mode,
                         )
-                    # 局部变量 exc：当前捕获到的异常对象。
+                    # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
                     except (
                         ModelUnavailableError,
                         EmbeddingUnavailableError,
@@ -1167,7 +1167,7 @@ class RetrievalExperimentService:
                 dimension = profile.embedding_dimension
         try:
             return self.embedding_service.signature(dimension)
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except (EmbeddingDimensionUnknown, EmbeddingUnavailableError) as exc:
             raise AppError(
                 ErrorCode.EMBEDDING_UNAVAILABLE,
@@ -1252,7 +1252,7 @@ class RetrievalExperimentService:
         splitter = LegalTextSplitter(config.chunk_size, config.chunk_overlap)
         # 局部变量 chunks：当前文档或任务涉及的文本分块集合。
         chunks: list[dict[str, Any]] = []
-        # 局部变量 document：当前正在读取、更新或返回的文档记录。
+        # 局部变量 document：仓储查询得到的一份已成功导入文档记录；实验流程据其 ID 和文件元数据读取源资料，再构造隔离的实验文本块。
         for document in self.document_repository.list_success_documents():
             # 局部变量 source_documents：本次批量处理使用的原始文档集合。
             source_documents = self._load_documents(document)
@@ -1275,7 +1275,7 @@ class RetrievalExperimentService:
         参数：
         document：当前处理的文档对象或记录。
         """
-        # 局部变量 metadata：当前文档或索引的结构化元数据。
+        # 局部变量 metadata：随实验文本块保存的来源映射，包含文档 ID、文件名和类型；检索命中后用它把内存索引结果关联回原始资料。
         metadata = {
             "document_id": int(document["id"]),
             "file_name": str(document["file_name"]),
@@ -1415,7 +1415,8 @@ class RetrievalExperimentService:
         # 局部变量 source_hit：回答引用是否命中预期来源。
         source_hit = None
         if case["expected_sources"]:
-            # Rechunking changes chunk_no; compare source documents across profiles.
+            # 不同实验配置可能采用不同切分边界，导致同一资料的 chunk_no 变化；
+            # 来源命中应按文件名等文档级身份比较，而不能要求分块序号完全相同。
             source_hit = any(
                 actual["file_name"] == expected["file_name"]
                 for actual in citations
@@ -1620,7 +1621,7 @@ def _snapshot_configs(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     # 局部变量 snapshots：实验开始时冻结保存的策略快照集合。
     snapshots = _strategy_snapshots(snapshot)
     if snapshots:
-        # 局部变量 item：当前列表或结果集合中的一条数据。
+        # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
         return [item["config"] for item in snapshots]
     # 局部变量 legacy_configs：兼容旧版格式时读取的配置集合。
     legacy_configs = snapshot.get("configs", [])
@@ -1655,14 +1656,14 @@ def _calculate_config_results(
     """
     # 局部变量 results_by_config：按检索配置序号归组的评估结果。
     results_by_config: dict[int, list[dict[str, Any]]] = {}
-    # 局部变量 result：当前函数调用或计算产生、供后续处理或返回的结果数据。
+    # 局部变量 result：单个用例的评估结果字典；按 config_index 将它放入对应检索配置的结果组，供后续汇总指标。
     for result in results:
         results_by_config.setdefault(result["config_index"], []).append(result)
 
     # 局部变量 summaries：按配置汇总的实验结果列表。
     summaries: list[dict[str, Any]] = []
     # 局部变量 config_index：当前配置在实验对照组中的序号。
-    # 局部变量 config：当前请求、服务或实验所使用的配置。
+    # 局部变量 config：通过 ExperimentConfig 校验的当前实验参数快照；评测此配置时使用其参数构建隔离索引和检索服务。
     for config_index, config in enumerate(configs):
         # 局部变量 result_by_case：按评估用例标识索引的结果映射。
         result_by_case = {
@@ -1677,7 +1678,7 @@ def _calculate_config_results(
             if result["status"] == "COMPLETED"
         }
         # 局部变量 processed_cases：本轮已经处理的用例数量。
-        # 局部变量 case：当前评估用例记录。
+        # 局部变量 case：当前评测用例数据，包含问题轮次和预期要点/来源；本流程据这些字段构造输入、执行判定或汇总该用例结果。
         processed_cases = [case for case in cases if case["id"] in result_by_case]
         # 局部变量 answer_cases：预期系统生成实质性答案的评估用例。
         answer_cases = [
@@ -1757,7 +1758,7 @@ def _best_config(
     config_results：按实验配置汇总的结果列表。
     """
     # 局部变量 completed_by_config：按实验配置统计的已完成用例数。
-    # 局部变量 result：当前函数调用或计算产生、供后续处理或返回的结果数据。
+    # 局部变量 result：单个用例结果；此处读取其 config_index 和 status，筛选出至少有已完成用例的实验配置。
     completed_by_config = {
         result["config_index"] for result in results if result["status"] == "COMPLETED"
     }
@@ -1784,7 +1785,7 @@ def _best_config(
             item["config_index"],
         )
 
-    # 局部变量 item：当前列表或结果集合中的一条数据。
+    # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
     return min(
         (
             item

@@ -1,5 +1,5 @@
 # 文件作用：封装缺失知识记录的持久化、查询和状态更新。
-"""SQLite persistence for knowledge gaps discovered by production refusals."""
+"""持久化生产问答中因证据不足产生的知识缺口，包括主题聚合、出现次数、样例问题及人工处理状态，供后台维护页面查询和更新。"""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class MissingKnowledgeRepository:
         sample_question：该知识缺口下具有代表性的问题。
         missing_area：知识库当前缺少的主题或资料方向。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -45,7 +45,7 @@ class MissingKnowledgeRepository:
                 """,
                 (topic_key, sample_question, missing_area),
             )
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM missing_knowledge WHERE topic_key = ?", (topic_key,)
             ).fetchone()
@@ -97,15 +97,15 @@ class MissingKnowledgeRepository:
             "count_desc": "count DESC, last_seen_at DESC, id DESC",
             "last_seen_desc": "last_seen_at DESC, id DESC",
         }[sort]
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 total：符合当前条件的记录总数或项目总数。
+            # 局部变量 total：按当前筛选范围统计的记录/项目总量；分页接口用它计算总页数，数值可能大于本页实际返回的 items 长度。
             total = int(
                 connection.execute(
                     f"SELECT COUNT(*) FROM missing_knowledge {where_clause}", parameters
                 ).fetchone()[0]
             )
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 f"""
                 SELECT * FROM missing_knowledge
@@ -115,7 +115,7 @@ class MissingKnowledgeRepository:
                 """,
                 [*parameters, size, (page - 1) * size],
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [dict(row) for row in rows], total
 
     def update(
@@ -128,9 +128,9 @@ class MissingKnowledgeRepository:
         item_id：目标知识缺口记录的唯一标识。
         note：知识缺口记录的处理备注。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 UPDATE missing_knowledge
@@ -141,7 +141,7 @@ class MissingKnowledgeRepository:
             )
             if cursor.rowcount == 0:
                 return None
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM missing_knowledge WHERE id = ?", (item_id,)
             ).fetchone()
@@ -151,7 +151,7 @@ class MissingKnowledgeRepository:
     def _connection(self) -> Iterator[sqlite3.Connection]:
         """创建 SQLite 连接上下文并统一管理数据库连接。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         connection = sqlite3.connect(str(self.database_path), timeout=5)
         connection.row_factory = sqlite3.Row
         try:

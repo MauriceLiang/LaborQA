@@ -222,7 +222,7 @@ function openCreateCase() {
 }
 
 /** 将选中用例填入表单并打开编辑窗口。 */
-// 参数 item：当前列表或操作涉及的业务记录。
+// 参数 item：当前选中的 EvaluationCase，包含来源、状态及用例正文；编辑和归档前会检查来源/状态以保护内置或已停用用例。
 function openEditCase(item: EvaluationCase) {
   if (item.status !== 'ACTIVE') return
   editingCase.value = item
@@ -333,7 +333,7 @@ async function saveCase() {
 }
 
 /** 确认后归档指定评估用例。 */
-// 参数 item：当前列表或操作涉及的业务记录。
+// 参数 item：准备归档的 EvaluationCase；函数只允许用户创建且状态为 ACTIVE 的用例进入归档请求。
 async function archiveCase(item: EvaluationCase) {
   if (item.origin === 'BUILTIN' || item.status !== 'ACTIVE' || deletingCaseId.value !== undefined) return
   try {
@@ -602,19 +602,19 @@ function formatStatus(status: EvaluationJobStatus | undefined) {
 }
 
 /** 将比例数值格式化为百分比文本。 */
-// 参数 value：需要格式化显示的比率值。
+// 参数 value：后端返回的 0 到 1 比率或空值；有效数字转为百分比并保留一位小数，空值显示为“不适用”。
 function formatRate(value: number | null | undefined) {
   return value === null || value === undefined ? '不适用' : `${(value * 100).toFixed(1)}%`
 }
 
 /** 将可空布尔值格式化为中文文本。 */
-// 参数 value：待转换为中文的可空布尔值。
+// 参数 value：评测指标可能缺失的布尔结果；true/false 显示为“是/否”，null 保留“不适用”以区别于失败。
 function formatFlag(value: boolean | null) {
   return value === null ? '不适用' : value ? '是' : '否'
 }
 
 /** 将回答模式转换为中文展示文本。 */
-// 参数 value：回答路径或模式代码。
+// 参数 value：后端 answer_mode 枚举值；函数将 RAG、部分回答、工具回答和拒答路径映射为面向用户的中文标签。
 function formatAnswerMode(value: string | null | undefined) {
   if (value === 'RAG_ANSWER') return '完整回答'
   if (value === 'PARTIAL_ANSWER') return '部分回答'
@@ -624,7 +624,7 @@ function formatAnswerMode(value: string | null | undefined) {
 }
 
 /** 将证据判定结果转换为中文展示文本。 */
-// 参数 value：证据充分性判定代码。
+// 参数 value：后端 evidence_decision 枚举值；根据 SUFFICIENT、PARTIAL 或 INSUFFICIENT 显示对应中文证据结论。
 function formatEvidenceDecision(value: string | null | undefined) {
   if (value === 'SUFFICIENT') return '证据充分'
   if (value === 'PARTIAL') return '证据部分充分'
@@ -639,7 +639,7 @@ function formatCaseId(id: number) {
 }
 
 /** 将创建时间格式化为本地日期时间。 */
-// 参数 value：待格式化的创建时间字符串。
+// 参数 value：服务端返回的 ISO 时间字符串；转为本地时间显示，若日期无效则原样返回以免丢失原始信息。
 function formatCreatedAt(value: string) {
   // 待格式化的日期时间对象。
   const date = new Date(value)
@@ -1298,7 +1298,8 @@ onBeforeUnmount(() => {
   color: #9aa5b4;
 }
 
-/* Keep filter controls free of the global inset focus ring. */
+/* 筛选栏输入框和下拉框使用自定义边框反馈；
+   覆盖 Element Plus 全局内阴影焦点描边，避免悬停或聚焦时出现双层描边。 */
 .evaluation-filter-input:hover :deep(.el-input__wrapper),
 .evaluation-filter-select:hover :deep(.el-select__wrapper),
 .evaluation-filter-input :deep(.el-input__wrapper:hover),
@@ -1333,7 +1334,8 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 
-/* Keep the section action aligned with the filter submit action at every breakpoint. */
+/* 固定分区标题右侧操作按钮的宽度，使其与筛选提交按钮保持一致；
+   在窄屏换行时也维持标题区操作列的对齐关系。 */
 .evaluation-section-heading .evaluation-primary {
   width: 90px;
   min-width: 90px;

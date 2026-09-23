@@ -1,5 +1,5 @@
 # 文件作用：按劳动法律文本结构将文档切分为可检索的文本块。
-"""Domain-aware LangChain text splitters for labor-law documents."""
+"""实现面向劳动法律资料的 LangChain 文本切分器，优先识别法条、编号项、段落和句子边界，并统一记录切分算法版本以便索引兼容性检查。"""
 
 from __future__ import annotations
 
@@ -39,7 +39,7 @@ _LEGAL_SEPARATORS = [
 
 
 class LegalTextSplitter(RecursiveCharacterTextSplitter):
-    """Recursive splitter that preserves legal clause boundaries when possible."""
+    """在 RecursiveCharacterTextSplitter 的块长和重叠控制上加入法律文本边界优先级；尽量不从法条或编号项中间切断，找不到合适边界时再按较细分隔符递归切分。"""
 
     def __init__(self, chunk_size: int = 600, chunk_overlap: int = 100) -> None:
         """初始化文本切分器的块长度和重叠长度参数。

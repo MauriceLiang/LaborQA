@@ -932,7 +932,7 @@ class ExperimentDetail(JobProgress):
     name: str
     # 字段说明：描述当前向量索引嵌入模型的兼容性签名。
     embedding_signature: EmbeddingSignature
-    # 字段说明：保存runtime结构化参数配置。。
+    # 字段说明：保存运行时结构化参数配置快照，记录本次实验实际使用的模型及生成参数，供结果复现和配置对照。
     runtime_config: LangChainRuntimeConfig
     # 字段说明：归档时间。
     archived_at: UtcDateTime | None = None

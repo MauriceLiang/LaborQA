@@ -24,9 +24,8 @@ def initialize_database() -> None:
         connection,
     ):
         connection.execute("PRAGMA foreign_keys = ON")
-        # Upgrade the document table before executing schema.sql. The schema
-        # creates an index on source_key, which would fail against an older
-        # database unless the columns exist first.
+        # 先为旧版 document 表补齐来源字段，再执行 schema.sql；新建索引会引用 source_key，
+        # 若旧表尚无该列便先跑 schema.sql，数据库初始化会因列不存在而失败。
         _migrate_document_schema(connection)
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
         _migrate_message_schema(connection)
@@ -247,7 +246,8 @@ def _migrate_evaluation_schema(connection: sqlite3.Connection) -> None:
         "version": "INTEGER NOT NULL DEFAULT 1",
         "builtin_key": "VARCHAR(100)",
         "created_by": "VARCHAR(100)",
-        # SQLite does not allow CURRENT_TIMESTAMP as an ALTER TABLE default.
+        # SQLite 的 ALTER TABLE ADD COLUMN 不允许直接把 CURRENT_TIMESTAMP 设为 DEFAULT；
+        # 因此先添加可空时间列，再由后续迁移语句回填已有记录。
         "updated_at": "TEXT",
         "archived_at": "TEXT",
     }

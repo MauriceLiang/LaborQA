@@ -1,5 +1,5 @@
 # 文件作用：封装检索策略配置及其版本信息的持久化操作。
-"""SQLite persistence for editable retrieval strategies."""
+"""持久化可编辑的检索策略及其历史版本，并区分内置策略和用户维护内容，供实验创建、版本恢复及策略管理接口使用。"""
 
 from __future__ import annotations
 
@@ -24,13 +24,13 @@ class RetrievalStrategyRepository:
         self.database_path = database_path or settings.database_path
 
     def seed_builtins(self, strategies: list[dict[str, Any]]) -> None:
-        """Insert the baseline strategies once without overwriting user edits.
+        """按稳定内置键补齐缺失的基线策略；重复启动时不覆盖用户已经修改的名称、说明或参数，确保初始化操作可重复执行。
 
-        参数：
-        strategies：当前实验或运行涉及的检索策略集合。
+            参数：
+            strategies：当前实验或运行涉及的检索策略集合。
         """
 
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             # 局部变量 strategy：当前检索策略及其参数配置。
             for strategy in strategies:
@@ -66,11 +66,11 @@ class RetrievalStrategyRepository:
         参数：
         include_archived：查询结果是否包括已归档记录。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             # 局部变量 archived_filter：当前列表是否筛选已归档记录。
             archived_filter = "" if include_archived else "WHERE archived_at IS NULL"
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 f"""
                 SELECT * FROM retrieval_strategy
@@ -78,7 +78,7 @@ class RetrievalStrategyRepository:
                 ORDER BY is_builtin DESC, updated_at DESC, id ASC
                 """
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [self._item(row) for row in rows]
 
     def get_strategy(self, strategy_id: int) -> dict[str, Any] | None:
@@ -87,9 +87,9 @@ class RetrievalStrategyRepository:
         参数：
         strategy_id：目标检索策略标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?", (strategy_id,)
             ).fetchone()
@@ -108,9 +108,9 @@ class RetrievalStrategyRepository:
         config：当前应用或实验配置。
         description：资源的补充说明文本。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 INSERT INTO retrieval_strategy (
@@ -132,7 +132,7 @@ class RetrievalStrategyRepository:
                     json.dumps(config, ensure_ascii=False),
                 ),
             )
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?",
                 (cursor.lastrowid,),
@@ -155,9 +155,9 @@ class RetrievalStrategyRepository:
         config：当前应用或实验配置。
         description：资源的补充说明文本。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 current：当前处理的对象或状态快照。
+            # 局部变量 current：当前事务中按 ID 读取的非内置策略 sqlite3.Row；用其现有状态/版本判断更新或归档操作是否仍有效。
             current = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ? AND is_builtin = 0",
                 (strategy_id,),
@@ -191,7 +191,7 @@ class RetrievalStrategyRepository:
                 """,
                 (strategy_id, next_version, name, description, config_json),
             )
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?", (strategy_id,)
             ).fetchone()
@@ -203,9 +203,9 @@ class RetrievalStrategyRepository:
         参数：
         strategy_id：目标检索策略标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 """
                 SELECT * FROM retrieval_strategy_version
@@ -214,7 +214,7 @@ class RetrievalStrategyRepository:
                 """,
                 (strategy_id,),
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [self._version_item(row) for row in rows]
 
     def restore_version(self, strategy_id: int, version: int) -> dict[str, Any] | None:
@@ -224,7 +224,7 @@ class RetrievalStrategyRepository:
         strategy_id：目标检索策略标识。
         version：目标配置版本号。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             # 局部变量 current：当前处理的对象或状态快照。
             current = connection.execute(
@@ -272,7 +272,7 @@ class RetrievalStrategyRepository:
                     target["config_json"],
                 ),
             )
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?", (strategy_id,)
             ).fetchone()
@@ -285,9 +285,9 @@ class RetrievalStrategyRepository:
         strategy_id：目标检索策略标识。
         active：策略是否启用。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 UPDATE retrieval_strategy
@@ -298,7 +298,7 @@ class RetrievalStrategyRepository:
             )
             if cursor.rowcount == 0:
                 return None
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?", (strategy_id,)
             ).fetchone()
@@ -310,9 +310,9 @@ class RetrievalStrategyRepository:
         参数：
         strategy_id：目标检索策略标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 UPDATE retrieval_strategy
@@ -324,7 +324,7 @@ class RetrievalStrategyRepository:
             )
             if cursor.rowcount == 0:
                 return None
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?", (strategy_id,)
             ).fetchone()
@@ -336,9 +336,9 @@ class RetrievalStrategyRepository:
         参数：
         strategy_id：目标检索策略标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 UPDATE retrieval_strategy
@@ -350,7 +350,7 @@ class RetrievalStrategyRepository:
             )
             if cursor.rowcount == 0:
                 return None
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?", (strategy_id,)
             ).fetchone()
@@ -362,9 +362,9 @@ class RetrievalStrategyRepository:
         参数：
         strategy_id：目标检索策略标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 "DELETE FROM retrieval_strategy WHERE id = ? AND is_builtin = 0",
                 (strategy_id,),
@@ -413,7 +413,7 @@ class RetrievalStrategyRepository:
     def _connection(self) -> Iterator[sqlite3.Connection]:
         """创建 SQLite 连接上下文并统一管理数据库连接。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         connection = sqlite3.connect(str(self.database_path), timeout=5)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")

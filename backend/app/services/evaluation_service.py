@@ -1,5 +1,5 @@
 # 文件作用：编排评估任务、用例执行、指标计算和结果保存。
-"""Asynchronous evaluation and test-case management without production session writes."""
+"""管理评测用例的校验、版本和生命周期，并编排异步评测运行及结果汇总；评测复用问答能力但不会写入生产用户会话。"""
 
 from __future__ import annotations
 
@@ -133,7 +133,7 @@ class EvaluationService:
         case_id：目标评估用例标识。
         include_archived：查询结果是否包含已归档记录。
         """
-        # 局部变量 case：当前评估用例记录。
+        # 局部变量 case：当前评测用例数据，包含问题轮次和预期要点/来源；本流程据这些字段构造输入、执行判定或汇总该用例结果。
         case = self.repository.get_case(case_id, include_archived=include_archived)
         if case is None:
             raise AppError(
@@ -359,12 +359,12 @@ class EvaluationService:
             )
             # 局部变量 cases：本次查询或运行使用的评估用例集合。
             cases = self.repository.run_cases(run_id)
-            # 局部变量 case：当前评估用例记录。
+            # 局部变量 case：当前评测用例数据，包含问题轮次和预期要点/来源；本流程据这些字段构造输入、执行判定或汇总该用例结果。
             for case in cases:
                 try:
-                    # 局部变量 result：当前函数调用或计算产生、供后续处理或返回的结果数据。
+                    # 局部变量 result：当前评测用例的执行结果，含回答、拒答、引用和判分字段；若单用例失败则由后续异常分支记录失败信息。
                     result = await self._evaluate_case(case, answer_style, ai_mode)
-                # 局部变量 exc：当前捕获到的异常对象。
+                # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
                 except (
                     ModelUnavailableError,
                     EmbeddingUnavailableError,
@@ -567,7 +567,7 @@ class EvaluationService:
             template_format="f-string",
         )
         try:
-            # 局部变量 value：当前待校验、转换或展示的值。
+            # 局部变量 value：评测模型经 JsonOutputParser 解析出的判分字典；后续读取 correct、reason 等字段并与预期要点结合形成评测结果。
             value = await (
                 prompt
                 | chat_model.bind(
@@ -578,7 +578,7 @@ class EvaluationService:
             ).ainvoke({"payload": json.dumps(prompt_input, ensure_ascii=False)})
         except ModelUnavailableError:
             raise
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except OutputParserException as exc:
             raise TypeError("评测器未返回有效 JSON") from exc
         except Exception as exc:
@@ -650,7 +650,7 @@ def _validated_string_list(value: Any, field_name: str) -> list[str]:
     value：需要转换或校验的输入值。
     field_name：当前需要读取或校验的字段名称。
     """
-    # 局部变量 item：当前列表或结果集合中的一条数据。
+    # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
     if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
         raise TypeError(f"评测器未返回有效的 {field_name} 列表")
     return value
@@ -729,14 +729,14 @@ def _calculate_metrics(
 
     # 局部变量 completed：当前任务是否已达到终态。
     # 局部变量 case_id：当前评估用例的数据库标识。
-    # 局部变量 result：当前函数调用或计算产生、供后续处理或返回的结果数据。
+    # 局部变量 result：单个 case_id 对应的评测结果；此处只保留 status 为 COMPLETED 的结果，用于恢复或汇总已完成用例。
     completed = {
         case_id: result
         for case_id, result in results.items()
         if result["status"] == "COMPLETED"
     }
     # 局部变量 answers：模型回答或评估结果中的答案集合。
-    # 局部变量 case：当前评估用例记录。
+    # 局部变量 case：当前评测用例数据，包含问题轮次和预期要点/来源；本流程据这些字段构造输入、执行判定或汇总该用例结果。
     answers = [
         case
         for case in cases

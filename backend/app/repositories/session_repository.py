@@ -1,5 +1,5 @@
 # 文件作用：封装聊天会话、消息、引用和工具执行记录的数据库读写。
-"""SQLite persistence for sessions and their chat messages."""
+"""封装聊天会话和消息的 SQLite 创建、读取、更新与删除；服务层负责问答流程，仓储层保证消息及引用的持久化关系。"""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from app.schemas.contracts import AiMode
 
 
 class SessionNotFoundError(LookupError):
-    """Raised when a write references a session that does not exist."""
+    """表示写入或读取操作引用了数据库中不存在的会话；服务层可据此返回明确的资源不存在响应，而不是把缺失记录误当作成功。"""
 
 
 class SessionRepository:
@@ -37,13 +37,13 @@ class SessionRepository:
         """
         # 局部变量 session_id：聊天会话的唯一标识。
         session_id = str(uuid4())
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 "INSERT INTO session (id, title) VALUES (?, ?)",
                 (session_id, title),
             )
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM session WHERE id = ?", (session_id,)
             ).fetchone()
@@ -55,9 +55,9 @@ class SessionRepository:
         参数：
         session_id：目标聊天会话标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM session WHERE id = ?", (session_id,)
             ).fetchone()
@@ -69,9 +69,9 @@ class SessionRepository:
         参数：
         limit：返回记录数量上限。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 """
                 SELECT s.*
@@ -86,7 +86,7 @@ class SessionRepository:
                 """,
                 (limit,),
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [dict(row) for row in rows]
 
     def list_messages(self, session_id: str) -> list[dict[str, Any]]:
@@ -95,9 +95,9 @@ class SessionRepository:
         参数：
         session_id：目标聊天会话标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 """
                 SELECT * FROM message
@@ -122,9 +122,9 @@ class SessionRepository:
         if turns == 0:
             return []
 
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 """
                 WITH ordered_messages AS (
@@ -168,7 +168,7 @@ class SessionRepository:
         question：用户提出的问题文本。
         ai_mode：生成回答时采用的 AI 模式。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             if (
                 connection.execute(
@@ -177,7 +177,7 @@ class SessionRepository:
                 is None
             ):
                 raise SessionNotFoundError(session_id)
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 INSERT INTO message (
@@ -191,7 +191,7 @@ class SessionRepository:
                 "UPDATE session SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (session_id,),
             )
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM message WHERE id = ?", (cursor.lastrowid,)
             ).fetchone()
@@ -204,9 +204,9 @@ class SessionRepository:
         text：待处理的文本内容。
         message_id：目标聊天消息的数据库标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 UPDATE message SET rewritten_question = ?
@@ -237,7 +237,7 @@ class SessionRepository:
         tool_executions：本轮回答关联的工具执行记录集合。
         ai_mode：生成回答时采用的 AI 模式。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             if (
                 connection.execute(
@@ -247,7 +247,7 @@ class SessionRepository:
             ):
                 raise SessionNotFoundError(session_id)
 
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 INSERT INTO message (
@@ -313,7 +313,7 @@ class SessionRepository:
                 "UPDATE session SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (session_id,),
             )
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM message WHERE id = ?", (message_id,)
             ).fetchone()
@@ -330,7 +330,7 @@ class SessionRepository:
         rows：数据库查询返回的记录行集合。
         """
         # 局部变量 messages：当前会话的消息记录集合。
-        # 局部变量 row：数据库查询返回的当前记录行。
+        # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
         messages = [
             {
                 "id": int(row["id"]),
@@ -432,7 +432,7 @@ class SessionRepository:
     def _connection(self) -> Iterator[sqlite3.Connection]:
         """创建 SQLite 连接上下文并统一管理数据库连接。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         connection = sqlite3.connect(str(self.database_path), timeout=5)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")

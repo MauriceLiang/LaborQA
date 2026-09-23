@@ -153,7 +153,7 @@ function clearSelection() {
 }
 
 /** 将最新文档信息插入或更新到当前列表中。 */
-// 参数 document：当前需要处理的文档记录。
+// 参数 document：新获取的 DocumentItem；按 ID 替换列表中的旧记录，若当前页尚无此记录则插入列表开头，并在超出每页容量时移除末尾记录。
 function upsertDocument(document: DocumentItem) {
   // 目标文档在当前列表中的下标。
   const index = documents.value.findIndex((item) => item.id === document.id)
@@ -356,7 +356,7 @@ async function onImportBuiltin() {
 }
 
 /** 切换当前选中文档；再次点击同一文档时取消选择。 */
-// 参数 document：当前需要处理的文档记录。
+// 参数 document：用户点选的 DocumentItem；使用其 ID 切换当前选择，并依据处理状态清空旧分块详情或重新加载成功文档的分块。
 async function selectDocument(document: DocumentItem) {
   if (selectedDocumentId.value === document.id) {
     clearSelection()
@@ -404,7 +404,7 @@ async function onUpload(uploaded: DocumentUploadAccepted) {
 }
 
 /** 重新提交指定文档的导入任务并刷新其状态。 */
-// 参数 document：当前需要处理的文档记录。
+// 参数 document：需要重新导入的 DocumentItem；使用其 ID 提交任务并跟踪处理状态，使用文件名恢复失败状态筛选，同时刷新记录及成功后的分块。
 async function onReimport(document: DocumentItem) {
   actionError.value = ''
   try {
@@ -438,7 +438,7 @@ async function onReimport(document: DocumentItem) {
 }
 
 /** 确认并删除指定文档，同时维护分页、选择和处理状态。 */
-// 参数 document：当前需要处理的文档记录。
+// 参数 document：待删除的 DocumentItem；文件名用于确认提示，ID 用于删除请求和清理选择/轮询状态，原处理状态用于失败时恢复轮询。
 async function onDelete(document: DocumentItem) {
   if (deletingDocumentId.value !== undefined) return
   try {

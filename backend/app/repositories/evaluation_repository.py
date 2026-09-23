@@ -1,5 +1,5 @@
 # 文件作用：封装评估用例、评估运行及其结果的数据库读写。
-"""SQLite persistence for evaluation cases, batches, and per-case results."""
+"""封装评测用例、评测批次、运行配置和逐用例结果的 SQLite 查询与写入；事务和记录映射留在仓储层，评测执行由服务层编排。"""
 
 from __future__ import annotations
 
@@ -34,7 +34,7 @@ class EvaluationRepository:
         """
         # 局部变量 key_prefix：当前缓存键使用的前缀。
         key_prefix = f"baseline-v{baseline_version}-"
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -52,7 +52,7 @@ class EvaluationRepository:
                 (f"{key_prefix}%",),
             )
             # 局部变量 position：当前循环或列表处理中的序号、位置。
-            # 局部变量 case：当前评估用例记录。
+            # 局部变量 case：当前评测用例数据，包含问题轮次和预期要点/来源；本流程据这些字段构造输入、执行判定或汇总该用例结果。
             for position, case in enumerate(cases, start=1):
                 # 局部变量 builtin_key：内置资料的稳定来源标识。
                 builtin_key = f"{key_prefix}{position:03d}"
@@ -137,15 +137,15 @@ class EvaluationRepository:
 
         # 局部变量 where_clause：SQL 查询的筛选子句。
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 total：符合当前条件的记录总数或项目总数。
+            # 局部变量 total：按当前筛选范围统计的记录/项目总量；分页接口用它计算总页数，数值可能大于本页实际返回的 items 长度。
             total = int(
                 connection.execute(
                     f"SELECT COUNT(*) FROM evaluation_case {where_clause}", parameters
                 ).fetchone()[0]
             )
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 f"""
                 SELECT * FROM evaluation_case
@@ -155,7 +155,7 @@ class EvaluationRepository:
                 """,
                 [*parameters, size, (page - 1) * size],
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [self._case_item(row) for row in rows], total
 
     def get_cases(
@@ -170,12 +170,12 @@ class EvaluationRepository:
         case_ids：评估用例标识列表。
         include_archived：查询结果是否包含已归档记录。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             # 局部变量 status_clause：根据任务状态生成的 SQL 条件。
             status_clause = "" if include_archived else " AND status = 'ACTIVE'"
             if case_ids is None:
-                # 局部变量 rows：本次查询返回的数据库记录集合。
+                # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
                 rows = connection.execute(
                     f"SELECT * FROM evaluation_case WHERE 1 = 1{status_clause} ORDER BY id"
                 ).fetchall()
@@ -185,7 +185,7 @@ class EvaluationRepository:
                 # 局部变量 placeholders：提示模板中待填充的变量名集合。
                 placeholders = ",".join("?" for _ in case_ids)
                 # 局部变量 found：是否成功找到目标记录。
-                # 局部变量 row：数据库查询返回的当前记录行。
+                # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
                 found = {
                     int(row["id"]): row
                     for row in connection.execute(
@@ -216,9 +216,9 @@ class EvaluationRepository:
         参数：
         case：当前评测用例数据。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 INSERT INTO evaluation_case (
@@ -229,7 +229,7 @@ class EvaluationRepository:
                 """,
                 _case_values(case),
             )
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM evaluation_case WHERE id = ?", (cursor.lastrowid,)
             ).fetchone()
@@ -245,9 +245,9 @@ class EvaluationRepository:
         case：当前评测用例数据。
         expected_version：提交更新时客户端读取到的用例版本。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 UPDATE evaluation_case
@@ -261,7 +261,7 @@ class EvaluationRepository:
             )
             if cursor.rowcount == 0:
                 return None
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM evaluation_case WHERE id = ?", (case_id,)
             ).fetchone()
@@ -273,9 +273,9 @@ class EvaluationRepository:
         参数：
         case_id：目标评估用例标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 UPDATE evaluation_case
@@ -287,7 +287,7 @@ class EvaluationRepository:
             )
             if cursor.rowcount == 0:
                 return None
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM evaluation_case WHERE id = ?", (case_id,)
             ).fetchone()
@@ -299,7 +299,7 @@ class EvaluationRepository:
         参数：
         case_id：目标评估用例标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             return (
                 connection.execute(
@@ -330,11 +330,11 @@ class EvaluationRepository:
         cases：当前任务使用的评估用例集合。
         """
         # 局部变量 case_ids：本次评估选择的用例标识列表。
-        # 局部变量 case：当前评估用例记录。
+        # 局部变量 case：当前评测用例数据，包含问题轮次和预期要点/来源；本流程据这些字段构造输入、执行判定或汇总该用例结果。
         case_ids = [int(case["id"]) for case in cases]
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 INSERT INTO evaluation_run (name, case_count, progress_total, config_json)
@@ -382,9 +382,9 @@ class EvaluationRepository:
         参数：
         run_id：目标评测运行标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM evaluation_run WHERE id = ?", (run_id,)
             ).fetchone()
@@ -403,14 +403,14 @@ class EvaluationRepository:
         参数：
         run_id：目标评测运行标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 "SELECT case_id FROM evaluation_run_case WHERE run_id = ? ORDER BY position",
                 (run_id,),
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [int(row["case_id"]) for row in rows]
 
     def run_cases(self, run_id: int) -> list[dict[str, Any]]:
@@ -419,9 +419,9 @@ class EvaluationRepository:
         参数：
         run_id：目标评测运行标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 """
                 SELECT case_id, case_version, case_snapshot_json
@@ -432,12 +432,12 @@ class EvaluationRepository:
             ).fetchall()
             # 局部变量 cases：本次查询或运行使用的评估用例集合。
             cases: list[dict[str, Any]] = []
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             for row in rows:
                 # 局部变量 snapshot：任务创建时保存的不可变输入快照。
                 snapshot = json.loads(row["case_snapshot_json"] or "{}")
                 if not snapshot:
-                    # 局部变量 current：当前处理的对象或状态快照。
+                    # 局部变量 current：按运行记录中的 case_id 重新读取的完整评测用例；仅在旧运行没有保存快照时用于回填兼容数据。
                     current = self.get_case(int(row["case_id"]), include_archived=True)
                     if current is None:
                         continue
@@ -458,7 +458,7 @@ class EvaluationRepository:
         run_id：目标评测运行标识。
         status：需要读取或设置的处理状态。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 "UPDATE evaluation_run SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -472,7 +472,7 @@ class EvaluationRepository:
         run_id：目标评测运行标识。
         result：本次操作或模型调用的结果数据。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -523,7 +523,7 @@ class EvaluationRepository:
         run_id：目标评测运行标识。
         metrics：运行结束后计算的汇总指标。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -556,7 +556,7 @@ class EvaluationRepository:
         run_id：目标评测运行标识。
         message：需要保存或展示的消息内容。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -570,7 +570,7 @@ class EvaluationRepository:
     def recover_interrupted_runs(self) -> None:
         """将进程中断后遗留的运行恢复为可解释状态。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -595,15 +595,15 @@ class EvaluationRepository:
         where_clause = "WHERE status = ?" if status else ""
         # 局部变量 parameters：当前操作使用的参数集合。
         parameters: list[Any] = [status] if status else []
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 total：符合当前条件的记录总数或项目总数。
+            # 局部变量 total：按当前筛选范围统计的记录/项目总量；分页接口用它计算总页数，数值可能大于本页实际返回的 items 长度。
             total = int(
                 connection.execute(
                     f"SELECT COUNT(*) FROM evaluation_run {where_clause}", parameters
                 ).fetchone()[0]
             )
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 f"""
                 SELECT * FROM evaluation_run
@@ -613,7 +613,7 @@ class EvaluationRepository:
                 """,
                 [*parameters, size, (page - 1) * size],
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [self._run_summary(row) for row in rows], total
 
     def get_run(self, run_id: int) -> dict[str, Any] | None:
@@ -622,9 +622,9 @@ class EvaluationRepository:
         参数：
         run_id：目标评测运行标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM evaluation_run WHERE id = ?", (run_id,)
             ).fetchone()
@@ -659,7 +659,7 @@ class EvaluationRepository:
                         "compliance_hit_rate",
                     )
                 }
-            # 局部变量 item：当前列表或结果集合中的一条数据。
+            # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
             return {
                 **summary,
                 "config": json.loads(row["config_json"]),
@@ -754,7 +754,7 @@ class EvaluationRepository:
     def _connection(self) -> Iterator[sqlite3.Connection]:
         """创建 SQLite 连接上下文并统一管理数据库连接。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         connection = sqlite3.connect(str(self.database_path), timeout=5)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")

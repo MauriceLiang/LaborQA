@@ -1,5 +1,5 @@
 # 文件作用：审计评估基线用例和结果，辅助确认基准数据的完整性。
-"""Static validation for the official evaluation baseline."""
+"""在评测运行前静态检查官方基线用例文件的结构和约束，帮助尽早发现缺失字段或格式错误；检查逻辑与线上会话写入相互隔离。"""
 
 from __future__ import annotations
 
@@ -28,7 +28,7 @@ def _audit(cases: Sequence[dict[str, Any]]) -> list[str]:
     # 局部变量 failures：本次运行中收集到的失败记录。
     failures: list[str] = []
     # 局部变量 questions：当前批次需要处理的问题集合。
-    # 局部变量 case：当前评估用例记录。
+    # 局部变量 case：当前评测用例数据，包含问题轮次和预期要点/来源；本流程据这些字段构造输入、执行判定或汇总该用例结果。
     # 局部变量 turn：多轮对话中的当前一轮消息。
     questions = [turn for case in cases for turn in case["turns"]]
     # 局部变量 duplicates：重复的问题或记录列表。
@@ -94,7 +94,7 @@ def main() -> int:
     # 局部变量 cases：本次查询或运行使用的评估用例集合。
     cases = fixed_evaluation_cases()
     # 局部变量 answer_cases：预期系统生成实质性答案的评估用例。
-    # 局部变量 case：当前评估用例记录。
+    # 局部变量 case：当前评测用例数据，包含问题轮次和预期要点/来源；本流程据这些字段构造输入、执行判定或汇总该用例结果。
     answer_cases = [case for case in cases if case["expected_type"] == "ANSWER"]
     # 局部变量 reject_cases：预期系统拒答的评估用例集合。
     reject_cases = [case for case in cases if case["expected_type"] == "REJECT"]

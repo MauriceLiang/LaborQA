@@ -32,7 +32,7 @@ class EmbeddingProvider(Protocol):
 
 
 class _LangChainEmbeddingProvider:
-    """Expose a LangChain Embeddings object with index-signature metadata."""
+    """把底层 LangChain Embeddings 统一适配为项目的嵌入 Provider，并记录 Provider、模型、归一化设置和首次计算出的向量维度，供索引签名校验使用。"""
 
     def __init__(self, config: Settings, embeddings: Embeddings) -> None:
         """初始化嵌入适配器及其配置或底层 Provider。
@@ -62,7 +62,7 @@ class _LangChainEmbeddingProvider:
         try:
             # 局部变量 vectors：文档或查询文本对应的数值向量集合。
             vectors = self.embeddings.embed_documents(texts)
-            # 局部变量 result：当前函数调用或计算产生、供后续处理或返回的结果数据。
+            # 局部变量 result：已通过数量、维度和数值有效性检查的批量向量；若启用归一化，随后会逐条替换为单位长度向量。
             result = _validate_vectors(vectors, len(texts))
             if self.normalize_embeddings:
                 # 局部变量 vector：单条文本对应的数值向量。
@@ -72,7 +72,7 @@ class _LangChainEmbeddingProvider:
             return result
         except EmbeddingUnavailableError:
             raise
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except Exception as exc:
             logger.exception("LangChain embedding provider failed")
             raise EmbeddingUnavailableError("向量服务暂不可用") from exc
@@ -94,14 +94,14 @@ class _LangChainEmbeddingProvider:
             return vector
         except EmbeddingUnavailableError:
             raise
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except Exception as exc:
             logger.exception("LangChain embedding provider failed")
             raise EmbeddingUnavailableError("向量服务暂不可用") from exc
 
 
 class _LazyEmbeddings(Embeddings):
-    """Defer provider construction until the first actual embedding call."""
+    """延迟创建底层嵌入模型：应用初始化时只保存工厂函数，第一次执行文本或查询向量化时才创建模型，并缓存实例供后续调用复用。"""
 
     def __init__(self, factory: Callable[[], Embeddings]) -> None:
         """初始化嵌入适配器及其配置或底层 Provider。
@@ -141,12 +141,7 @@ class _LazyEmbeddings(Embeddings):
 
 
 class LangChainEmbeddingService(Embeddings):
-    """LangChain Embeddings facade with the project's index-signature contract.
-
-    The configured backend is always created by ``build_embeddings``. The
-    optional provider hook is kept for deterministic in-process tests and
-    offline maintenance tasks.
-    """
+    """为 LangChain 向量流程提供统一嵌入入口。默认按 Settings 延迟构建本地或远程 Provider，并在输出处校验、归一化向量及记录维度；显式传入 Provider 的入口供离线维护和确定性测试使用。"""
 
     def __init__(
         self,
@@ -221,7 +216,7 @@ class LangChainEmbeddingService(Embeddings):
                 dimension = len(self.provider.embed_query("维度探测"))
             except EmbeddingUnavailableError:
                 raise
-            # 局部变量 exc：当前捕获到的异常对象。
+            # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
             except Exception as exc:
                 raise EmbeddingUnavailableError("向量服务暂不可用") from exc
         if dimension is None:
@@ -256,14 +251,14 @@ def _validate_vectors(vectors: list[Any], expected_count: int) -> list[list[floa
     """
     if len(vectors) != expected_count:
         raise ValueError("embedding response item count does not match request")
-    # 局部变量 result：当前函数调用或计算产生、供后续处理或返回的结果数据。
+    # 局部变量 result：完成格式与有限数值校验的向量列表；循环会进一步确认各向量维度一致后再返回。
     result: list[list[float]] = []
     # 局部变量 dimension：嵌入向量的维度。
     dimension: int | None = None
     # 局部变量 vector：单条文本对应的数值向量。
     for vector in vectors:
         # 局部变量 values：待写入数据库或输出的字段值集合。
-        # 局部变量 value：当前待校验、转换或展示的值。
+        # 局部变量 value：模型返回的单个向量分量；先转换为 float，再由有限值检查拒绝 NaN 或无穷大。
         values = [float(value) for value in vector]
         if not values or any(not math.isfinite(value) for value in values):
             raise ValueError("embedding response contains an invalid vector")
@@ -282,7 +277,7 @@ def _normalize(vector: list[float]) -> list[float]:
     vector：单条文本对应的数值向量。
     """
     # 局部变量 norm：向量的模长或归一化因子。
-    # 局部变量 value：当前待校验、转换或展示的值。
+    # 局部变量 value：当前向量中的浮点分量；平方和用于计算 L2 范数，以生成单位长度归一化向量。
     norm = math.sqrt(sum(value * value for value in vector))
     if norm == 0:
         raise ValueError("embedding response contains a zero vector")

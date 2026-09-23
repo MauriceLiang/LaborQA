@@ -1,5 +1,5 @@
 # 文件作用：编排文档上传、解析、切分、嵌入、索引和生命周期操作。
-"""Document upload and asynchronous knowledge-base import workflow."""
+"""编排文件上传校验、文档记录创建、后台解析切块、向量写入和导入状态更新；数据库记录是处理状态的依据，文件及向量清理由服务层协调。"""
 
 from __future__ import annotations
 
@@ -62,7 +62,7 @@ class DocumentService:
         embedding_service：为文本生成向量的嵌入服务。
         vector_store：负责向量索引读写和相似度检索的服务实例。
         """
-        # 成员变量 config：当前请求、服务或实验所使用的配置。
+        # 成员变量 config：应用级 Settings，集中提供数据库、上传/内置资料目录、DOC 解析器和嵌入配置；文档导入各阶段共享同一配置来源。
         self.config = config
         # 成员变量 repository：负责当前业务数据持久化的数据仓库。
         self.repository = repository or DocumentRepository(config.database_path)
@@ -101,7 +101,7 @@ class DocumentService:
         try:
             # 局部变量 stored_file：文件存储组件返回的已保存文件信息。
             stored_file = self.file_storage.save(source, filename, content_type)
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except UploadValidationError as exc:
             raise AppError(exc.code, str(exc), exc.http_status) from exc
 
@@ -130,14 +130,14 @@ class DocumentService:
         with self._import_lock:
             # 局部变量 specs：扫描或注册得到的内置文档定义集合。
             specs = list_builtin_documents(self.config)
-            # 局部变量 items：本次查询或处理得到的数据项列表。
+            # 局部变量 items：按当前筛选、状态整理或分页逻辑形成的返回条目集合；列表中的每项会继续映射为接口约定的数据结构。
             items: list[dict] = []
             # 局部变量 counts：本次统计得到的数量汇总。
             # 局部变量 state：当前文档、任务或服务处理状态。
             counts = {state.value.lower(): 0 for state in BuiltinDocumentState}
             # 局部变量 spec：当前内置文档的来源和元数据定义。
             for spec in specs:
-                # 局部变量 document：当前正在读取、更新或返回的文档记录。
+                # 局部变量 document：文档仓储返回的数据库记录，包含文档 ID、来源和导入状态；当前流程据此比较内置文件版本并决定是否需要导入。
                 document = self._get_or_claim_builtin_document(spec)
                 # 局部变量 state：当前内置资料与源文件的状态比较结果。
                 state = self._builtin_state(document, spec)
@@ -151,7 +151,7 @@ class DocumentService:
                     }
                 )
 
-            # 局部变量 total：符合当前条件的记录总数或项目总数。
+            # 局部变量 total：按当前筛选范围统计的记录/项目总量；分页接口用它计算总页数，数值可能大于本页实际返回的 items 长度。
             total = len(specs)
             # 局部变量 success：当前任务或操作是否成功。
             success = counts["success"]
@@ -167,8 +167,7 @@ class DocumentService:
             }
 
     def prepare_builtin_import(self) -> BuiltinImportPlan:
-        """Prepare missing, failed, and outdated builtin documents for import.
-        """
+        """扫描内置资料目录并对照已登记文档，选出缺失、失败或源文件已更新的项目，创建或领取待处理记录并生成后台导入计划。"""
         with self._import_lock:
             # 局部变量 specs：扫描或注册得到的内置文档定义集合。
             specs = list_builtin_documents(self.config)
@@ -181,7 +180,7 @@ class DocumentService:
 
             # 局部变量 spec：当前内置文档的来源和元数据定义。
             for spec in specs:
-                # 局部变量 document：当前正在读取、更新或返回的文档记录。
+                # 局部变量 document：文档仓储返回的数据库记录，包含文档 ID、来源和导入状态；当前流程据此比较内置文件版本并决定是否需要导入。
                 document = self._get_or_claim_builtin_document(spec)
                 # 局部变量 state：当前文档、任务或服务处理状态。
                 state = self._builtin_state(document, spec)
@@ -210,19 +209,18 @@ class DocumentService:
             )
 
     def import_builtin_batch(self, document_ids: list[int]) -> None:
-        """Import builtin documents sequentially through the normal pipeline.
+        """按传入 ID 顺序复用单文档导入流程；单个任务若发生未预期异常会记录上下文并继续处理后续资料，避免批量导入被单项故障中断。
 
-        参数：
-        document_ids：本次批量操作涉及的文档标识集合。
+            参数：
+            document_ids：本次批量操作涉及的文档标识集合。
         """
         # 局部变量 document_id：文档记录的唯一标识。
         for document_id in document_ids:
             try:
                 self.import_document(document_id)
             except Exception:
-                # import_document normally converts failures to FAILED. Keep
-                # the batch resilient if an unexpected infrastructure error
-                # escapes so later builtin documents still get a chance.
+                # 单文档导入流程通常会自行把解析或存储错误写成 FAILED 状态；
+                # 若仍有基础设施异常逸出，则记录当前文档并继续批次，避免后续内置资料被跳过。
                 logger.exception("Builtin document import raised for %s", document_id)
 
     def _get_or_claim_builtin_document(
@@ -234,7 +232,7 @@ class DocumentService:
         参数：
         spec：当前内置文档文件的来源和元数据定义。
         """
-        # 局部变量 document：当前正在读取、更新或返回的文档记录。
+        # 局部变量 document：按 source_key 查到的内置文档记录；若记录已存在则复用其数据库 ID 和状态，避免重复创建来源条目。
         document = self.repository.get_document_by_source_key(spec.source_key)
         if document is not None:
             return document
@@ -407,7 +405,7 @@ class DocumentService:
         document_id：文档记录的唯一标识。
         """
         with self._import_lock:
-            # 局部变量 document：当前正在读取、更新或返回的文档记录。
+            # 局部变量 document：按主键读取的文档数据库记录；本方法先校验存在性，再据其文件路径和分块信息执行删除或重导入操作。
             document = self.repository.get_document(document_id)
             if document is None:
                 raise AppError(
@@ -431,10 +429,10 @@ class DocumentService:
             )
 
     def delete_document(self, document_id: int) -> dict:
-        """Delete a document and every persisted resource derived from it.
+        """协调删除文档主记录、分块、引用、向量和源文件；数据库事务先确定删除结果，后续向量或文件清理失败会留下日志以便运维发现孤儿数据。
 
-        参数：
-        document_id：文档记录的唯一标识。
+            参数：
+            document_id：文档记录的唯一标识。
         """
         with self._import_lock:
             # 局部变量 deleted：当前文件是否已经删除。
@@ -444,7 +442,7 @@ class DocumentService:
                     ErrorCode.DOCUMENT_NOT_FOUND, "文档不存在", http_status=404
                 )
 
-            # 局部变量 document：当前正在读取、更新或返回的文档记录。
+            # 局部变量 document：仓储删除事务返回的文档记录；后续用它的 ID 清理向量索引，并用 file_path 删除已不再被数据库引用的源文件。
             document = deleted["document"]
             self._remove_vectors(
                 deleted["chunk_ids"], "vectors after document deletion"
@@ -452,8 +450,8 @@ class DocumentService:
             try:
                 self.file_storage.delete(document["file_path"])
             except Exception:
-                # The database is the source of truth. Keep the delete request
-                # successful while making an orphaned file visible in logs.
+                # 数据库事务已完成删除，文档记录是系统状态的权威来源；
+                # 源文件清理失败不回滚删除请求，但必须记录路径和文档 ID 以便后续排查孤儿文件。
                 logger.exception(
                     "Could not remove source file for deleted document %s",
                     document_id,
@@ -461,13 +459,13 @@ class DocumentService:
             return document
 
     def import_document(self, document_id: int) -> None:
-        """Process a document in the FastAPI background-task worker.
+        """作为后台任务处理一份文档：读取已保存文件、解析并切分正文、写入数据库和向量索引，同时更新处理状态；可恢复错误会转换为失败状态供界面查看。
 
-        参数：
-        document_id：文档记录的唯一标识。
+            参数：
+            document_id：文档记录的唯一标识。
         """
         with self._import_lock:
-            # 局部变量 document：当前正在读取、更新或返回的文档记录。
+            # 局部变量 document：按任务 ID 重新读取的文档记录；只有仍处于 PROCESSING 状态时才继续解析，避免重复执行已结束的导入任务。
             document = self.repository.get_document(document_id)
             if document is None or document["status"] != "PROCESSING":
                 return
@@ -503,7 +501,7 @@ class DocumentService:
                     ],
                 )
                 # 局部变量 vector_documents：待加入向量索引的 LangChain 文档集合。
-                # 局部变量 row：数据库查询返回的当前记录行。
+                # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
                 vector_documents = [
                     Document(
                         id=str(row["id"]),
@@ -536,7 +534,7 @@ class DocumentService:
                 )
                 if updated is None:
                     raise RuntimeError("文档状态更新失败")
-            # 局部变量 exc：当前捕获到的异常对象。
+            # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
             except Exception as exc:
                 self._rollback_import(document_id, inserted_rows, added_vector_ids)
                 # 局部变量 message：需要记录、保存或返回的消息文本。
@@ -558,7 +556,7 @@ class DocumentService:
         参数：
         document：当前处理的文档对象或记录。
         """
-        # 局部变量 metadata：当前文档或索引的结构化元数据。
+        # 局部变量 metadata：写入每个文本块的文档来源元数据，包含 document_id、file_name 和 file_type，供向量检索命中后回查原始记录。
         metadata = {
             "document_id": int(document["id"]),
             "file_name": str(document["file_name"]),
@@ -586,21 +584,20 @@ class DocumentService:
         ]
 
     def recover_interrupted_imports(self) -> None:
-        """Mark jobs interrupted by a process restart as failed and clean chunks.
-        """
+        """应用启动时查找上次进程退出后仍标记为处理中或正在删除的文档，将中断任务恢复到明确失败状态，并清理不完整的分块记录。"""
         # 局部变量 stale_vector_ids：需要从索引清理的旧向量 ID。
         stale_vector_ids: list[int] = []
         # 局部变量 page：当前查询使用的页码。
         page = 1
         while True:
             # 局部变量 documents：本次检索、解析或批量处理的文档集合。
-            # 局部变量 total：符合当前条件的记录总数或项目总数。
+            # 局部变量 total：按当前筛选范围统计的记录/项目总量；分页接口用它计算总页数，数值可能大于本页实际返回的 items 长度。
             documents, total = self.repository.list_documents(
                 page=page, size=100, status="PROCESSING"
             )
             if not documents:
                 break
-            # 局部变量 document：当前正在读取、更新或返回的文档记录。
+            # 局部变量 document：本批次中需要重新整理的文档记录；根据其 ID 清除旧分块，并把旧向量标识加入后续索引清理集合。
             for document in documents:
                 stale_vector_ids.extend(
                     self.repository.reset_document_content(document["id"])
@@ -646,7 +643,7 @@ class DocumentService:
             deleted_ids = self.repository.delete_chunks(document_id)
         except Exception:
             logger.exception("Could not remove chunks after import failure")
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             deleted_ids = [row["id"] for row in inserted_rows]
 
         # 局部变量 ids_to_remove：本次需要从索引或数据库删除的标识集合。

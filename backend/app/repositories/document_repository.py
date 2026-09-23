@@ -10,7 +10,7 @@ from app.core.config import settings
 
 
 class DocumentRepository:
-    """SQLite persistence for uploaded documents and their text chunks."""
+    """负责文档主记录、文本分块、引用以及导入状态的 SQLite 持久化。仓储层封装事务、来源键去重和分页查询，不负责解析文件或调用嵌入模型。"""
 
     def __init__(self, database_path: Path | None = None) -> None:
         """初始化文档数据仓库及数据库文件位置。
@@ -43,9 +43,9 @@ class DocumentRepository:
         source_type：文档来源类别，例如用户上传或系统内置。
         source_hash：源文件内容计算得到的摘要值。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 INSERT INTO document (
@@ -64,7 +64,7 @@ class DocumentRepository:
                     source_hash,
                 ),
             )
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM document WHERE id = ?", (cursor.lastrowid,)
             ).fetchone()
@@ -76,9 +76,9 @@ class DocumentRepository:
         参数：
         document_id：文档记录的唯一标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM document WHERE id = ?", (document_id,)
             ).fetchone()
@@ -90,9 +90,9 @@ class DocumentRepository:
         参数：
         source_key：内置资料的稳定来源标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM document WHERE source_key = ?", (source_key,)
             ).fetchone()
@@ -104,26 +104,26 @@ class DocumentRepository:
         参数：
         file_name：规范化后的文档文件名。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 "SELECT * FROM document WHERE file_name = ? "
                 "ORDER BY id",
                 (file_name,),
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [dict(row) for row in rows]
 
     def delete_document(self, document_id: int) -> dict[str, Any] | None:
-        """Delete a document and all database rows derived from its chunks.
+        """在一个 SQLite 事务中读取待删文档及其分块标识，显式移除引用和分块后再删除文档记录；返回删除前的文档与分块信息，供服务层清理向量和源文件。
 
-        参数：
-        document_id：文档记录的唯一标识。
+            参数：
+            document_id：文档记录的唯一标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM document WHERE id = ?", (document_id,)
             ).fetchone()
@@ -139,9 +139,8 @@ class DocumentRepository:
                     (document_id,),
                 ).fetchall()
             ]
-            # citation.chunk_id intentionally has no ON DELETE CASCADE because
-            # citations normally need an existing source chunk. Remove those
-            # references explicitly before deleting the chunks.
+            # citation.chunk_id 不设置 ON DELETE CASCADE，因为正常情况下引用必须指向有效文本块；
+            # 删除文档时先显式删除关联引用，再删除文本块，避免留下无效引用或触发外键错误。
             connection.execute(
                 """
                 DELETE FROM citation
@@ -193,19 +192,19 @@ class DocumentRepository:
         # 局部变量 where：当前 SQL 查询的筛选子句。
         where = f"WHERE {' AND '.join(conditions)}" if conditions else ""
 
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 total：符合当前条件的记录总数或项目总数。
+            # 局部变量 total：按当前筛选范围统计的记录/项目总量；分页接口用它计算总页数，数值可能大于本页实际返回的 items 长度。
             total = connection.execute(
                 f"SELECT COUNT(*) FROM document {where}", parameters
             ).fetchone()[0]
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 f"SELECT * FROM document {where} "
                 "ORDER BY created_at DESC, id DESC LIMIT ? OFFSET ?",
                 [*parameters, size, (page - 1) * size],
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [dict(row) for row in rows], int(total)
 
     def update_document(
@@ -224,7 +223,7 @@ class DocumentRepository:
         error_message：需要记录或返回的错误说明。
         chunk_count：当前文档包含的分块数量。
         """
-        # 局部变量 assignments：数据库迁移中需要执行的 SQL 语句集合。
+        # 局部变量 assignments：由非空可选字段生成的 SQL SET 子句列表；没有提供的字段不会覆盖数据库原值。
         assignments = ["error_message = ?", "updated_at = CURRENT_TIMESTAMP"]
         # 局部变量 values：待写入数据库或输出的字段值集合。
         values: list[Any] = [error_message]
@@ -236,12 +235,12 @@ class DocumentRepository:
             values.append(chunk_count)
         values.append(document_id)
 
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 f"UPDATE document SET {', '.join(assignments)} WHERE id = ?", values
             )
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM document WHERE id = ?", (document_id,)
             ).fetchone()
@@ -274,7 +273,7 @@ class DocumentRepository:
         }
         # 局部变量 assignments：数据库迁移中需要执行的 SQL 语句集合。
         # 局部变量 column：当前处理的数据库列名。
-        # 局部变量 value：当前待校验、转换或展示的值。
+        # 局部变量 value：某个可选文档元数据字段的新值；仅非空值会保留为参数并加入对应的 UPDATE 子句。
         assignments = [
             f"{column} = ?"
             for column, value in values_by_column.items()
@@ -291,13 +290,13 @@ class DocumentRepository:
 
         assignments.append("updated_at = CURRENT_TIMESTAMP")
         values.append(document_id)
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 f"UPDATE document SET {', '.join(assignments)} WHERE id = ?",
                 values,
             )
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM document WHERE id = ?", (document_id,)
             ).fetchone()
@@ -316,11 +315,11 @@ class DocumentRepository:
         """
         # 局部变量 inserted：当前新建或写入的数据库记录。
         inserted: list[dict[str, Any]] = []
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             # 局部变量 chunk：当前文本分块记录。
             for chunk in chunks:
-                # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+                # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
                 cursor = connection.execute(
                     """
                     INSERT INTO chunk (document_id, chunk_no, content, vector_key)
@@ -341,7 +340,7 @@ class DocumentRepository:
                     "UPDATE chunk SET vector_key = ? WHERE id = ?",
                     (vector_key, chunk_id),
                 )
-                # 局部变量 row：数据库查询返回的当前记录行。
+                # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
                 row = connection.execute(
                     "SELECT * FROM chunk WHERE id = ?", (chunk_id,)
                 ).fetchone()
@@ -354,10 +353,10 @@ class DocumentRepository:
         参数：
         document_id：文档记录的唯一标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             # 局部变量 ids：当前批量操作涉及的对象标识集合。
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             ids = [
                 int(row[0])
                 for row in connection.execute(
@@ -371,15 +370,15 @@ class DocumentRepository:
             return ids
 
     def reset_document_content(self, document_id: int) -> list[int]:
-        """Remove a document's chunks and their citations atomically.
+        """清除指定文档旧的分块和引用记录，但保留文档主记录，以便重新导入流程继续更新其状态并写入新解析结果。
 
-        参数：
-        document_id：文档记录的唯一标识。
+            参数：
+            document_id：文档记录的唯一标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             # 局部变量 ids：当前批量操作涉及的对象标识集合。
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             ids = [
                 int(row[0])
                 for row in connection.execute(
@@ -413,16 +412,16 @@ class DocumentRepository:
         """
         if page < 1 or size < 1:
             raise ValueError("page and size must be positive")
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 total：符合当前条件的记录总数或项目总数。
+            # 局部变量 total：按当前筛选范围统计的记录/项目总量；分页接口用它计算总页数，数值可能大于本页实际返回的 items 长度。
             total = int(
                 connection.execute(
                     "SELECT COUNT(*) FROM chunk WHERE document_id = ?",
                     (document_id,),
                 ).fetchone()[0]
             )
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 """
                 SELECT * FROM chunk WHERE document_id = ?
@@ -430,15 +429,15 @@ class DocumentRepository:
                 """,
                 (document_id, size, (page - 1) * size),
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [dict(row) for row in rows], total
 
     def list_success_chunks(self) -> list[dict[str, Any]]:
         """读取成功处理文档的有效分块。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 """
                 SELECT c.*, d.file_name, d.file_type
@@ -448,14 +447,14 @@ class DocumentRepository:
                 ORDER BY c.document_id, c.chunk_no, c.id
                 """
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [dict(row) for row in rows]
 
     def get_chunks_by_ids(self, chunk_ids: Sequence[int]) -> dict[int, dict[str, Any]]:
-        """Load only the successful chunks requested by a retrieval query.
+        """按给定分块 ID 批量读取数据库中状态为成功的文本块；过滤失效或尚未完成的记录，供检索结果映射回权威正文及来源元数据。
 
-        参数：
-        chunk_ids：需要查询或更新的文本分块标识列表。
+            参数：
+            chunk_ids：需要查询或更新的文本分块标识列表。
         """
         # 局部变量 normalized_ids：去重并规范化后的对象标识集合。
         # 局部变量 chunk_id：文本分块的唯一标识。
@@ -465,9 +464,9 @@ class DocumentRepository:
 
         # 局部变量 placeholders：提示模板中待填充的变量名集合。
         placeholders = ", ".join("?" for _ in normalized_ids)
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 f"""
                 SELECT c.*, d.file_name, d.file_type
@@ -478,7 +477,7 @@ class DocumentRepository:
                 """,
                 normalized_ids,
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return {int(row["id"]): dict(row) for row in rows}
 
     def get_neighbor_chunks(
@@ -488,18 +487,18 @@ class DocumentRepository:
         *,
         radius: int = 1,
     ) -> list[dict[str, Any]]:
-        """Load adjacent successful chunks from the same document only.
+        """只从同一文档中读取指定锚点附近且导入成功的文本块；radius 控制前后扩展范围，避免把相邻文档内容混入证据上下文。
 
-        参数：
-        document_id：文档记录的唯一标识。
-        chunk_no：文档中从 1 开始的文本块序号。
-        radius：锚点前后需要读取的相邻文本块数量。
+            参数：
+            document_id：文档记录的唯一标识。
+            chunk_no：文档中从 1 开始的文本块序号。
+            radius：锚点前后需要读取的相邻文本块数量。
         """
         if radius < 0:
             raise ValueError("radius must not be negative")
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 """
                 SELECT c.*, d.file_name, d.file_type
@@ -512,15 +511,15 @@ class DocumentRepository:
                 """,
                 (document_id, chunk_no - radius, chunk_no + radius),
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [dict(row) for row in rows]
 
     def list_success_documents(self) -> list[dict[str, Any]]:
         """读取处理成功且可用于检索的文档。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 """
                 SELECT id, file_name, file_type, file_path
@@ -529,14 +528,14 @@ class DocumentRepository:
                 ORDER BY id
                 """
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [dict(row) for row in rows]
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
         """创建 SQLite 连接上下文并统一管理数据库连接。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         connection = sqlite3.connect(str(self.database_path), timeout=5)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")

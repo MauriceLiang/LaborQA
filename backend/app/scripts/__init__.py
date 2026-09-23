@@ -1,2 +1,2 @@
 # 文件作用：声明后端维护及验证脚本包。
-"""Operational scripts for validating and maintaining LaborQA data."""
+"""标记供开发和运维调用的脚本包；其中脚本用于检查或维护项目数据，不属于 HTTP 请求处理路径。"""

@@ -1,5 +1,5 @@
 # 文件作用：协调查询处理、向量检索、重排和证据结果组装。
-"""Domain retrieval pipeline built on the LangChain VectorStore retriever."""
+"""实现业务检索流程与 LangChain VectorStore retriever 的衔接：向量库负责召回，SQLite 提供权威文本和来源信息，业务服务负责邻居扩展及重排。"""
 
 from __future__ import annotations
 
@@ -22,14 +22,7 @@ from app.services.vector_store import (
 
 
 class DomainRetrievalService:
-    """Apply LaborQA's SQLite mapping and reranking around a LangChain retriever.
-
-    The vector store owns embedding and FAISS retrieval. This service keeps the
-    business boundary: SQLite remains authoritative for chunk content and
-    source metadata, while optional domain reranking produces final evidence.
-    ``retriever`` is a LangChain Runnable pipeline so callers do not need a
-    custom retriever adapter.
-    """
+    """把 LangChain 检索器接入 LaborQA 的业务边界。向量库负责嵌入和 FAISS 召回，SQLite 仍是文本及来源元数据的权威来源，本服务再进行分块映射、邻接扩展和可选重排。"""
 
     def __init__(
         self,
@@ -51,7 +44,7 @@ class DomainRetrievalService:
         rerank_service：负责对候选证据执行模型重排的服务。
         lightweight_rerank_service：执行轻量词面重排和邻居扩展的服务。
         """
-        # 成员变量 config：当前请求、服务或实验所使用的配置。
+        # 成员变量 config：检索流程使用的应用 Settings，提供 candidate_k、top_k、分数阈值、邻居扩展和重排开关等召回策略参数。
         self.config = config
         # 成员变量 repository：负责当前业务数据持久化的数据仓库。
         self.repository = repository or DocumentRepository(config.database_path)
@@ -67,8 +60,8 @@ class DomainRetrievalService:
             callable(getattr(self.vector_store, "as_retriever", None))
             and getattr(self.vector_store, "embedding_service", None) is None
         ):
-            # Keep injected VectorStore implementations compatible with the
-            # production Embeddings facade without changing their public API.
+            # 测试替身或自定义 VectorStore 可能未在构造时设置 embedding_service；
+            # 在此补入生产嵌入适配器以保持检索签名一致，不改变 VectorStore 的公开调用接口。
             self.vector_store.embedding_service = self.embedding_service
         # 成员变量 rerank_service：根据模型相关度重排候选证据的服务。
         self.rerank_service = rerank_service or RerankService(config)
@@ -94,27 +87,27 @@ class DomainRetrievalService:
         return RunnableLambda(self._retrieve_documents)
 
     def retrieve(self, query: str) -> list[dict[str, Any]]:
-        """Synchronously retrieve evidence through the LangChain pipeline.
+        """同步执行查询改写后的证据检索 Runnable，并返回按业务规则整理的候选证据，供同步调用方使用。
 
-        参数：
-        query：用户问题文本或数据库筛选条件。
+            参数：
+            query：用户问题文本或数据库筛选条件。
         """
         self._ensure_ready()
         # 局部变量 documents：本次检索、解析或批量处理的文档集合。
         documents = self.retriever.invoke(query)
-        # 局部变量 document：当前正在读取、更新或返回的文档记录。
+        # 局部变量 document：向量检索返回的 LangChain Document；证据转换函数从其 page_content 和 metadata 中提取正文、分块 ID 与来源字段。
         return [_evidence_from_document(document) for document in documents]
 
     async def aretrieve(self, query: str) -> list[dict[str, Any]]:
-        """Asynchronously invoke the LangChain retrieval pipeline.
+        """异步执行与 retrieve 相同的证据检索 Runnable，避免异步问答和实验流程因同步等待阻塞事件循环。
 
-        参数：
-        query：用户问题文本或数据库筛选条件。
+            参数：
+            query：用户问题文本或数据库筛选条件。
         """
         self._ensure_ready()
         # 局部变量 documents：本次检索、解析或批量处理的文档集合。
         documents = await self.retriever.ainvoke(query)
-        # 局部变量 document：当前正在读取、更新或返回的文档记录。
+        # 局部变量 document：异步检索返回的 LangChain Document；证据转换函数从其 page_content 和 metadata 中提取正文、分块 ID 与来源字段。
         return [_evidence_from_document(document) for document in documents]
 
     def _ensure_ready(self) -> None:
@@ -200,7 +193,7 @@ class DomainRetrievalService:
         candidate_documents：初始检索得到的候选文档列表。
         """
         # 局部变量 chunks_by_id：按文本分块 ID 建立的记录索引。
-        # 局部变量 document：当前正在读取、更新或返回的文档记录。
+        # 局部变量 document：一条 LangChain 检索候选文档；其 metadata 中的 chunk_id 用于回查 SQLite 权威文本和来源记录。
         chunks_by_id = self._chunks_by_ids(
             _document_chunk_id(document) for document in candidate_documents
         )
@@ -270,7 +263,7 @@ class DomainRetrievalService:
         evidence：支持回答的检索证据。
         """
         # 局部变量 main_evidence：排序后保留的主要证据项。
-        # 局部变量 item：当前列表或结果集合中的一条数据。
+        # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
         main_evidence = [dict(item) for item in evidence[: self.config.rag_top_k]]
         if not main_evidence or self.config.rag_neighbor_expand_top_n == 0:
             return main_evidence
@@ -320,12 +313,12 @@ class DomainRetrievalService:
         参数：
         evidence：支持回答的检索证据。
         """
-        # 局部变量 item：当前列表或结果集合中的一条数据。
+        # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
         return [_document_from_evidence(item) for item in evidence]
 
 
-# Keep the existing import path stable while making the domain service the
-# canonical implementation name for new code.
+# 保留 RetrievalService 旧导入名称，避免现有调用方因重命名而失效；
+# 新代码以 DomainRetrievalService 作为领域实现的规范名称。
 RetrievalService = DomainRetrievalService
 
 
@@ -366,11 +359,11 @@ def _document_chunk_id(document: Document) -> int:
     参数：
     document：当前处理的文档对象或记录。
     """
-    # 局部变量 value：当前待校验、转换或展示的值。
+    # 局部变量 value：优先读取 metadata.chunk_id、缺失时回退到 Document.id 的原始标识；随后转换为整数并验证为正数。
     value = document.metadata.get("chunk_id", document.id)
     try:
         return int(value)
-    # 局部变量 exc：当前捕获到的异常对象。
+    # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
     except (TypeError, ValueError) as exc:
         raise ValueError("检索 Document 缺少有效 chunk_id") from exc
 
@@ -383,7 +376,7 @@ def _document_from_evidence(item: Mapping[str, Any]) -> Document:
     """
     # 局部变量 chunk_id：文本分块的唯一标识。
     chunk_id = int(item["chunk_id"])
-    # 局部变量 metadata：当前文档或索引的结构化元数据。
+    # 局部变量 metadata：从 SQLite 证据记录组装的 LangChain Document 元数据，包含 chunk_id、document_id、文件名、分块序号和检索评分。
     metadata = {
         "chunk_id": chunk_id,
         "document_id": int(item["document_id"]),
@@ -415,7 +408,7 @@ def _evidence_from_document(document: Document) -> dict[str, Any]:
     参数：
     document：当前处理的文档对象或记录。
     """
-    # 局部变量 metadata：当前文档或索引的结构化元数据。
+    # 局部变量 metadata：检索 Document 携带的来源和评分字段；据此还原为 API/服务使用的证据字典，不重复读取正文。
     metadata = document.metadata
     return {
         "chunk_id": int(metadata["chunk_id"]),
@@ -441,18 +434,18 @@ def _evidence_from_document(document: Document) -> dict[str, Any]:
 def _merge_candidate_documents(
     original_documents: list[Document], expanded_documents: list[Document]
 ) -> list[Document]:
-    """Merge two retrieval passes while keeping first-seen order stable.
+    """按分块 ID 合并原始召回与邻接扩展两组 LangChain Document；首次出现的记录决定输出位置，重复分块不会重复进入后续重排。
 
-    参数：
-    original_documents：重排或上下文扩展之前的原始检索结果。
-    expanded_documents：加入邻接文本块后的扩展结果。
+        参数：
+        original_documents：重排或上下文扩展之前的原始检索结果。
+        expanded_documents：加入邻接文本块后的扩展结果。
     """
 
     # 局部变量 merged：合并去重后的文本或结果集合。
     merged: list[Document] = []
     # 局部变量 positions：记录文本边界对应的字符偏移位置。
     positions: dict[int, int] = {}
-    # 局部变量 document：当前正在读取、更新或返回的文档记录。
+    # 局部变量 document：原始召回或邻接扩展中的 LangChain Document；读取其 chunk_id 后用于去重并保持首次出现的候选顺序。
     for document in [*original_documents, *expanded_documents]:
         # 局部变量 chunk_id：文本分块的唯一标识。
         chunk_id = _document_chunk_id(document)
@@ -462,7 +455,7 @@ def _merge_candidate_documents(
             positions[chunk_id] = len(merged)
             merged.append(document)
             continue
-        # 局部变量 current：当前处理的对象或状态快照。
+        # 局部变量 current：merged 中已存在的同一 chunk_id 候选文档；与新候选比较 retrieval_score，只在新分数更高时替换原位置。
         current = merged[position]
         if _document_retrieval_score(document) > _document_retrieval_score(current):
             merged[position] = document
@@ -475,7 +468,7 @@ def _document_retrieval_score(document: Document) -> float:
     参数：
     document：当前处理的文档对象或记录。
     """
-    # 局部变量 value：当前待校验、转换或展示的值。
+    # 局部变量 value：候选文档 metadata 中优先使用 retrieval_score、其次使用 score 的原始分值；缺失或格式错误时按 0 分处理。
     value = document.metadata.get(
         "retrieval_score", document.metadata.get("score", 0.0)
     )

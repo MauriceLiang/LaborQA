@@ -41,15 +41,15 @@ class EmbeddingSignatureProvider(Protocol):
 
 
 class VectorStoreError(RuntimeError):
-    """Base exception for persisted vector index errors."""
+    """向量索引读写或检索流程的业务异常基类，供调用方统一捕获向量库相关故障。"""
 
 
 class VectorStoreNotInitialized(VectorStoreError):
-    """Raised when a search is requested before an index is ready."""
+    """表示请求检索时尚未加载或构建 FAISS 索引；调用方可据此返回知识库未就绪状态。"""
 
 
 class VectorStoreSignatureMismatch(VectorStoreError):
-    """Raised when persisted vectors were created with another signature."""
+    """表示磁盘索引记录的嵌入模型签名与当前配置不一致；阻止使用维度或模型语义不同的向量进行检索。"""
 
     def __init__(self, message: str, meta: IndexMeta | None = None) -> None:
         """初始化向量签名不匹配异常并保留当前索引元数据。
@@ -64,11 +64,11 @@ class VectorStoreSignatureMismatch(VectorStoreError):
 
 
 class VectorStorePersistenceError(VectorStoreError):
-    """Raised when the index and its metadata cannot be read or written."""
+    """表示索引文件或元数据读取、写入、替换失败；保留为独立异常类型，便于 API 层区分存储故障和普通检索错误。"""
 
 
 class _UnavailableEmbeddings(Embeddings):
-    """Placeholder used when a store is only used with precomputed vectors."""
+    """在调用方已经提供预计算向量、无需文本编码时作为 Embeddings 占位实现；若误触发文本嵌入则立即报错，避免静默生成无效数据。"""
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
         """将文本列表编码为向量。
@@ -90,13 +90,7 @@ class _UnavailableEmbeddings(Embeddings):
 
 
 class VectorStoreService(VectorStore):
-    """Persisted LangChain FAISS store with LaborQA's business compatibility.
-
-    SQLite remains the source of truth for chunk content.  The LangChain
-    ``FAISS`` instance therefore keeps a small in-memory Document projection
-    containing the stable ``chunk_id`` metadata, while this service continues
-    to own signature checks, atomic persistence, and lifecycle operations.
-    """
+    """将持久化 FAISS 索引包装为 LangChain VectorStore，同时保留项目的签名校验、原子文件替换和生命周期管理。索引中的 Document 只保存稳定分块 ID，正文与来源字段仍以 SQLite 为准。"""
 
     def __init__(
         self,
@@ -111,7 +105,7 @@ class VectorStoreService(VectorStore):
         embedding_service：为文本生成向量的嵌入服务。
         index_dir：FAISS 索引文件所在的目录。
         """
-        # 成员变量 config：当前请求、服务或实验所使用的配置。
+        # 成员变量 config：向量库使用的应用 Settings，决定 FAISS 文件目录、嵌入模型签名及向量校验规则。
         self.config = config
         # 成员变量 embedding_service：生成文本向量的嵌入服务实例。
         self.embedding_service = embedding_service
@@ -159,8 +153,7 @@ class VectorStoreService(VectorStore):
         return self.status == "ready"
 
     def load(self) -> bool:
-        """Load the persisted index, returning False when it is not initialized.
-        """
+        """从磁盘读取 FAISS 索引与元数据，并校验二者及当前嵌入签名是否匹配；索引文件尚不存在时返回 False，避免把首次启动误报为损坏。"""
         with self._lock:
             # 局部变量 index_exists：持久化向量索引文件是否存在。
             index_exists = self.index_path.is_file()
@@ -186,7 +179,7 @@ class VectorStoreService(VectorStore):
                 payload = json.loads(self.meta_path.read_text(encoding="utf-8"))
                 # 局部变量 meta：当前向量索引的持久化元数据。
                 meta = IndexMeta.model_validate(payload)
-            # 局部变量 exc：当前捕获到的异常对象。
+            # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
             except (OSError, json.JSONDecodeError, ValueError) as exc:
                 raise VectorStorePersistenceError("向量索引元数据无效") from exc
 
@@ -255,20 +248,20 @@ class VectorStoreService(VectorStore):
         *,
         documents: Sequence[Document] | None = None,
     ) -> None:
-        """Compatibility API; production ingestion uses ``add_documents``.
+        """保留旧调用方一次提交分块及预计算向量的兼容入口；新导入流程优先使用 add_documents，由嵌入服务生成并校验向量。
 
-        参数：
-        chunks_with_vectors：已完成向量化并准备写入索引的文本分块。
-        documents：本次检索、解析或批量处理的文档集合。
+            参数：
+            chunks_with_vectors：已完成向量化并准备写入索引的文本分块。
+            documents：本次检索、解析或批量处理的文档集合。
         """
         self._add_with_documents(chunks_with_vectors, documents)
 
     def add_documents(self, documents: list[Document], **kwargs: Any) -> list[str]:
-        """Add LangChain Documents with caller-supplied or computed vectors.
+        """实现 LangChain 文档写入契约：接受调用方提供的向量或通过当前嵌入服务计算向量，补齐稳定分块元数据后更新并持久化索引。
 
-        参数：
-        documents：本次检索、解析或批量处理的文档集合。
-        kwargs：传递给模型或底层函数的额外关键字参数。
+            参数：
+            documents：本次检索、解析或批量处理的文档集合。
+            kwargs：传递给模型或底层函数的额外关键字参数。
         """
         if not documents:
             return []
@@ -279,7 +272,7 @@ class VectorStoreService(VectorStore):
                 self.embedding_service, "embed_documents"
             ):
                 raise ValueError("该向量库未配置文本 Embeddings")
-            # 局部变量 document：当前正在读取、更新或返回的文档记录。
+            # 局部变量 document：待写入索引的 LangChain Document；从 page_content 批量生成向量，并保留 metadata 中的稳定 chunk_id 供检索回查。
             vectors = self.embedding_service.embed_documents(
                 [document.page_content for document in documents]
             )
@@ -317,13 +310,13 @@ class VectorStoreService(VectorStore):
         ids: list[str] | None = None,
         **kwargs: Any,
     ) -> list[str]:
-        """Implement the LangChain VectorStore text insertion contract.
+        """实现 LangChain VectorStore 的文本插入接口，将文本、元数据和可选 ID 转换为 Document 后交给统一写入路径处理。
 
-        参数：
-        texts：本批次需要处理的文本列表。
-        metadatas：与文本或向量对应的元数据集合。
-        ids：当前批量操作涉及的对象标识集合。
-        kwargs：传递给模型或底层函数的额外关键字参数。
+            参数：
+            texts：本批次需要处理的文本列表。
+            metadatas：与文本或向量对应的元数据集合。
+            ids：当前批量操作涉及的对象标识集合。
+            kwargs：传递给模型或底层函数的额外关键字参数。
         """
         if kwargs:
             # 局部变量 unexpected：当前未预料到的异常对象。
@@ -341,7 +334,7 @@ class VectorStoreService(VectorStore):
             raise ValueError("文本数量与 metadata 数量不一致")
         # 局部变量 documents：本次检索、解析或批量处理的文档集合。
         # 局部变量 text：当前待解析、检索、清理或嵌入的文本。
-        # 局部变量 metadata：当前文档或索引的结构化元数据。
+        # 局部变量 metadata：复制原 Document 的来源字段后补入 score 和 retrieval_score，供后续重排及证据诊断区分原始相似度。
         documents = [
             Document(page_content=text, metadata=dict(metadata))
             for text, metadata in zip(values, metadata_values, strict=True)
@@ -358,16 +351,16 @@ class VectorStoreService(VectorStore):
         ids: list[str] | None = None,
         **kwargs: Any,
     ) -> "VectorStoreService":
-        """Create a persisted store through the standard LangChain factory.
+        """实现 LangChain 标准工厂接口：先用给定 Embeddings 生成文本向量，再创建带项目持久化配置的向量库实例并写入索引。
 
-        参数：
-        texts：本批次需要处理的文本列表。
-        embedding：生成文本向量的嵌入模型实例。
-        metadatas：与文本或向量对应的元数据集合。
-        ids：当前批量操作涉及的对象标识集合。
-        kwargs：传递给模型或底层函数的额外关键字参数。
+            参数：
+            texts：本批次需要处理的文本列表。
+            embedding：生成文本向量的嵌入模型实例。
+            metadatas：与文本或向量对应的元数据集合。
+            ids：当前批量操作涉及的对象标识集合。
+            kwargs：传递给模型或底层函数的额外关键字参数。
         """
-        # 局部变量 config：当前请求、服务或实验所使用的配置。
+        # 局部变量 config：从 LangChain 工厂 kwargs 中取出的 Settings；若调用方未显式传入，则使用应用默认配置创建持久化索引。
         config = kwargs.pop("config", settings)
         # 局部变量 index_dir：FAISS 索引所在目录。
         index_dir = kwargs.pop("index_dir", None)
@@ -413,7 +406,7 @@ class VectorStoreService(VectorStore):
         k：本次检索保留的候选结果数量。
         kwargs：传递给底层调用的额外关键字参数。
         """
-        # 局部变量 document：当前正在读取、更新或返回的文档记录。
+        # 局部变量 document：与相似度分数配对返回的 LangChain Document；此处只取文档本体，分数由带分数的检索接口单独提供。
         return [
             document
             for document, _ in self.similarity_search_with_score(query, k=k, **kwargs)
@@ -447,7 +440,7 @@ class VectorStoreService(VectorStore):
         k：本次检索保留的候选结果数量。
         kwargs：传递给底层调用的额外关键字参数。
         """
-        # 局部变量 document：当前正在读取、更新或返回的文档记录。
+        # 局部变量 document：向量检索得到的 LangChain Document；此处剥离相似度分数，只向调用方返回文档内容及 metadata。
         return [
             document
             for document, _ in self.similarity_search_with_score_by_vector(
@@ -489,15 +482,15 @@ class VectorStoreService(VectorStore):
         ]
         if filter_value is not None:
             if callable(filter_value):
-                # 局部变量 document：当前正在读取、更新或返回的文档记录。
+                # 局部变量 document：传入 filter 回调检查的候选 LangChain Document；回调按其 metadata 决定是否保留对应文档和分数。
                 results = [
                     (document, score)
                     for document, score in results
                     if filter_value(document.metadata)
                 ]
             elif isinstance(filter_value, dict):
-                # 局部变量 key：当前映射使用的键或稳定标识。
-                # 局部变量 value：当前待校验、转换或展示的值。
+                # 局部变量 key：调用方要求精确匹配的 Document metadata 字段名。
+                # 局部变量 value：显式传入的 chunk ID 候选值；缺失时依次使用 Document metadata 中的 chunk_id、Document.id 或 fallback，再统一校验为正整数。
                 results = [
                     (document, score)
                     for document, score in results
@@ -524,7 +517,7 @@ class VectorStoreService(VectorStore):
         document：当前处理的文档对象或记录。
         score：候选证据或相似度分数。
         """
-        # 局部变量 metadata：当前文档或索引的结构化元数据。
+        # 局部变量 metadata：在原有来源信息上补入稳定 chunk_id，保证 LangChain Document 能回查 SQLite 中的权威文本块。
         metadata = dict(document.metadata)
         metadata["score"] = float(score)
         metadata["retrieval_score"] = float(score)
@@ -567,7 +560,7 @@ class VectorStoreService(VectorStore):
         document：当前处理的文档对象或记录。
         chunk_id：目标文本分块标识。
         """
-        # 局部变量 metadata：当前文档或索引的结构化元数据。
+        # 局部变量 metadata：内存 Docstore 中各 chunk_id 对应的最小 Document 投影；正文和稳定 ID 留在索引，业务来源字段从数据库恢复。
         metadata = dict(document.metadata)
         metadata["chunk_id"] = chunk_id
         return Document(
@@ -587,7 +580,7 @@ class VectorStoreService(VectorStore):
         explicit_id：调用方显式指定的资源标识。
         fallback：主要处理方式不可用时使用的备用值或逻辑。
         """
-        # 局部变量 value：当前待校验、转换或展示的值。
+        # 局部变量 value：与 key 配对的期望 metadata 值；只有所有键值条件都相等时才保留该检索结果。
         value: Any = explicit_id
         if value is None:
             value = document.metadata.get("chunk_id", document.id)
@@ -596,7 +589,7 @@ class VectorStoreService(VectorStore):
         try:
             # 局部变量 chunk_id：文本分块的唯一标识。
             chunk_id = int(value)
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except (TypeError, ValueError) as exc:
             raise ValueError("LangChain Document 必须包含正整数 chunk_id") from exc
         if chunk_id <= 0:
@@ -616,7 +609,7 @@ class VectorStoreService(VectorStore):
         """
         # 局部变量 document_store：文档标识到文档内容的内存映射存储。
         # 局部变量 chunk_id：文本分块的唯一标识。
-        # 局部变量 document：当前正在读取、更新或返回的文档记录。
+        # 局部变量 document：从 SQLite 文本块映射构造的 LangChain Document 投影；索引仅保存正文和 chunk_id，完整业务元数据仍从数据库读取。
         document_store = InMemoryDocstore(
             {str(chunk_id): document for chunk_id, document in documents.items()}
         )
@@ -756,7 +749,7 @@ class VectorStoreService(VectorStore):
             # 成员变量 _index：当前加载的 FAISS 向量索引。
             self._index = candidate
             # 成员变量 _documents：按分块标识保存的文档映射。
-            # 局部变量 document：当前正在读取、更新或返回的文档记录。
+            # 局部变量 document：与分块 ID 关联的内存 Document 投影；写入新索引时保留其 page_content 和 metadata 映射关系。
             self._documents = {
                 chunk_id: document
                 for chunk_id, document in self._documents.items()
@@ -817,7 +810,7 @@ class VectorStoreService(VectorStore):
                         vector[0].tolist(), count
                     )
                 )
-                # 局部变量 document：当前正在读取、更新或返回的文档记录。
+                # 局部变量 document：检索结果中的 LangChain Document；根据 metadata 中的 chunk_id 读取对应向量 ID，并与分数一起恢复稳定结果顺序。
                 # 局部变量 score：当前候选项或检索结果的相关度分数。
                 scored_ids = (
                     (
@@ -842,12 +835,12 @@ class VectorStoreService(VectorStore):
     def _search_without_openmp(
         index: faiss.IndexIDMap2, query: np.ndarray, count: int
     ) -> tuple[np.ndarray, np.ndarray]:
-        """Search small macOS indexes without crossing competing OpenMP runtimes.
+        """在 macOS 上隔离小型索引的 FAISS 搜索调用，避免与 PyTorch 加载的另一套 OpenMP 运行时竞争线程资源。
 
-        参数：
-        index：当前记录在列表中的位置或索引序号。
-        query：用户问题文本或数据库筛选条件。
-        count：当前统计或处理的记录数量。
+            参数：
+            index：当前记录在列表中的位置或索引序号。
+            query：用户问题文本或数据库筛选条件。
+            count：当前统计或处理的记录数量。
         """
         # 局部变量 vectors：文档或查询文本对应的数值向量集合。
         vectors = np.asarray(
@@ -874,11 +867,11 @@ class VectorStoreService(VectorStore):
         chunks_with_vectors: Sequence[tuple[int, Sequence[float]]],
         signature: EmbeddingSignature | None = None,
     ) -> bool:
-        """Replace the index with embeddings from all successful document chunks.
+        """仅从数据库中已成功导入的文本块重新生成向量，并用新的嵌入签名构建完整索引；完成后原子替换旧索引，避免读到半成品。
 
-        参数：
-        chunks_with_vectors：已完成向量化并准备写入索引的文本分块。
-        signature：描述嵌入模型和向量维度的配置签名。
+            参数：
+            chunks_with_vectors：已完成向量化并准备写入索引的文本分块。
+            signature：描述嵌入模型和向量维度的配置签名。
         """
         with self._lock:
             if not chunks_with_vectors:
@@ -886,7 +879,7 @@ class VectorStoreService(VectorStore):
                 for path in (self.index_path, self.meta_path):
                     try:
                         path.unlink(missing_ok=True)
-                    # 局部变量 exc：当前捕获到的异常对象。
+                    # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
                     except OSError as exc:
                         raise VectorStorePersistenceError("清理旧向量索引失败") from exc
                 # 成员变量 _index：当前加载的 FAISS 向量索引。
@@ -1074,7 +1067,8 @@ class VectorStoreService(VectorStore):
                 backups[target] = backup_path
 
             try:
-                # Each completed file is installed with a same-filesystem atomic rename.
+                # 临时文件与目标文件位于同一文件系统时，os.replace 可原子替换单个文件；
+                # 在两份文件都写完前不暴露半成品索引，异常时由下方备份恢复旧文件。
                 os.replace(index_temp, self.index_path)
                 os.replace(meta_temp, self.meta_path)
             except OSError:
@@ -1085,7 +1079,7 @@ class VectorStoreService(VectorStore):
                     elif backup.exists():
                         os.replace(backup, target)
                 raise
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except (OSError, RuntimeError, TypeError, ValueError) as exc:
             logger.exception("Unable to persist FAISS index")
             raise VectorStorePersistenceError("保存向量索引失败") from exc
@@ -1099,4 +1093,4 @@ class VectorStoreService(VectorStore):
 
 
 class KnowledgeVectorStore(VectorStoreService):
-    """Named LangChain-facing alias for the persisted knowledge store."""
+    """为持久化知识向量库提供面向 LangChain 调用方的稳定别名；实际索引行为和存储约束由 VectorStoreService 实现。"""

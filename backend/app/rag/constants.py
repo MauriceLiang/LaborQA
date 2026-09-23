@@ -4,8 +4,8 @@ CURRENT_SPLITTER_VERSION = "legal-text-splitter-v1"
 # 旧版切分算法标识，用于识别既有索引元数据。
 LEGACY_SPLITTER_VERSION = "legacy-text-chunker-v1"
 
-# Batch 4 preserves the legacy boundary algorithm while exposing it through
-# LangChain's splitter interface. Future algorithm changes must replace this set.
+# 第 4 批次改造保留旧版边界算法，并通过 LangChain splitter 接口对外提供；
+# 调整算法时需同步更新版本常量和兼容集合，避免旧索引被错误识别为可复用。
 # 可直接读取或继续兼容的切分器版本集合。
 COMPATIBLE_SPLITTER_VERSIONS = frozenset(
     {CURRENT_SPLITTER_VERSION, LEGACY_SPLITTER_VERSION}

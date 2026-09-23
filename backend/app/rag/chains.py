@@ -1,5 +1,5 @@
 # 文件作用：组合查询改写、检索、证据核验和答案生成等 RAG 执行链。
-"""LangChain orchestration for the application's evidence-first RAG flow."""
+"""定义证据优先的检索增强生成链，把问题改写、证据检索、充分性判断和答案生成串联为可复用流程；链负责模型与提示模板编排，不直接拥有数据库或向量索引。"""
 
 from __future__ import annotations
 
@@ -42,13 +42,7 @@ ANSWER_STYLE_INSTRUCTIONS = {
 
 
 class RagChain:
-    """Shared LangChain retriever, prompt and model orchestration.
-
-    The existing retrieval service remains responsible for the project's FAISS
-    index, SQLite metadata and reranking rules. This class makes the production
-    query path use LangChain's Retriever, Prompt and Runnable interfaces while
-    preserving the application's API and persistence contracts.
-    """
+    """组合问题改写、证据判断和最终回答三个阶段的 LangChain Runnable。检索结果由 RetrievalService 提供，模型按阶段参数配置，因而同一条链可以被生产问答与实验预览复用。"""
 
     def __init__(
         self,
@@ -74,7 +68,7 @@ class RagChain:
         self.retriever = getattr(retrieval_service, "retriever", None)
         # 成员变量 chat_model：当前阶段使用的聊天模型。
         self.chat_model = chat_model
-        # 成员变量 config：当前请求、服务或实验所使用的配置。
+        # 成员变量 config：RAG 各阶段共用的 Settings；问题改写、证据判断和答案生成分别读取其温度、top_p 与 token 上限。
         self.config = config
         # 成员变量 answer_prompt：组织最终答案输入的提示模板。
         self.answer_prompt = _answer_prompt()
@@ -142,10 +136,10 @@ class RagChain:
         )
 
     def set_chat_model(self, model: BaseChatModel) -> None:
-        """Bind all RAG roles to one model for compatibility and tests.
+        """将同一个聊天模型实例绑定到改写、证据判断和回答阶段，供旧接口或显式单模型调用方继续使用；各阶段仍按当前配置分别应用采样参数。
 
-        参数：
-        model：当前使用的模型或模型名称。
+            参数：
+            model：当前使用的模型或模型名称。
         """
 
         self._set_chat_models(model, evidence_model=model, answer_model=model)
@@ -162,12 +156,12 @@ class RagChain:
         if not history:
             return question
         # 局部变量 context：模型生成或评估使用的上下文内容。
-        # 局部变量 item：当前列表或结果集合中的一条数据。
+        # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
         context = [
             {"role": item["role"], "content": item["content"]} for item in history
         ]
         try:
-            # 局部变量 result：当前函数调用或计算产生、供后续处理或返回的结果数据。
+            # 局部变量 result：问题改写模型生成的检索查询文本；后续会清理该文本并传给检索器，而不是直接作为最终回答返回。
             result = await self.rewrite_chain.ainvoke(
                 {
                     "context": json.dumps(
@@ -193,7 +187,7 @@ class RagChain:
         if self.retriever is not None:
             # 局部变量 documents：本次检索、解析或批量处理的文档集合。
             documents = await self.retriever.ainvoke(question)
-            # 局部变量 document：当前正在读取、更新或返回的文档记录。
+            # 局部变量 document：检索器返回的 LangChain Document；证据映射会从正文和 metadata 恢复分块标识、来源及检索分数。
             return [_evidence_from_document(document) for document in documents]
         # 局部变量 aretrieve：执行异步检索的可调用对象。
         aretrieve = getattr(self.retrieval_service, "aretrieve", None)
@@ -201,7 +195,7 @@ class RagChain:
             return await aretrieve(question)
         # 局部变量 evidence：支持或限制回答的检索证据。
         evidence = await asyncio.to_thread(self.retrieval_service.retrieve, question)
-        # 局部变量 item：当前列表或结果集合中的一条数据。
+        # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
         return [dict(item) for item in evidence]
 
     async def judge_evidence(
@@ -228,7 +222,7 @@ class RagChain:
                 MissingKnowledgeReason.NO_RETRIEVAL_RESULT,
             )
         # 局部变量 max_retrieval_score：当前候选集合中的最高检索分数。
-        # 局部变量 item：当前列表或结果集合中的一条数据。
+        # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
         max_retrieval_score = max(
             float(item.get("retrieval_score", item.get("score", 0.0)))
             for item in evidence
@@ -269,7 +263,7 @@ class RagChain:
                 raise
             logger.warning("Evidence judge failed; failing closed", exc_info=True)
             return _failed_closed_judgement(), None
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except OutputParserException as exc:
             if strict:
                 raise ModelUnavailableError("模型服务暂不可用") from exc
@@ -378,7 +372,7 @@ class RagChain:
             ).strip()
         except ModelUnavailableError:
             raise
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except Exception as exc:
             raise ModelUnavailableError("模型服务暂不可用") from exc
 
@@ -441,18 +435,18 @@ class RagChain:
         supported_points: Sequence[str] = (),
         missing_points: Sequence[str] = (),
     ) -> list[dict[str, str]]:
-        """Return rendered messages for compatibility with diagnostics and tests.
+        """渲染最终答案链所需的消息序列，并把问题、证据、回答风格、合规提示及工具结果填入对应模板；此方法只准备模型输入，不执行生成。
 
-        参数：
-        answer_style：本次生成答案使用的表达风格。
-        question：用户提交或模型改写后的问题文本。
-        rewritten_question：模型改写后的检索查询文本。
-        evidence：支持或限制回答的检索证据。
-        compliance_required：当前问题是否要求展示合规提示。
-        tool_execution：本次工具调用的执行结果记录。
-        answer_mode：本次问题采用的回答处理路径。
-        supported_points：已被证据或答案支持的预期要点。
-        missing_points：证据或答案尚未覆盖的预期要点列表。
+            参数：
+            answer_style：本次生成答案使用的表达风格。
+            question：用户提交或模型改写后的问题文本。
+            rewritten_question：模型改写后的检索查询文本。
+            evidence：支持或限制回答的检索证据。
+            compliance_required：当前问题是否要求展示合规提示。
+            tool_execution：本次工具调用的执行结果记录。
+            answer_mode：本次问题采用的回答处理路径。
+            supported_points：已被证据或答案支持的预期要点。
+            missing_points：证据或答案尚未覆盖的预期要点列表。
         """
 
         # 局部变量 prompt_value：填充后的模型提示内容对象。
@@ -476,7 +470,7 @@ def _evidence_from_document(document: Document) -> dict[str, Any]:
     参数：
     document：当前处理的文档对象或记录。
     """
-    # 局部变量 metadata：当前文档或索引的结构化元数据。
+    # 局部变量 metadata：检索器随 LangChain Document 返回的分块、来源和评分字段；证据转换时用它恢复业务层需要的信息。
     metadata = document.metadata
     return {
         "chunk_id": int(metadata["chunk_id"]),
@@ -573,7 +567,7 @@ def _format_evidence(evidence: Sequence[Mapping[str, Any]]) -> str:
     参数：
     evidence：支持回答的检索证据。
     """
-    # 局部变量 item：当前列表或结果集合中的一条数据。
+    # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
     return "\n\n".join(
         f"[Evidence {item['rank_no']}] {item['content']}" for item in evidence
     )
@@ -640,10 +634,10 @@ def _parse_evidence_judgement(value: Any) -> EvidenceJudgement:
     """
     if not isinstance(value, dict):
         raise TypeError("evidence judgement must be a JSON object")
-    # Accept the pre-enum shape for old configured providers while all new
-    # prompts and returned values use EvidenceJudgement.
+    # 兼容旧 Provider 返回的 sufficient 布尔字段，避免升级后历史配置立即失效；
+    # 新提示词及内部后续流程统一使用 EvidenceJudgement 结构。
     if "decision" not in value and isinstance(value.get("sufficient"), bool):
-        # 局部变量 value：当前待校验、转换或展示的值。
+        # 局部变量 value：模型输出的证据判定对象；兼容分支会把旧版 sufficient 布尔值转成 decision 枚举并补齐要点列表，再交由 Pydantic 校验。
         value = {
             "decision": (
                 EvidenceDecision.SUFFICIENT.value
@@ -663,7 +657,7 @@ def _message_dicts(messages: Sequence[Any]) -> list[dict[str, str]]:
     参数：
     messages：聊天消息列表。
     """
-    # 局部变量 result：当前函数调用或计算产生、供后续处理或返回的结果数据。
+    # 局部变量 result：按输入消息顺序整理出的聊天消息列表；每项统一包含 role 与 content，供提示模板或模型调用使用。
     result: list[dict[str, str]] = []
     # 局部变量 message：需要记录、保存或返回的消息文本。
     for message in messages:

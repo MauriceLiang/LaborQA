@@ -1,2 +1,2 @@
 # 文件作用：声明 API 数据契约模型包。
-"""Public request and response schemas."""
+"""标记请求和响应模型所在的 Schema 包；模型集中定义字段类型、枚举约束、默认值及跨字段校验，供 API 与业务服务共享。"""

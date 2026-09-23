@@ -12,7 +12,7 @@ def _as_utc(value: datetime) -> datetime:
     """将无时区时间按 UTC 解释，并把带时区时间转换为 UTC。
 
     参数：
-    value：当前待校验、转换或展示的值。
+    value：待标准化的 datetime；无时区时按 UTC 解释，有时区时转换为 UTC，避免接口时间因本地时区产生歧义。
     """
     if value.tzinfo is None:
         return value.replace(tzinfo=UTC)
@@ -23,7 +23,7 @@ def _format_utc(value: datetime) -> str:
     """将时间序列化为以 Z 结尾的 UTC ISO 8601 字符串。
 
     参数：
-    value：当前待校验、转换或展示的值。
+    value：准备序列化的 datetime；先转换到 UTC，再生成以 Z 结尾的 ISO 8601 字符串供 JSON 响应使用。
     """
     return value.astimezone(UTC).isoformat().replace("+00:00", "Z")
 

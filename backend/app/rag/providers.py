@@ -177,8 +177,8 @@ def _configure_local_torch_runtime() -> None:
 
     import torch
 
-    # PyTorch and faiss-cpu bundle different OpenMP runtimes on macOS. Keeping
-    # PyTorch inference single-threaded prevents native worker-pool corruption.
+    # macOS 下 PyTorch 与 faiss-cpu 可能分别加载不兼容的 OpenMP 运行时；
+    # 将 PyTorch 推理限制为单线程，可避免两套原生线程池并发时崩溃或破坏进程状态。
     torch.set_num_threads(1)
 
 
@@ -242,7 +242,7 @@ class CompatibleEmbeddings(Embeddings):
             raise ValueError("embedding response item count does not match request")
         # ordered 按响应索引恢复为与输入文本相同的顺序。
         ordered = sorted(data, key=lambda item: item.get("index", 0))
-        # 局部变量 item：当前列表或结果集合中的一条数据。
+        # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
         return [item["embedding"] for item in ordered]
 
     def embed_query(self, text: str) -> list[float]:

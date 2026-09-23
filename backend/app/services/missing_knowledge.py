@@ -1,5 +1,5 @@
 # 文件作用：记录并管理回答过程中发现的知识缺口及其后续处置。
-"""Classification and management of production evidence-gate refusals."""
+"""定义生产问答证据不足时知识缺口的分类、去重和维护服务，连接拒答原因、主题聚合和人工处理状态。"""
 
 from __future__ import annotations
 

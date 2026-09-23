@@ -1,5 +1,5 @@
 # 文件作用：提供内置评估用例及评估基准数据。
-"""Versioned seed set for the Phase 8 evaluation workflow."""
+"""定义版本化的评测基线用例及其初始数据，为评测服务提供可追踪的种子集；用例版本变化与用户维护的用例生命周期分开管理。"""
 
 from __future__ import annotations
 

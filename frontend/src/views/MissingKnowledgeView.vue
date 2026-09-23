@@ -119,7 +119,7 @@ function changeSize(nextSize: number | string) {
 }
 
 /** 保存指定知识缺口记录的状态及备注。 */
-// 参数 item：当前列表或操作涉及的业务记录。
+// 参数 item：当前待保存的 MissingKnowledgeItem，提供记录 ID 及原始状态；编辑草稿按该 ID 取出后提交状态和备注。
 async function save(item: MissingKnowledgeItem) {
   // 指定记录当前编辑中的状态和备注。
   const draft = drafts.value[item.id]
@@ -146,7 +146,7 @@ async function save(item: MissingKnowledgeItem) {
 }
 
 /** 将日期字符串格式化为界面日期文本。 */
-// 参数 value：当前需要转换、展示或写入的值。
+// 参数 value：后端返回的时间字符串；转换为本地日期时间供列表显示，解析失败时保留原值便于定位异常数据。
 function formatDate(value: string) {
   // 待格式化的日期时间对象。
   const date = new Date(value)

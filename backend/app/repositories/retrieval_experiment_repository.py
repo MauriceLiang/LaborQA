@@ -1,5 +1,5 @@
 # 文件作用：封装检索实验、运行配置和实验结果的数据库访问。
-"""SQLite persistence for retrieval experiments and per-case results."""
+"""封装检索实验及其逐配置、逐用例结果的 SQLite 持久化，支持创建、分页读取、归档恢复和级联删除等生命周期操作。"""
 
 from __future__ import annotations
 
@@ -38,9 +38,9 @@ class RetrievalExperimentRepository:
         """
         # 局部变量 configs：本次比较的检索配置列表。
         configs = snapshot.get("strategy_snapshots") or snapshot.get("configs", [])
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 INSERT INTO retrieval_experiment (
@@ -54,7 +54,7 @@ class RetrievalExperimentRepository:
                     json.dumps(snapshot, ensure_ascii=False),
                 ),
             )
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM retrieval_experiment WHERE id = ?",
                 (cursor.lastrowid,),
@@ -67,7 +67,7 @@ class RetrievalExperimentRepository:
         参数：
         experiment_id：目标检索实验标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -85,7 +85,7 @@ class RetrievalExperimentRepository:
         experiment_id：目标检索实验标识。
         result：本次操作或模型调用的结果数据。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -131,7 +131,7 @@ class RetrievalExperimentRepository:
         metrics：运行结束后计算的汇总指标。
         best_config_index：表现最佳配置在实验结果中的序号。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -159,7 +159,7 @@ class RetrievalExperimentRepository:
         experiment_id：目标检索实验标识。
         message：需要保存或展示的消息内容。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -174,7 +174,7 @@ class RetrievalExperimentRepository:
     def recover_interrupted_experiments(self) -> None:
         """恢复进程中断后遗留的实验运行状态。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -212,16 +212,16 @@ class RetrievalExperimentRepository:
             conditions.append("archived_at IS NULL")
         # 局部变量 where_clause：SQL 查询的筛选子句。
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 total：符合当前条件的记录总数或项目总数。
+            # 局部变量 total：按当前筛选范围统计的记录/项目总量；分页接口用它计算总页数，数值可能大于本页实际返回的 items 长度。
             total = int(
                 connection.execute(
                     f"SELECT COUNT(*) FROM retrieval_experiment {where_clause}",
                     parameters,
                 ).fetchone()[0]
             )
-            # 局部变量 rows：本次查询返回的数据库记录集合。
+            # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 f"""
                 SELECT * FROM retrieval_experiment
@@ -231,7 +231,7 @@ class RetrievalExperimentRepository:
                 """,
                 [*parameters, size, (page - 1) * size],
             ).fetchall()
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [self._summary(row) for row in rows], total
 
     def archive_experiment(self, experiment_id: int) -> dict[str, Any] | None:
@@ -240,9 +240,9 @@ class RetrievalExperimentRepository:
         参数：
         experiment_id：目标检索实验标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 UPDATE retrieval_experiment
@@ -254,7 +254,7 @@ class RetrievalExperimentRepository:
             )
             if cursor.rowcount == 0:
                 return None
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM retrieval_experiment WHERE id = ?", (experiment_id,)
             ).fetchone()
@@ -266,9 +266,9 @@ class RetrievalExperimentRepository:
         参数：
         experiment_id：目标检索实验标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 """
                 UPDATE retrieval_experiment
@@ -279,7 +279,7 @@ class RetrievalExperimentRepository:
             )
             if cursor.rowcount == 0:
                 return None
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM retrieval_experiment WHERE id = ?", (experiment_id,)
             ).fetchone()
@@ -291,9 +291,9 @@ class RetrievalExperimentRepository:
         参数：
         experiment_id：目标检索实验标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 row：数据库查询返回的当前记录行。
+            # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
                 "SELECT * FROM retrieval_experiment WHERE id = ?", (experiment_id,)
             ).fetchone()
@@ -307,7 +307,7 @@ class RetrievalExperimentRepository:
                 """,
                 (experiment_id,),
             ).fetchall()
-            # 局部变量 item：当前列表或结果集合中的一条数据。
+            # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
             return {
                 **self._summary(row),
                 "snapshot": json.loads(row["config_json"]),
@@ -321,9 +321,9 @@ class RetrievalExperimentRepository:
         参数：
         experiment_id：目标检索实验标识。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
-            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
+            # 局部变量 cursor：执行当前参数化 SQL 的 sqlite3.Cursor；后续通过它读取 lastrowid、rowcount 或查询结果，以关联新记录并确认写入效果。
             cursor = connection.execute(
                 "DELETE FROM retrieval_experiment WHERE id = ?", (experiment_id,)
             )
@@ -371,7 +371,7 @@ class RetrievalExperimentRepository:
     def _connection(self) -> Iterator[sqlite3.Connection]:
         """创建 SQLite 连接上下文并统一管理数据库连接。
         """
-        # 局部变量 connection：当前操作使用的数据库连接。
+        # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         connection = sqlite3.connect(str(self.database_path), timeout=5)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")

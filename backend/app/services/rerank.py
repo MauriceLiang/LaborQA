@@ -1,5 +1,5 @@
 # 文件作用：封装候选文档片段的重排模型及默认配置。
-"""Optional local cross-encoder reranking with retrieval-order fallback."""
+"""封装可选的本地 cross-encoder 重排；模型不可用或未启用时保留检索原顺序，避免排序依赖破坏主检索路径。"""
 
 from __future__ import annotations
 
@@ -59,7 +59,7 @@ class RerankService:
 
         参数：config 为重排数量等应用配置；model 为可选的交叉编码器。
         """
-        # 成员变量 config：当前请求、服务或实验所使用的配置。
+        # 成员变量 config：重排 Settings，控制是否启用 cross-encoder、候选保留数量及本地模型加载配置。
         self.config = config  # 控制重排结果保留数量的应用配置。
         # 成员变量 model：当前使用的模型或模型名称。
         self.model = model  # 注入的模型；为空时按需从本地缓存加载。

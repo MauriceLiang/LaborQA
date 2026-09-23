@@ -91,7 +91,7 @@ class ParserFactory:
         try:
             if source_path.stat().st_size == 0:
                 raise EmptyFileError()
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except OSError as exc:
             # exc 表示文件系统或进程调用层面的转换错误。
             # exc 包含文件状态检查失败的系统错误，转换为统一解析异常。
@@ -135,7 +135,7 @@ class ParserFactory:
         try:
             # text 为去除 UTF-8 BOM 后读取的文件正文。
             text = path.read_text(encoding="utf-8-sig")
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except UnicodeDecodeError as exc:
             raise DocumentParseError(f"{file_label} 文件不是有效的 UTF-8 文本") from exc
         except OSError as exc:
@@ -158,7 +158,7 @@ class ParserFactory:
             reader = PdfReader(str(path))
             # 将各页提取文本按换行拼接，保留页间分隔。
             text = "\n".join(page.extract_text() or "" for page in reader.pages)
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except Exception as exc:
             if isinstance(exc, DocumentParseError):
                 raise
@@ -194,7 +194,7 @@ class ParserFactory:
                         blocks.append("\t".join(cell.text for cell in row.cells))
             # text 为按换行连接后的 DOCX 全文。
             text = "\n".join(blocks)
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except Exception as exc:
             if isinstance(exc, DocumentParseError):
                 raise
@@ -233,7 +233,7 @@ class ParserFactory:
         """
         try:
             from doc2docx import convert
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except Exception as exc:
             raise DocumentConverterUnavailable("msdoc2docx 未安装或不可用") from exc
 
@@ -328,7 +328,7 @@ class ParserFactory:
             raise
         except DocumentParseError:
             raise
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except FileNotFoundError as exc:
             # exc 表示转换程序在启动时不可用。
             raise DocumentConverterUnavailable("LibreOffice 不可用") from exc

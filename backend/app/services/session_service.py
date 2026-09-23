@@ -1,5 +1,5 @@
 # 文件作用：管理聊天会话、消息、引用及工具执行数据的业务转换。
-"""Session and message operations for chat workflows."""
+"""封装聊天会话与消息的业务操作，包括创建、标题更新、历史读取及删除；具体持久化交由 SessionRepository 完成。"""
 
 from __future__ import annotations
 
@@ -63,7 +63,7 @@ class SessionService:
 
         参数：limit 为最多返回的会话数量。
         """
-        # 局部变量 row：数据库查询返回的当前记录行。
+        # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
         return [self._session_item(row) for row in self.repository.list_sessions(limit)]
 
     def list_messages(self, session_id: UUID | str) -> list[dict[str, Any]]:
@@ -74,7 +74,7 @@ class SessionService:
         # 仓储统一使用的字符串会话标识。
         normalized_id = str(session_id)
         self._require_session(normalized_id)
-        # 局部变量 row：数据库查询返回的当前记录行。
+        # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
         return [
             self._message_item(row)
             for row in self.repository.list_messages(normalized_id)
@@ -90,7 +90,7 @@ class SessionService:
         # 仓储统一使用的字符串会话标识。
         normalized_id = str(session_id)
         self._require_session(normalized_id)
-        # 局部变量 row：数据库查询返回的当前记录行。
+        # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
         return [
             self._message_item(row)
             for row in self.repository.get_recent_context(normalized_id, turns)
@@ -111,7 +111,7 @@ class SessionService:
             row = self.repository.create_user_message(
                 str(session_id), question, ai_mode
             )
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except SessionNotFoundError as exc:
             raise self._session_not_found() from exc
         return self._message_item(row)
@@ -175,7 +175,7 @@ class SessionService:
                 [execution.model_dump(mode="json") for execution in execution_items],
                 AiMode(ai_mode).value,
             )
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except SessionNotFoundError as exc:
             raise self._session_not_found() from exc
         return self._message_item(row)

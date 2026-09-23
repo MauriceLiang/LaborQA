@@ -105,17 +105,17 @@
   --el-color-info-light-9: #f4f6f8;
   /* el-color-info-dark-2：Element Plus 信息色的深色等级 2，供对应交互状态和主题样式使用。 */
   --el-color-info-dark-2: #5c687b;
-  /* el-text-color-primary：Element Plus 对应层级文本的显示颜色。 */
+  /* 主文本色：用于组件标题、主要内容和当前页面最重要的信息。 */
   --el-text-color-primary: #263548;
-  /* el-text-color-regular：Element Plus 对应层级文本的显示颜色。 */
+  /* 常规文本色：用于表单标签、列表正文和多数默认说明文字。 */
   --el-text-color-regular: #536077;
-  /* el-text-color-secondary：Element Plus 对应层级文本的显示颜色。 */
+  /* 次级文本色：用于辅助说明、时间戳和不需要强调的描述内容。 */
   --el-text-color-secondary: #758195;
-  /* el-text-color-placeholder：Element Plus 对应层级文本的显示颜色。 */
+  /* 占位文本色：用于输入框 placeholder 和尚未填写内容的提示。 */
   --el-text-color-placeholder: #9aa6b4;
-  /* el-text-color-disabled：Element Plus 对应层级文本的显示颜色。 */
+  /* 禁用文本色：用于不可交互控件中的文字，降低对比度但保持可辨识。 */
   --el-text-color-disabled: #b4bdc7;
-  /* el-border-color：项目样式使用的组件主题参数。 */
+  /* 默认边框色：供未指定层级的输入框、按钮及卡片边缘使用。 */
   --el-border-color: #d8e1dc;
   /* el-border-color-light：Element Plus 对应层级边框的显示颜色。 */
   --el-border-color-light: #e5ece7;
@@ -127,7 +127,7 @@
   --el-border-color-dark: #c3d0c8;
   /* el-border-color-darker：Element Plus 对应层级边框的显示颜色。 */
   --el-border-color-darker: #acbdb3;
-  /* el-fill-color：项目样式使用的组件主题参数。 */
+  /* 默认填充色：用于组件内部需要弱化区分的底色区域。 */
   --el-fill-color: #f1f6f3;
   /* el-fill-color-light：Element Plus 对应层级填充区域的背景色。 */
   --el-fill-color-light: #f5f8f6;
@@ -137,13 +137,13 @@
   --el-fill-color-extra-light: #fcfdfc;
   /* el-fill-color-blank：Element Plus 对应层级填充区域的背景色。 */
   --el-fill-color-blank: #fff;
-  /* el-bg-color：项目样式使用的组件主题参数。 */
+  /* 默认组件背景色：用于卡片、弹层等前景容器的基础表面。 */
   --el-bg-color: #fff;
   /* el-bg-color-page：Element Plus 对应层级组件或页面的背景色。 */
   --el-bg-color-page: #f8faf8;
   /* el-bg-color-overlay：Element Plus 对应层级组件或页面的背景色。 */
   --el-bg-color-overlay: #fff;
-  /* el-overlay-color：项目样式使用的组件主题参数。 */
+  /* 默认遮罩色：弹窗打开时覆盖页面内容，降低背景对话干扰。 */
   --el-overlay-color: rgb(0 0 0 / 50%);
   /* el-overlay-color-light：弹层遮罩对应亮度层级的颜色及透明度。 */
   --el-overlay-color-light: rgb(0 0 0 / 35%);
@@ -157,7 +157,7 @@
   --el-border-radius-round: 999px;
   /* el-border-radius-circle：基础组件对应尺寸的圆角半径。 */
   --el-border-radius-circle: 50%;
-  /* el-box-shadow：项目样式使用的组件主题参数。 */
+  /* 默认浮层阴影：用于需要从页面表面抬起显示的弹出组件。 */
   --el-box-shadow: 0 16px 40px rgb(31 68 54 / 14%);
   /* el-box-shadow-light：组件对应层级的阴影样式。 */
   --el-box-shadow-light: 0 10px 26px rgb(31 68 54 / 12%);
@@ -221,7 +221,8 @@ input {
   font-weight: 650;
 }
 
-/* Keep unscoped Element Plus components consistent with the application palette. */
+/* 这些未使用 Vue scoped 样式隔离的 Element Plus 组件在全局 DOM 中渲染；
+   在此统一其边框、文字和交互色，避免与应用主色及其他组件的视觉规范不一致。 */
 .el-button:where(:not(.is-link):not(.is-text)) {
   border-radius: 8px;
   font-weight: 600;
@@ -370,17 +371,17 @@ input {
 }
 
 .el-pagination {
-  /* el-pagination-hover-color：分页组件的文字、按钮或背景样式参数。 */
+  /* 分页悬停色：鼠标悬停在可用页码或分页操作按钮时的强调色。 */
   --el-pagination-hover-color: #185b44;
-  /* el-pagination-button-color：分页组件的文字、按钮或背景样式参数。 */
+  /* 分页按钮文字色：用于常规上一页、下一页及页码按钮中的文字。 */
   --el-pagination-button-color: #526458;
-  /* el-pagination-button-disabled-color：分页组件的文字、按钮或背景样式参数。 */
+  /* 分页禁用文字色：用于边界页或不可用操作的按钮文字，提示其不能点击。 */
   --el-pagination-button-disabled-color: #b4bdc7;
-  /* el-pagination-button-bg-color：分页组件的文字、按钮或背景样式参数。 */
+  /* 分页按钮背景色：常规页码和翻页按钮未选中时使用的底色。 */
   --el-pagination-button-bg-color: #fff;
-  /* el-pagination-bg-color：分页组件的文字、按钮或背景样式参数。 */
+  /* 分页容器背景色：分页控件整体及未单独指定状态的区域底色。 */
   --el-pagination-bg-color: #fff;
-  /* el-pagination-border-radius：分页组件的文字、按钮或背景样式参数。 */
+  /* 分页按钮圆角：统一页码和翻页操作控件的边角弧度。 */
   --el-pagination-border-radius: 7px;
   /* el-pagination-item-gap：分页组件条目间距。 */
   --el-pagination-item-gap: 8px;

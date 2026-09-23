@@ -1,5 +1,5 @@
 # 文件作用：编排聊天请求、检索证据、生成回答、持久化和流式事件。
-"""Session-aware RAG orchestration and Server-Sent Events serialization."""
+"""编排会话读取、RAG 检索与判定、工具执行、回答生成和结果持久化，并把处理阶段序列化为 Server-Sent Events，供前端逐步展示。"""
 
 from __future__ import annotations
 
@@ -107,7 +107,7 @@ class PreparedAnswerDecision:
 
 
 class _UnavailableChatModel(BaseChatModel):
-    """Keep startup lazy when the existing LLM configuration is incomplete."""
+    """在模型配置不完整时作为延迟失败占位模型，使应用仍可完成服务初始化；只有真正触发模型调用时才报告配置不可用，避免启动阶段被外部模型配置阻断。"""
 
     @property
     def _llm_type(self) -> str:
@@ -151,7 +151,7 @@ class ChatService:
         self.session_service = session_service
         # 成员变量 retrieval_service：负责向量召回和证据整理的检索服务。
         self.retrieval_service = retrieval_service
-        # 成员变量 config：当前请求、服务或实验所使用的配置。
+        # 成员变量 config：应用级生成配置，控制各阶段模型、采样参数、token 上限、嵌入和检索行为；聊天链构建与请求执行均从这里读取配置。
         self.config = config
         if chat_models is not None:
             # 成员变量 chat_models：各处理阶段使用的聊天模型集合。
@@ -200,8 +200,8 @@ class ChatService:
             mode: self._build_rag_chain(retrieval_service, mode)
             for mode in AI_MODE_PROFILES
         }
-        # Keep the historical attribute for callers/tests that customize the
-        # balanced chain with a fake model.
+        # 保留旧版 rag_chain 属性，兼容仍通过该属性替换均衡模式链的调用方；
+        # 新逻辑统一从 rag_chains 按 AI 模式选择对应链。
         self.rag_chain = self.rag_chains[DEFAULT_AI_MODE]
         # 成员变量 tool_decision_service：选择并校验业务工具调用的服务。
         self.tool_decision_service = ToolDecisionService()
@@ -383,7 +383,7 @@ class ChatService:
                 session_id, question, ai_mode
             )
             session_ms = round((perf_counter() - session_started) * 1000)
-        # 局部变量 exc：当前捕获到的异常对象。
+        # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except AppError as exc:
             yield _sse("error", {"code": int(exc.code), "message": exc.message})
             return
@@ -756,14 +756,14 @@ class ChatService:
         mode: ExecutionMode,
         ai_mode: AiMode = DEFAULT_AI_MODE,
     ) -> dict[str, Any]:
-        """Run the production RAG decision path without persisting chat state.
+        """走与生产问答相同的检索、证据判断和回答决策路径，但不创建或写入用户会话；用于检索实验预览等需要得到一次性答案的场景。
 
-        参数：
-        question：用户提交或模型改写后的问题文本。
-        history：当前会话的历史消息集合。
-        answer_style：本次生成答案使用的表达风格。
-        mode：当前模型回答或请求处理所采用的模式。
-        ai_mode：本次回答生成使用的 AI 模式。
+            参数：
+            question：用户提交或模型改写后的问题文本。
+            history：当前会话的历史消息集合。
+            answer_style：本次生成答案使用的表达风格。
+            mode：当前模型回答或请求处理所采用的模式。
+            ai_mode：本次回答生成使用的 AI 模式。
         """
         if mode not in (ExecutionMode.EVALUATION, ExecutionMode.EXPERIMENT):
             raise ValueError("answer_once only supports non-production modes")
@@ -831,8 +831,8 @@ class ChatService:
         return {
             "answer": answer,
             "refused": refused,
-            # Keep pre-gate candidates available to diagnostics while only
-            # evidence-backed answers expose citations.
+            # 即使答案被证据门控拒答，也保留完整候选证据供检索诊断查看；
+            # citations 则只对允许展示证据支持内容的回答开放，避免把候选误报为有效引用。
             "retrieved_sources": prepared.evidence,
             "citations": (
                 []

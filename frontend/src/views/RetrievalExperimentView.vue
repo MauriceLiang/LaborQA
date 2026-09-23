@@ -337,7 +337,7 @@ async function loadDetail(id: number, showLoading = false) {
 }
 
 /** 选择实验并加载其详情。 */
-// 参数 item：当前列表或操作涉及的业务记录。
+// 参数 item：实验列表中的 ExperimentSummary，含实验 ID、运行状态和归档时间；本函数据此切换详情并停止旧实验的轮询。
 function selectExperiment(item: ExperimentSummary) {
   stopPolling()
   selectionVersion += 1
@@ -404,7 +404,7 @@ async function loadEvaluationCases() {
 }
 
 /** 切换实验使用的用例范围并同步选择状态。 */
-// 参数 value：当前需要转换、展示或写入的值。
+// 参数 value：用户选择的实验用例范围；切回“全部用例”时清除之前选择的 case ID，避免旧筛选残留。
 function updateCaseScope(value: ExperimentCaseScope) {
   caseScope.value = value
   if (value !== 'SELECTED') selectedCaseIds.value = []
@@ -431,7 +431,7 @@ async function loadStrategies() {
 const strategyActionId = ref<number>()
 
 /** 用最新策略对象更新本地策略列表。 */
-// 参数 strategy：检索策略记录。
+// 参数 strategy：后端返回的 RetrievalStrategy，包含策略 ID、内置/归档标记、激活状态、版本和参数；后续操作会据这些字段决定是否允许编辑或使用。
 function replaceStrategy(strategy: RetrievalStrategy) {
   // 策略或实验在当前列表中的位置。
   const index = strategies.value.findIndex((item) => item.id === strategy.id)
@@ -440,7 +440,7 @@ function replaceStrategy(strategy: RetrievalStrategy) {
 }
 
 /** 切换指定检索策略的启用状态。 */
-// 参数 strategy：检索策略记录。
+// 参数 strategy：待切换的 RetrievalStrategy；内置或已归档策略不允许切换，ID 和当前 is_active 值用于提交相反的启用状态。
 async function toggleStrategyActive(strategy: RetrievalStrategy) {
   if (strategy.is_builtin || strategy.archived_at) return
   strategyActionId.value = strategy.id
@@ -461,7 +461,7 @@ async function toggleStrategyActive(strategy: RetrievalStrategy) {
 }
 
 /** 确认并归档指定检索策略。 */
-// 参数 strategy：检索策略记录。
+// 参数 strategy：待归档的 RetrievalStrategy；内置或已归档策略直接跳过，名称用于确认提示，ID 用于归档请求及清理实验/预览选择。
 async function archiveStrategy(strategy: RetrievalStrategy) {
   if (strategy.is_builtin || strategy.archived_at) return
   try {
@@ -485,7 +485,7 @@ async function archiveStrategy(strategy: RetrievalStrategy) {
 }
 
 /** 恢复已归档的检索策略。 */
-// 参数 strategy：检索策略记录。
+// 参数 strategy：待恢复的 RetrievalStrategy；仅处理非内置且已有归档时间的记录，使用其 ID 请求恢复并更新本地列表。
 async function restoreStrategy(strategy: RetrievalStrategy) {
   if (strategy.is_builtin || !strategy.archived_at) return
   strategyActionId.value = strategy.id
@@ -502,7 +502,7 @@ async function restoreStrategy(strategy: RetrievalStrategy) {
 }
 
 /** 打开新建或编辑检索策略的表单。 */
-// 参数 strategy：检索策略记录。
+// 参数 strategy：可选的编辑来源；非内置策略以其 ID 更新原记录，内置策略则复制为新策略，并预填名称、说明和配置。
 function openStrategyEditor(strategy?: RetrievalStrategy) {
   strategyEditorId.value = strategy?.is_builtin ? undefined : strategy?.id
   strategyEditorCopy.value = !!strategy?.is_builtin
@@ -578,13 +578,13 @@ async function saveStrategy() {
 }
 
 /** 将选中策略载入编辑表单。 */
-// 参数 strategy：检索策略记录。
+// 参数 strategy：当前选中的 RetrievalStrategy；交给表单初始化逻辑，普通策略进入编辑，内置策略按副本方式打开。
 function editStrategy(strategy: RetrievalStrategy) {
   openStrategyEditor(strategy)
 }
 
 /** 加载并显示指定策略的历史版本。 */
-// 参数 strategy：检索策略记录。
+// 参数 strategy：需要查看历史版本的 RetrievalStrategy；其 ID 用于请求版本列表，记录本身用于标识当前版本弹窗对应的策略。
 async function openStrategyVersions(strategy: RetrievalStrategy) {
   strategyVersionStrategy.value = strategy
   strategyVersions.value = []
@@ -627,7 +627,7 @@ async function restoreStrategyVersion(version: RetrievalStrategyVersion) {
 }
 
 /** 确认并删除指定检索策略。 */
-// 参数 strategy：检索策略记录。
+// 参数 strategy：待删除的 RetrievalStrategy；内置策略不可删除，名称用于确认提示，ID 用于请求删除并清除相关选择状态。
 async function removeStrategy(strategy: RetrievalStrategy) {
   if (strategy.is_builtin) return
   try {
@@ -647,7 +647,7 @@ async function removeStrategy(strategy: RetrievalStrategy) {
 }
 
 /** 选择用于检索预览的策略。 */
-// 参数 strategy：检索策略记录。
+// 参数 strategy：用户选择的 RetrievalStrategy；仅接受已启用且未归档的策略，选中后清除旧预览结果并滚动至预览区域。
 function selectPreviewStrategy(strategy: RetrievalStrategy) {
   if (!strategy.is_active || strategy.archived_at) return
   previewStrategyId.value = strategy.id
@@ -764,7 +764,7 @@ async function submitExperiment() {
 }
 
 /** 确认并删除指定检索实验。 */
-// 参数 item：当前列表或操作涉及的业务记录。
+// 参数 item：待删除的 ExperimentSummary；其状态用于阻止删除仍在排队或运行中的任务，ID 用于提交删除请求。
 async function removeExperiment(item: ExperimentSummary) {
   if (item.status === 'PENDING' || item.status === 'RUNNING') {
     ElMessage.warning('运行中的实验完成后才能删除')
@@ -793,7 +793,7 @@ async function removeExperiment(item: ExperimentSummary) {
 }
 
 /** 归档指定检索实验并更新当前列表。 */
-// 参数 item：当前列表或操作涉及的业务记录。
+// 参数 item：待归档的 ExperimentSummary；仅允许已完成或失败且尚未归档的实验提交归档。
 async function archiveExperimentRecord(item: ExperimentSummary) {
   if (item.status === 'PENDING' || item.status === 'RUNNING' || item.archived_at) {
     ElMessage.warning('只有已完成或失败且未归档的实验才能归档')
@@ -821,7 +821,7 @@ async function archiveExperimentRecord(item: ExperimentSummary) {
 }
 
 /** 恢复已归档的检索实验。 */
-// 参数 item：当前列表或操作涉及的业务记录。
+// 参数 item：已归档的 ExperimentSummary；通过其 ID 发起恢复，并用 ID 更新当前行的归档状态。
 async function restoreExperimentRecord(item: ExperimentSummary) {
   if (!item.archived_at) return
   archivingExperimentId.value = item.id
@@ -840,7 +840,7 @@ async function restoreExperimentRecord(item: ExperimentSummary) {
 }
 
 /** 导出指定实验的结果文件。 */
-// 参数 item：当前列表或操作涉及的业务记录。
+// 参数 item：要导出的 ExperimentSummary；其 ID 用于请求 CSV，当前记录 ID 同时驱动按钮加载状态。
 async function exportExperimentRecord(item: ExperimentSummary) {
   exportingExperimentId.value = item.id
   try {
@@ -865,7 +865,7 @@ async function exportExperimentRecord(item: ExperimentSummary) {
 }
 
 /** 复制指定实验配置并创建新实验。 */
-// 参数 item：当前列表或操作涉及的业务记录。
+// 参数 item：作为复制来源的 ExperimentSummary；复制接口读取其 ID，并根据返回的受理信息跳转或刷新任务列表。
 async function duplicateExperiment(item: ExperimentSummary) {
   try {
     copyingExperimentId.value = item.id
@@ -895,7 +895,7 @@ function changePage(nextPage: number) {
 }
 
 /** 将实验状态转换为中文展示文本。 */
-// 参数 value：检索实验的当前状态枚举。
+// 参数 value：后端 ExperimentStatus 枚举或未就绪值；转换为列表显示的中文状态，未知/空值统一显示为“未知”。
 function formatStatus(value: ExperimentStatus | undefined) {
   if (value === 'PENDING') return '排队中'
   if (value === 'RUNNING') return '运行中'
@@ -905,19 +905,19 @@ function formatStatus(value: ExperimentStatus | undefined) {
 }
 
 /** 将比例值格式化为百分比。 */
-// 参数 value：需要格式化显示的比率值。
+// 参数 value：0 到 1 之间的实验指标或空值；有效数值转换为百分比并保留一位小数，空值显示为短横线。
 function formatRate(value: number | null | undefined) {
   return value === null || value === undefined ? '—' : (value * 100).toFixed(1) + '%'
 }
 
-/** 将时长秒数格式化为易读文本。 */
-// 参数 value：需要格式化显示的耗时秒数。
+/** 将实验阶段耗时毫秒数格式化为易读文本。 */
+// 参数 value：实验阶段耗时数值或空值；保留一位小数并附毫秒单位，空值显示为短横线。
 function formatDuration(value: number | null | undefined) {
   return value === null || value === undefined ? '—' : value.toFixed(1) + ' ms'
 }
 
 /** 将预览回答模式转换为中文展示文本。 */
-// 参数 value：检索预览返回的回答模式代码。
+// 参数 value：预览接口返回的 answer_mode；把完整回答、部分回答、工具回答和拒答映射为中文说明。
 function formatPreviewMode(value: RetrievalPreview['answer_mode']) {
   if (value === 'RAG_ANSWER') return '完整回答'
   if (value === 'PARTIAL_ANSWER') return '部分回答'
@@ -926,7 +926,7 @@ function formatPreviewMode(value: RetrievalPreview['answer_mode']) {
 }
 
 /** 将创建时间格式化为本地日期时间。 */
-// 参数 value：待格式化的创建时间字符串。
+// 参数 value：服务端返回的 ISO 时间字符串；格式化为本地日期时间，无法解析时返回原字符串以保留诊断信息。
 function formatCreatedAt(value: string) {
   // 待格式化的日期时间对象。
   const date = new Date(value)
@@ -945,7 +945,7 @@ function progressPercent(current: number, total: number) {
 }
 
 /** 将实验状态映射为界面样式类别。 */
-// 参数 value：检索实验的当前状态枚举。
+// 参数 value：实验运行状态或空值；映射为对应 CSS 状态类，使排队、运行、成功和失败采用不同视觉提示。
 function statusClass(value: ExperimentStatus | undefined) {
   if (value === 'COMPLETED') return 'experiment-status-completed'
   if (value === 'FAILED') return 'experiment-status-failed'
@@ -954,13 +954,13 @@ function statusClass(value: ExperimentStatus | undefined) {
 }
 
 /** 按配置序号查找对应的实验结果。 */
-// 参数 index：实验配置在结果列表中的序号。
+// 参数 index：实验结果使用的 config_index；据此从已建索引中读取该配置的汇总指标，未找到时返回 undefined。
 function configResult(index: number): ExperimentConfigResult | undefined {
   return configResults.value.get(index)
 }
 
 /** 获取指定配置的运行状态。 */
-// 参数 index：需要读取状态的实验配置序号。
+// 参数 index：目标配置的 config_index；用于统计该配置已完成的用例数，并与总用例数比较后生成进度文案。
 function configStatus(index: number) {
   // 当前配置已完成的用例结果数量。
   const completedCases = detail.value?.results.filter((item) => item.config_index === index).length ?? 0
@@ -975,7 +975,7 @@ function configStatus(index: number) {
 }
 
 /** 展开指定配置的实验结果详情。 */
-// 参数 index：用户选择展开结果的配置序号。
+// 参数 index：用户点击的实验配置序号；再次点击当前展开项时收起，否则切换到该配置的用例结果。
 function chooseConfig(index: number) {
   expandedConfigIndex.value = expandedConfigIndex.value === index ? undefined : index
 }

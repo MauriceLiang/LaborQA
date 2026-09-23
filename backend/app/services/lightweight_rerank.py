@@ -1,5 +1,5 @@
 # 文件作用：使用轻量级词项与特征打分对候选检索片段重新排序。
-"""Deterministic, dependency-free ranking helpers for legal retrieval."""
+"""实现无需额外模型依赖的确定性检索重排辅助逻辑，基于文本匹配、劳动法律关键词和来源信号调整候选顺序。"""
 
 from __future__ import annotations
 
@@ -91,10 +91,10 @@ _QUERY_KEYWORDS = (
 
 
 def normalize_text(value: str) -> str:
-    """Normalize text for deterministic substring matching.
+    """统一待比较文本的空白字符形式，以便后续子串匹配不受换行、连续空格或制表符差异影响；正文中的非空白字符保持原样。
 
-    参数：
-    value：当前待校验、转换或展示的值。
+        参数：
+        value：需要用于劳动法律关键词匹配的原始文本；函数会转小写并移除空格、换行和制表符，但保留其他字符。
     """
 
     return (
@@ -107,7 +107,7 @@ def normalize_text(value: str) -> str:
 
 
 class LightweightRerankService:
-    """Rank candidates with retrieval, legal-term and source signals only."""
+    """使用查询词重合、法律概念、候选原始分数及来源等可解释信号计算轻量排序分，不调用额外模型，并保持稳定的候选顺序。"""
 
     def _expansion_terms(self, query: str) -> list[str]:
         """从问题中提取适合劳动领域检索扩展的关键词。
@@ -209,7 +209,7 @@ class LightweightRerankService:
         # 局部变量 ranked：按相关性排序后的候选结果集合。
         ranked: list[tuple[int, dict[str, Any], float]] = []
         # 局部变量 index：当前记录在列表中的位置或索引序号。
-        # 局部变量 item：当前列表或结果集合中的一条数据。
+        # 局部变量 item：当前正在映射的一条业务记录；下方代码会提取其标识、状态或内容字段，组装成返回列表中的一个元素。
         for index, item in enumerate(evidence):
             # 局部变量 retrieval_score：向量检索返回的原始相关度分数。
             retrieval_score = _bounded_score(
@@ -268,9 +268,9 @@ def _dedupe(values: Sequence[str] | Any) -> list[str]:
     """
     # 局部变量 seen：用于防止重复处理的已见标识集合。
     seen: set[str] = set()
-    # 局部变量 result：当前函数调用或计算产生、供后续处理或返回的结果数据。
+    # 局部变量 result：按输入顺序保存通过去重检查的标准化概念词组，作为本次查询的条件扩展结果返回。
     result: list[str] = []
-    # 局部变量 value：当前待校验、转换或展示的值。
+    # 局部变量 value：当前候选扩展短语；规范化副本用于判重，首次出现的原文则按输入顺序保留在结果中。
     for value in values:
         # 局部变量 normalized：经过规范化处理后的数据。
         normalized = normalize_text(value)
@@ -281,10 +281,10 @@ def _dedupe(values: Sequence[str] | Any) -> list[str]:
 
 
 def _conditional_expansions(normalized_query: str) -> list[str]:
-    """Expand reusable legal concepts that require multiple query signals.
+    """仅在查询同时包含相关触发词时扩展可复用的法律概念词组，避免单个宽泛词触发过多无关匹配。
 
-    参数：
-    normalized_query：规范化后的检索关键词文本。
+        参数：
+        normalized_query：规范化后的检索关键词文本。
     """
 
     # 局部变量 terms：从问题或文本中提取的关键词集合。
