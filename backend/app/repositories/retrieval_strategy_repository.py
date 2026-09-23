@@ -1,3 +1,4 @@
+# 文件作用：封装检索策略配置及其版本信息的持久化操作。
 """SQLite persistence for editable retrieval strategies."""
 
 from __future__ import annotations
@@ -14,12 +15,24 @@ from app.core.config import settings
 
 class RetrievalStrategyRepository:
     def __init__(self, database_path: Path | None = None) -> None:
+        """初始化检索策略数据仓库及数据库文件位置。
+
+        参数：
+        database_path：SQLite 数据库文件路径。
+        """
+        # 成员变量 database_path：SQLite 数据库文件路径。
         self.database_path = database_path or settings.database_path
 
     def seed_builtins(self, strategies: list[dict[str, Any]]) -> None:
-        """Insert the baseline strategies once without overwriting user edits."""
+        """Insert the baseline strategies once without overwriting user edits.
 
+        参数：
+        strategies：当前实验或运行涉及的检索策略集合。
+        """
+
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 strategy：当前检索策略及其参数配置。
             for strategy in strategies:
                 connection.execute(
                     """
@@ -48,8 +61,16 @@ class RetrievalStrategyRepository:
     def list_strategies(
         self, *, include_archived: bool = False
     ) -> list[dict[str, Any]]:
+        """按启用和归档条件列出检索策略。
+
+        参数：
+        include_archived：查询结果是否包括已归档记录。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 archived_filter：当前列表是否筛选已归档记录。
             archived_filter = "" if include_archived else "WHERE archived_at IS NULL"
+            # 局部变量 rows：本次查询返回的数据库记录集合。
             rows = connection.execute(
                 f"""
                 SELECT * FROM retrieval_strategy
@@ -57,10 +78,18 @@ class RetrievalStrategyRepository:
                 ORDER BY is_builtin DESC, updated_at DESC, id ASC
                 """
             ).fetchall()
+            # 局部变量 row：数据库查询返回的当前记录行。
             return [self._item(row) for row in rows]
 
     def get_strategy(self, strategy_id: int) -> dict[str, Any] | None:
+        """按主键读取检索策略及其当前配置。
+
+        参数：
+        strategy_id：目标检索策略标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?", (strategy_id,)
             ).fetchone()
@@ -72,7 +101,16 @@ class RetrievalStrategyRepository:
         description: str,
         config: dict[str, Any],
     ) -> dict[str, Any]:
+        """创建检索策略并保存初始版本。
+
+        参数：
+        name：资源名称或模型名称。
+        config：当前应用或实验配置。
+        description：资源的补充说明文本。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
             cursor = connection.execute(
                 """
                 INSERT INTO retrieval_strategy (
@@ -94,6 +132,7 @@ class RetrievalStrategyRepository:
                     json.dumps(config, ensure_ascii=False),
                 ),
             )
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?",
                 (cursor.lastrowid,),
@@ -108,14 +147,26 @@ class RetrievalStrategyRepository:
         description: str,
         config: dict[str, Any],
     ) -> dict[str, Any] | None:
+        """更新检索策略配置并追加历史版本。
+
+        参数：
+        strategy_id：目标检索策略标识。
+        name：资源名称或模型名称。
+        config：当前应用或实验配置。
+        description：资源的补充说明文本。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 current：当前处理的对象或状态快照。
             current = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ? AND is_builtin = 0",
                 (strategy_id,),
             ).fetchone()
             if current is None:
                 return None
+            # 局部变量 next_version：即将写入的下一配置版本号。
             next_version = int(current["version"]) + 1
+            # 局部变量 config_json：序列化后的检索配置 JSON 文本。
             config_json = json.dumps(config, ensure_ascii=False)
             connection.execute(
                 """
@@ -140,13 +191,21 @@ class RetrievalStrategyRepository:
                 """,
                 (strategy_id, next_version, name, description, config_json),
             )
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?", (strategy_id,)
             ).fetchone()
             return self._item(row) if row is not None else None
 
     def list_versions(self, strategy_id: int) -> list[dict[str, Any]]:
+        """按时间顺序读取检索策略历史版本。
+
+        参数：
+        strategy_id：目标检索策略标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 rows：本次查询返回的数据库记录集合。
             rows = connection.execute(
                 """
                 SELECT * FROM retrieval_strategy_version
@@ -155,14 +214,24 @@ class RetrievalStrategyRepository:
                 """,
                 (strategy_id,),
             ).fetchall()
+            # 局部变量 row：数据库查询返回的当前记录行。
             return [self._version_item(row) for row in rows]
 
     def restore_version(self, strategy_id: int, version: int) -> dict[str, Any] | None:
+        """恢复检索策略的指定历史配置版本。
+
+        参数：
+        strategy_id：目标检索策略标识。
+        version：目标配置版本号。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 current：当前处理的对象或状态快照。
             current = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ? AND is_builtin = 0",
                 (strategy_id,),
             ).fetchone()
+            # 局部变量 target：当前需要更新、转换或写入的目标对象。
             target = connection.execute(
                 """
                 SELECT * FROM retrieval_strategy_version
@@ -172,6 +241,7 @@ class RetrievalStrategyRepository:
             ).fetchone()
             if current is None or target is None:
                 return None
+            # 局部变量 next_version：即将写入的下一配置版本号。
             next_version = int(current["version"]) + 1
             connection.execute(
                 """
@@ -202,13 +272,22 @@ class RetrievalStrategyRepository:
                     target["config_json"],
                 ),
             )
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?", (strategy_id,)
             ).fetchone()
             return self._item(row) if row is not None else None
 
     def set_active(self, strategy_id: int, active: bool) -> dict[str, Any] | None:
+        """更新检索策略的启用状态。
+
+        参数：
+        strategy_id：目标检索策略标识。
+        active：策略是否启用。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
             cursor = connection.execute(
                 """
                 UPDATE retrieval_strategy
@@ -219,13 +298,21 @@ class RetrievalStrategyRepository:
             )
             if cursor.rowcount == 0:
                 return None
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?", (strategy_id,)
             ).fetchone()
             return self._item(row) if row is not None else None
 
     def archive_strategy(self, strategy_id: int) -> dict[str, Any] | None:
+        """归档检索策略并保存归档时间。
+
+        参数：
+        strategy_id：目标检索策略标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
             cursor = connection.execute(
                 """
                 UPDATE retrieval_strategy
@@ -237,13 +324,21 @@ class RetrievalStrategyRepository:
             )
             if cursor.rowcount == 0:
                 return None
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?", (strategy_id,)
             ).fetchone()
             return self._item(row) if row is not None else None
 
     def restore_strategy(self, strategy_id: int) -> dict[str, Any] | None:
+        """恢复已归档的检索策略。
+
+        参数：
+        strategy_id：目标检索策略标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
             cursor = connection.execute(
                 """
                 UPDATE retrieval_strategy
@@ -255,13 +350,21 @@ class RetrievalStrategyRepository:
             )
             if cursor.rowcount == 0:
                 return None
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM retrieval_strategy WHERE id = ?", (strategy_id,)
             ).fetchone()
             return self._item(row) if row is not None else None
 
     def delete_strategy(self, strategy_id: int) -> bool:
+        """删除指定检索策略及其版本记录。
+
+        参数：
+        strategy_id：目标检索策略标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
             cursor = connection.execute(
                 "DELETE FROM retrieval_strategy WHERE id = ? AND is_builtin = 0",
                 (strategy_id,),
@@ -270,6 +373,11 @@ class RetrievalStrategyRepository:
 
     @staticmethod
     def _item(row: sqlite3.Row) -> dict[str, Any]:
+        """将策略数据库行转换为接口响应字典。
+
+        参数：
+        row：从数据库读取的一行记录。
+        """
         return {
             "id": int(row["id"]),
             "name": str(row["name"]),
@@ -286,6 +394,11 @@ class RetrievalStrategyRepository:
 
     @staticmethod
     def _version_item(row: sqlite3.Row) -> dict[str, Any]:
+        """将历史版本数据库行转换为响应字典。
+
+        参数：
+        row：从数据库读取的一行记录。
+        """
         return {
             "id": int(row["id"]),
             "strategy_id": int(row["strategy_id"]),
@@ -298,6 +411,9 @@ class RetrievalStrategyRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
+        """创建 SQLite 连接上下文并统一管理数据库连接。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         connection = sqlite3.connect(str(self.database_path), timeout=5)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")

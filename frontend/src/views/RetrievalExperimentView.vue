@@ -1,3 +1,4 @@
+<!-- 文件作用：组织检索策略配置、实验执行和结果比较页面。 -->
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref } from 'vue'
 import { ElButton, ElDialog, ElInput, ElInputNumber, ElMessage, ElMessageBox, ElOption, ElSelect, ElSwitch } from 'element-plus'
@@ -39,7 +40,9 @@ import MarkdownContent from '@/components/chat/MarkdownContent.vue'
 import { usePreferencesStore } from '@/stores/preferences'
 import { aiModeLabel } from '@/types/preferences'
 
+// 提供当前模型及回答偏好设置的状态仓库。
 const preferencesStore = usePreferencesStore()
+// 轻量检索策略共享的默认参数。
 const lightweightRagDefaults = {
   candidate_k: 20,
   lightweight_rerank_enabled: true,
@@ -48,6 +51,7 @@ const lightweightRagDefaults = {
   evidence_limit: 10,
 }
 
+// 用于对照实验的内置检索参数组合。
 const experimentGroups: Array<{ label: string; config: ExperimentConfig }> = [
   { label: 'A', config: { ...lightweightRagDefaults, chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 } },
   { label: 'B', config: { ...lightweightRagDefaults, chunk_size: 400, chunk_overlap: 100, top_k: 5, rerank_enabled: false, rerank_top_n: 5, score_threshold: 0.35 } },
@@ -57,86 +61,153 @@ const experimentGroups: Array<{ label: string; config: ExperimentConfig }> = [
   { label: 'F', config: { ...lightweightRagDefaults, chunk_size: 600, chunk_overlap: 100, top_k: 5, rerank_enabled: true, rerank_top_n: 5, score_threshold: 0.35 } },
 ]
 
+/** 复制检索实验配置，避免编辑时修改共享默认值。 */
+// 参数 config：检索实验参数配置。
 function cloneConfig(config: ExperimentConfig): ExperimentConfig {
   return { ...config }
 }
 
+// 当前页检索实验记录。
 const experiments = ref<ExperimentSummary[]>([])
+// 检索实验列表当前页码。
 const page = ref(1)
+// 检索实验列表每页数量。
 const pageSize = 10
+// 符合条件的实验总数。
 const total = ref(0)
+// 实验列表总页数。
 const pages = ref(0)
+// 实验列表请求是否正在执行。
 const loadingList = ref(false)
+// 实验列表加载失败信息。
 const listError = ref('')
+// 新建实验名称输入值。
 const experimentName = ref('')
+// 新建实验使用的回答风格。
 const answerStyle = ref<'' | 'plain' | 'legal'>('')
+// 实验用例选择范围。
 const caseScope = ref<ExperimentCaseScope>('BUILTIN_BASELINE')
+// 当前可选的评测用例列表。
 const evaluationCases = ref<EvaluationCase[]>([])
+// 用户自建评测用例总数。
 const evaluationCaseTotal = ref(0)
+// 内置基准评测用例总数。
 const builtinCaseTotal = ref(0)
+// 当前实验选中的评测用例 ID。
 const selectedCaseIds = ref<number[]>([])
+// 评测用例列表是否正在加载。
 const caseLoading = ref(false)
+// 评测用例加载失败信息。
 const caseError = ref('')
+// 实验创建请求是否正在执行。
 const creating = ref(false)
+// 实验创建失败信息。
 const createError = ref('')
+// 当前选中的实验 ID。
 const selectedId = ref<number>()
+// 当前选中实验的详情数据。
 const detail = ref<ExperimentDetail>()
+// 实验详情请求是否正在执行。
 const loadingDetail = ref(false)
+// 实验详情加载失败信息。
 const detailError = ref('')
+// 当前展开的实验配置序号。
 const expandedConfigIndex = ref<number>()
+// 正在读取详情或需要去重的实验 ID 集合。
 const detailRequests = new Set<number>()
+// 当前可用的检索策略列表。
 const strategies = ref<RetrievalStrategy[]>([])
+// 检索策略列表是否正在加载。
 const strategyLoading = ref(false)
+// 检索策略加载失败信息。
 const strategyError = ref('')
+// 检索预览当前选中的策略 ID。
 const previewStrategyId = ref<number>()
+// 本次实验选中的策略 ID 列表。
 const experimentStrategyIds = ref<number[]>([])
+// 检索策略编辑对话框是否显示。
 const strategyEditorVisible = ref(false)
+// 当前编辑策略 ID；无值表示新建。
 const strategyEditorId = ref<number>()
+// 当前编辑流程是否从复制策略开始。
 const strategyEditorCopy = ref(false)
+// 策略保存请求是否正在执行。
 const strategySaving = ref(false)
+// 策略编辑或保存错误信息。
 const strategyEditorError = ref('')
+// 策略历史版本对话框是否显示。
 const strategyVersionVisible = ref(false)
+// 当前查看历史版本的策略。
 const strategyVersionStrategy = ref<RetrievalStrategy>()
+// 当前策略的历史版本列表。
 const strategyVersions = ref<RetrievalStrategyVersion[]>([])
+// 策略历史版本是否正在加载。
 const strategyVersionLoading = ref(false)
+// 历史版本加载失败信息。
 const strategyVersionError = ref('')
+// 当前正在恢复的策略版本号。
 const restoringStrategyVersion = ref<number>()
+// 检索策略编辑表单中的名称、说明和参数。
 const strategyDraft = reactive<RetrievalStrategyPayload>({
   name: '',
   description: '',
   config: cloneConfig(experimentGroups[0].config),
 })
+// 检索预览使用的问题文本。
 const previewQuestion = ref('公司拖欠工资，我应该准备什么材料？')
+// 检索预览请求是否正在执行。
 const previewLoading = ref(false)
+// 检索预览失败信息。
 const previewError = ref('')
+// 最近一次检索预览返回的结果。
 const previewResult = ref<RetrievalPreview>()
+// 检索预览结果是否折叠。
 const previewResultCollapsed = ref(false)
+// 检索预览结果区域的 DOM 引用。
 const previewPanel = ref<HTMLElement>()
+// 当前正在删除的实验 ID。
 const deletingExperimentId = ref<number>()
+// 当前正在复制的实验 ID。
 const copyingExperimentId = ref<number>()
+// 当前正在归档的实验 ID。
 const archivingExperimentId = ref<number>()
+// 当前正在导出的实验 ID。
 const exportingExperimentId = ref<number>()
+// 当前实验选择请求版本，用于丢弃过期响应。
 let selectionVersion = 0
+// 实验状态轮询定时器。
 let pollTimer: ReturnType<typeof setInterval> | undefined
 
+// 当前选中实验的运行状态。
 const status = computed(() => detail.value?.status ?? experiments.value.find((item) => item.id === selectedId.value)?.status)
+// 当前选中实验的展示名称。
 const selectedName = computed(() => detail.value?.name ?? experiments.value.find((item) => item.id === selectedId.value)?.name ?? '')
+// 判断实验状态是否已结束的函数。
 const isTerminal = (value: ExperimentStatus | undefined) => value === 'COMPLETED' || value === 'FAILED'
+// 按配置序号索引实验结果的映射。
 const configResults = computed(() => new Map((detail.value?.config_results ?? []).map((item) => [item.config_index, item])))
+// 当前展开配置对应的用例结果列表。
 const selectedConfigResults = computed(() => detail.value?.results.filter((item) => item.config_index === expandedConfigIndex.value) ?? [])
+// 已启用且未归档的策略列表。
 const availableStrategies = computed(() => strategies.value.filter((item) => item.is_active && !item.archived_at))
+// 当前选中的预览策略对象。
 const previewStrategy = computed(() => availableStrategies.value.find((item) => item.id === previewStrategyId.value))
+// 本次实验选择的有效策略对象列表。
 const experimentStrategies = computed(() => availableStrategies.value.filter((item) => experimentStrategyIds.value.includes(item.id)))
+// 按用例范围计算的实验用例数量。
 const experimentCaseCount = computed(() => {
   if (caseScope.value === 'SELECTED') return selectedCaseIds.value.length
   if (caseScope.value === 'BUILTIN_BASELINE') return builtinCaseTotal.value
   return evaluationCaseTotal.value
 })
+// 预计执行的策略与用例组合总数。
 const estimatedRuns = computed(() => experimentStrategies.value.length * experimentCaseCount.value)
+// 策略编辑对话框标题。
 const strategyEditorTitle = computed(() => {
   if (strategyEditorId.value !== undefined) return '编辑检索策略'
   return strategyEditorCopy.value ? '编辑策略副本' : '新建检索策略'
 })
+// 根据当前策略参数生成的风险提示。
 const strategyDraftWarning = computed(() => {
   if (strategyDraft.config.score_threshold >= 0.8) return '阈值较高，可能过滤掉有用材料。建议先试跑确认。'
   if (strategyDraft.config.top_k >= 12) return 'Top-k 较大，可能增加响应耗时和上下文长度。'
@@ -144,7 +215,9 @@ const strategyDraftWarning = computed(() => {
   if (strategyDraft.config.rerank_enabled) return '旧 CrossEncoder 重排会增加 CPU、内存和响应耗时，4C4G 环境建议关闭。'
   return ''
 })
+// 实验详情中用于展示的配置分组。
 const detailConfigGroups = computed(() => (detail.value?.config_results ?? []).map((result, index) => {
+  // 当前配置关联的策略历史快照。
   const snapshot = detail.value?.strategy_snapshots?.[index]
   return {
     label: snapshot
@@ -153,24 +226,32 @@ const detailConfigGroups = computed(() => (detail.value?.config_results ?? []).m
     config: snapshot?.config ?? result.config,
   }
 }))
+// 根据实验指标生成的结果摘要文本。
 const experimentConclusion = computed(() => {
+  // 当前实验详情对象。
   const current = detail.value
+  // 当前实验各配置的汇总结果。
   const results = current?.config_results ?? []
   if (!current || current.status !== 'COMPLETED' || results.length === 0) return []
+  // 本次实验参与统计的用例数量。
   const caseCount = current.case_count || Math.round(current.progress_total / results.length)
+  // 用于拼接实验结论的文本行。
   const lines = ['本次实验共比较 ' + results.length + ' 条策略、' + caseCount + ' 条测试问题。']
+  // 引用命中率最高的配置结果。
   const highestCitation = results.reduce((best, item) => (
     item.citation_hit_rate !== null
       && (best === undefined || best.citation_hit_rate === null || item.citation_hit_rate > best.citation_hit_rate)
       ? item
       : best
   ), undefined as ExperimentConfigResult | undefined)
+  // 准确率最高的配置结果。
   const highestAccuracy = results.reduce((best, item) => (
     item.accuracy !== null
       && (best === undefined || best.accuracy === null || item.accuracy > best.accuracy)
       ? item
       : best
   ), undefined as ExperimentConfigResult | undefined)
+  // 耗时最短的配置结果。
   const fastest = results.reduce((best, item) => (
     item.avg_retrieval_ms !== null
       && (best === undefined || best.avg_retrieval_ms === null || item.avg_retrieval_ms < best.avg_retrieval_ms)
@@ -178,21 +259,25 @@ const experimentConclusion = computed(() => {
       : best
   ), undefined as ExperimentConfigResult | undefined)
   if (highestCitation && highestCitation.citation_hit_rate !== null) {
+    // 当前最佳配置对应的展示名称。
     const label = detailConfigGroups.value[highestCitation.config_index]?.label
       ?? '策略 ' + (highestCitation.config_index + 1)
     lines.push('引用命中率最高：' + label + '（' + formatRate(highestCitation.citation_hit_rate) + '）。')
   }
   if (highestAccuracy && highestAccuracy.accuracy !== null) {
+    // 当前最佳配置对应的展示名称。
     const label = detailConfigGroups.value[highestAccuracy.config_index]?.label
       ?? '策略 ' + (highestAccuracy.config_index + 1)
     lines.push('回答正确率最高：' + label + '（' + formatRate(highestAccuracy.accuracy) + '）。')
   }
   if (fastest && fastest.avg_retrieval_ms !== null) {
+    // 当前最佳配置对应的展示名称。
     const label = detailConfigGroups.value[fastest.config_index]?.label
       ?? '策略 ' + (fastest.config_index + 1)
     lines.push('平均检索耗时最低：' + label + '（' + formatDuration(fastest.avg_retrieval_ms) + '）。')
   }
   if (current.best_config_index !== null) {
+    // 当前最佳配置对应的展示名称。
     const label = detailConfigGroups.value[current.best_config_index]?.label
       ?? '策略 ' + (current.best_config_index + 1)
     lines.push('当前综合排序下表现最高：' + label + '。')
@@ -201,6 +286,7 @@ const experimentConclusion = computed(() => {
   return lines
 })
 
+/** 停止检索实验状态轮询。 */
 function stopPolling() {
   if (pollTimer !== undefined) {
     clearInterval(pollTimer)
@@ -208,6 +294,8 @@ function stopPolling() {
   }
 }
 
+/** 开始轮询指定实验的最新状态。 */
+// 参数 id：目标业务记录的唯一标识。
 function startPolling(id: number) {
   if (pollTimer !== undefined) return
   pollTimer = setInterval(() => {
@@ -215,16 +303,22 @@ function startPolling(id: number) {
   }, 2000)
 }
 
+/** 加载实验详情，并按请求版本忽略过期结果。 */
+// 参数 id：目标业务记录的唯一标识。
+// 参数 showLoading：是否显示实验详情加载状态。
 async function loadDetail(id: number, showLoading = false) {
   if (detailRequests.has(id)) return
+  // 当前实验详情请求版本。
   const version = selectionVersion
   detailRequests.add(id)
   if (showLoading) loadingDetail.value = true
   detailError.value = ''
   try {
+    // 当前配置对应的实验结果。
     const result = await getExperiment(id)
     if (version !== selectionVersion || selectedId.value !== id) return
     detail.value = result
+    // 实验列表中的摘要记录。
     const summary = experiments.value.find((item) => item.id === id)
     if (summary) {
       summary.status = result.status
@@ -242,6 +336,8 @@ async function loadDetail(id: number, showLoading = false) {
   }
 }
 
+/** 选择实验并加载其详情。 */
+// 参数 item：当前列表或操作涉及的业务记录。
 function selectExperiment(item: ExperimentSummary) {
   stopPolling()
   selectionVersion += 1
@@ -253,16 +349,20 @@ function selectExperiment(item: ExperimentSummary) {
   void loadDetail(item.id, true)
 }
 
+/** 按当前分页条件加载检索实验列表。 */
 async function loadExperiments() {
   loadingList.value = true
   listError.value = ''
   try {
+    // 当前配置对应的实验结果。
     const result = await getExperiments({ page: page.value, size: pageSize, include_archived: true })
     experiments.value = result.items
     total.value = result.total
     pages.value = result.pages
     if (selectedId.value === undefined && result.items.length > 0) {
+      // 当前未归档的实验记录。
       const activeItems = result.items.filter((item) => !item.archived_at)
+      // 当前列表中优先选中的最近活动实验。
       const latest = activeItems.find((item) => !isTerminal(item.status)) ?? activeItems[0]
       if (latest) selectExperiment(latest)
     }
@@ -273,6 +373,7 @@ async function loadExperiments() {
   }
 }
 
+/** 加载实验可选的评测用例及数量。 */
 async function loadEvaluationCases() {
   caseLoading.value = true
   caseError.value = ''
@@ -302,11 +403,14 @@ async function loadEvaluationCases() {
   }
 }
 
+/** 切换实验使用的用例范围并同步选择状态。 */
+// 参数 value：当前需要转换、展示或写入的值。
 function updateCaseScope(value: ExperimentCaseScope) {
   caseScope.value = value
   if (value !== 'SELECTED') selectedCaseIds.value = []
 }
 
+/** 加载可用于预览或实验的检索策略。 */
 async function loadStrategies() {
   strategyLoading.value = true
   strategyError.value = ''
@@ -323,18 +427,25 @@ async function loadStrategies() {
   }
 }
 
+// 当前执行启用、归档等操作的策略 ID。
 const strategyActionId = ref<number>()
 
+/** 用最新策略对象更新本地策略列表。 */
+// 参数 strategy：检索策略记录。
 function replaceStrategy(strategy: RetrievalStrategy) {
+  // 策略或实验在当前列表中的位置。
   const index = strategies.value.findIndex((item) => item.id === strategy.id)
   if (index >= 0) strategies.value.splice(index, 1, strategy)
   else strategies.value.push(strategy)
 }
 
+/** 切换指定检索策略的启用状态。 */
+// 参数 strategy：检索策略记录。
 async function toggleStrategyActive(strategy: RetrievalStrategy) {
   if (strategy.is_builtin || strategy.archived_at) return
   strategyActionId.value = strategy.id
   try {
+    // 策略状态更新接口返回的策略记录。
     const updated = await setRetrievalStrategyActive(strategy.id, !strategy.is_active)
     replaceStrategy(updated)
     if (!updated.is_active) {
@@ -349,6 +460,8 @@ async function toggleStrategyActive(strategy: RetrievalStrategy) {
   }
 }
 
+/** 确认并归档指定检索策略。 */
+// 参数 strategy：检索策略记录。
 async function archiveStrategy(strategy: RetrievalStrategy) {
   if (strategy.is_builtin || strategy.archived_at) return
   try {
@@ -358,6 +471,7 @@ async function archiveStrategy(strategy: RetrievalStrategy) {
       { type: 'warning', confirmButtonText: '归档', cancelButtonText: '取消' },
     )
     strategyActionId.value = strategy.id
+    // 归档操作返回的实验或策略记录。
     const archived = await archiveRetrievalStrategy(strategy.id)
     replaceStrategy(archived)
     experimentStrategyIds.value = experimentStrategyIds.value.filter((id) => id !== archived.id)
@@ -370,10 +484,13 @@ async function archiveStrategy(strategy: RetrievalStrategy) {
   }
 }
 
+/** 恢复已归档的检索策略。 */
+// 参数 strategy：检索策略记录。
 async function restoreStrategy(strategy: RetrievalStrategy) {
   if (strategy.is_builtin || !strategy.archived_at) return
   strategyActionId.value = strategy.id
   try {
+    // 恢复操作返回的实验或策略记录。
     const restored = await restoreRetrievalStrategy(strategy.id)
     replaceStrategy(restored)
     ElMessage.success('策略已恢复')
@@ -384,6 +501,8 @@ async function restoreStrategy(strategy: RetrievalStrategy) {
   }
 }
 
+/** 打开新建或编辑检索策略的表单。 */
+// 参数 strategy：检索策略记录。
 function openStrategyEditor(strategy?: RetrievalStrategy) {
   strategyEditorId.value = strategy?.is_builtin ? undefined : strategy?.id
   strategyEditorCopy.value = !!strategy?.is_builtin
@@ -394,11 +513,14 @@ function openStrategyEditor(strategy?: RetrievalStrategy) {
   strategyEditorVisible.value = true
 }
 
+/** 将策略编辑表单重置为默认配置。 */
 function resetStrategyDraft() {
   strategyDraft.config = cloneConfig(experimentGroups[0].config)
 }
 
+/** 校验并保存当前检索策略草稿。 */
 async function saveStrategy() {
+  // 去除首尾空白后的名称文本。
   const name = strategyDraft.name.trim()
   if (!name) {
     strategyEditorError.value = '请填写策略名称'
@@ -427,6 +549,7 @@ async function saveStrategy() {
   strategySaving.value = true
   strategyEditorError.value = ''
   try {
+    // 创建或更新策略接口返回的策略记录。
     const saved = strategyEditorId.value === undefined
       ? await createRetrievalStrategy({
           name,
@@ -438,6 +561,7 @@ async function saveStrategy() {
           description: strategyDraft.description.trim(),
           config: cloneConfig(strategyDraft.config),
         })
+    // 已保存策略在本地列表中的位置。
     const existingIndex = strategies.value.findIndex((item) => item.id === saved.id)
     if (existingIndex >= 0) strategies.value.splice(existingIndex, 1, saved)
     else strategies.value.push(saved)
@@ -453,10 +577,14 @@ async function saveStrategy() {
   }
 }
 
+/** 将选中策略载入编辑表单。 */
+// 参数 strategy：检索策略记录。
 function editStrategy(strategy: RetrievalStrategy) {
   openStrategyEditor(strategy)
 }
 
+/** 加载并显示指定策略的历史版本。 */
+// 参数 strategy：检索策略记录。
 async function openStrategyVersions(strategy: RetrievalStrategy) {
   strategyVersionStrategy.value = strategy
   strategyVersions.value = []
@@ -472,7 +600,10 @@ async function openStrategyVersions(strategy: RetrievalStrategy) {
   }
 }
 
+/** 恢复指定检索策略历史版本。 */
+// 参数 version：策略历史版本记录。
 async function restoreStrategyVersion(version: RetrievalStrategyVersion) {
+  // 当前选中或正在编辑的检索策略。
   const strategy = strategyVersionStrategy.value
   if (!strategy || strategy.is_builtin) return
   try {
@@ -482,6 +613,7 @@ async function restoreStrategyVersion(version: RetrievalStrategyVersion) {
       { type: 'warning', confirmButtonText: '恢复', cancelButtonText: '取消' },
     )
     restoringStrategyVersion.value = version.version
+    // 恢复操作返回的实验或策略记录。
     const restored = await restoreRetrievalStrategyVersion(strategy.id, version.version)
     replaceStrategy(restored)
     strategyVersionStrategy.value = restored
@@ -494,6 +626,8 @@ async function restoreStrategyVersion(version: RetrievalStrategyVersion) {
   }
 }
 
+/** 确认并删除指定检索策略。 */
+// 参数 strategy：检索策略记录。
 async function removeStrategy(strategy: RetrievalStrategy) {
   if (strategy.is_builtin) return
   try {
@@ -512,11 +646,14 @@ async function removeStrategy(strategy: RetrievalStrategy) {
   }
 }
 
+/** 选择用于检索预览的策略。 */
+// 参数 strategy：检索策略记录。
 function selectPreviewStrategy(strategy: RetrievalStrategy) {
   if (!strategy.is_active || strategy.archived_at) return
   previewStrategyId.value = strategy.id
   clearPreviewResult()
   void nextTick(() => {
+    // 预览结果面板对应的页面元素。
     const element = previewPanel.value
     if (element && typeof element.scrollIntoView === 'function') {
       element.scrollIntoView({ behavior: 'smooth', block: 'center' })
@@ -524,40 +661,50 @@ function selectPreviewStrategy(strategy: RetrievalStrategy) {
   })
 }
 
+/** 根据策略 ID 更新预览策略选择。 */
+// 参数 strategyId：检索策略的唯一标识。
 function updatePreviewStrategy(strategyId: number | undefined) {
+  // 当前选中或正在编辑的检索策略。
   const strategy = availableStrategies.value.find((item) => item.id === strategyId)
   if (!strategy) return
   previewStrategyId.value = strategy.id
   clearPreviewResult()
 }
 
+/** 清空上一次检索预览结果和错误状态。 */
 function clearPreviewResult() {
   previewResult.value = undefined
   previewResultCollapsed.value = false
   previewError.value = ''
 }
 
+/** 折叠或展开检索预览结果面板。 */
 function togglePreviewResult() {
   previewResultCollapsed.value = !previewResultCollapsed.value
 }
 
+/** 使用当前问题和策略执行一次检索预览。 */
 async function runPreview() {
+  // 当前选中或正在编辑的检索策略。
   const strategy = previewStrategy.value
   if (!strategy) {
     previewError.value = '请先选择一个启用中的检索策略'
     return
   }
+  // 去除首尾空白后的预览问题。
   const question = previewQuestion.value.trim()
   if (!question) {
     previewError.value = '请输入要试跑的问题'
     return
   }
+  // 本次预览使用的策略 ID。
   const strategyId = strategy.id
   previewLoading.value = true
   previewError.value = ''
   previewResult.value = undefined
   previewResultCollapsed.value = false
   try {
+    // 当前配置对应的实验结果。
     const result = await previewRetrieval({
       question,
       answer_style: answerStyle.value || 'plain',
@@ -572,7 +719,9 @@ async function runPreview() {
   }
 }
 
+/** 按当前策略与用例选择创建检索实验。 */
 async function submitExperiment() {
+  // 去除首尾空白后的名称文本。
   const name = experimentName.value.trim()
   if (!name) {
     createError.value = '请填写实验名称'
@@ -590,6 +739,7 @@ async function submitExperiment() {
   creating.value = true
   createError.value = ''
   try {
+    // 创建或复制实验接口返回的任务受理信息。
     const job = await createExperiment({
       name,
       strategy_ids: experimentStrategies.value.map((strategy) => strategy.id),
@@ -613,6 +763,8 @@ async function submitExperiment() {
   }
 }
 
+/** 确认并删除指定检索实验。 */
+// 参数 item：当前列表或操作涉及的业务记录。
 async function removeExperiment(item: ExperimentSummary) {
   if (item.status === 'PENDING' || item.status === 'RUNNING') {
     ElMessage.warning('运行中的实验完成后才能删除')
@@ -640,6 +792,8 @@ async function removeExperiment(item: ExperimentSummary) {
   }
 }
 
+/** 归档指定检索实验并更新当前列表。 */
+// 参数 item：当前列表或操作涉及的业务记录。
 async function archiveExperimentRecord(item: ExperimentSummary) {
   if (item.status === 'PENDING' || item.status === 'RUNNING' || item.archived_at) {
     ElMessage.warning('只有已完成或失败且未归档的实验才能归档')
@@ -652,7 +806,9 @@ async function archiveExperimentRecord(item: ExperimentSummary) {
       { type: 'warning', confirmButtonText: '归档', cancelButtonText: '取消' },
     )
     archivingExperimentId.value = item.id
+    // 归档操作返回的实验或策略记录。
     const archived = await archiveRetrievalExperiment(item.id)
+    // 策略或实验在当前列表中的位置。
     const index = experiments.value.findIndex((current) => current.id === archived.id)
     if (index >= 0) experiments.value.splice(index, 1, archived)
     if (selectedId.value === item.id) await loadDetail(item.id)
@@ -664,11 +820,15 @@ async function archiveExperimentRecord(item: ExperimentSummary) {
   }
 }
 
+/** 恢复已归档的检索实验。 */
+// 参数 item：当前列表或操作涉及的业务记录。
 async function restoreExperimentRecord(item: ExperimentSummary) {
   if (!item.archived_at) return
   archivingExperimentId.value = item.id
   try {
+    // 恢复操作返回的实验或策略记录。
     const restored = await restoreRetrievalExperiment(item.id)
+    // 策略或实验在当前列表中的位置。
     const index = experiments.value.findIndex((current) => current.id === restored.id)
     if (index >= 0) experiments.value.splice(index, 1, restored)
     ElMessage.success('实验记录已恢复')
@@ -679,12 +839,18 @@ async function restoreExperimentRecord(item: ExperimentSummary) {
   }
 }
 
+/** 导出指定实验的结果文件。 */
+// 参数 item：当前列表或操作涉及的业务记录。
 async function exportExperimentRecord(item: ExperimentSummary) {
   exportingExperimentId.value = item.id
   try {
+    // 实验导出的 CSV 文本内容。
     const csv = await exportRetrievalExperiment(item.id)
+    // 待下载 CSV 文本构造出的文件对象。
     const blob = new Blob([`\uFEFF${csv}`], { type: 'text/csv;charset=utf-8' })
+    // 本地下载文件的临时对象 URL。
     const url = URL.createObjectURL(blob)
+    // 触发浏览器下载的链接元素。
     const link = document.createElement('a')
     link.href = url
     link.download = `${item.name || `检索实验-${item.id}`}.csv`
@@ -698,9 +864,12 @@ async function exportExperimentRecord(item: ExperimentSummary) {
   }
 }
 
+/** 复制指定实验配置并创建新实验。 */
+// 参数 item：当前列表或操作涉及的业务记录。
 async function duplicateExperiment(item: ExperimentSummary) {
   try {
     copyingExperimentId.value = item.id
+    // 创建或复制实验接口返回的任务受理信息。
     const job = await copyExperiment(item.id, `${item.name} · 副本`)
     stopPolling()
     selectionVersion += 1
@@ -718,11 +887,15 @@ async function duplicateExperiment(item: ExperimentSummary) {
   }
 }
 
+/** 切换检索实验列表页码。 */
+// 参数 nextPage：用户选择的目标页码。
 function changePage(nextPage: number) {
   page.value = nextPage
   void loadExperiments()
 }
 
+/** 将实验状态转换为中文展示文本。 */
+// 参数 value：检索实验的当前状态枚举。
 function formatStatus(value: ExperimentStatus | undefined) {
   if (value === 'PENDING') return '排队中'
   if (value === 'RUNNING') return '运行中'
@@ -731,14 +904,20 @@ function formatStatus(value: ExperimentStatus | undefined) {
   return '加载中'
 }
 
+/** 将比例值格式化为百分比。 */
+// 参数 value：需要格式化显示的比率值。
 function formatRate(value: number | null | undefined) {
   return value === null || value === undefined ? '—' : (value * 100).toFixed(1) + '%'
 }
 
+/** 将时长秒数格式化为易读文本。 */
+// 参数 value：需要格式化显示的耗时秒数。
 function formatDuration(value: number | null | undefined) {
   return value === null || value === undefined ? '—' : value.toFixed(1) + ' ms'
 }
 
+/** 将预览回答模式转换为中文展示文本。 */
+// 参数 value：检索预览返回的回答模式代码。
 function formatPreviewMode(value: RetrievalPreview['answer_mode']) {
   if (value === 'RAG_ANSWER') return '完整回答'
   if (value === 'PARTIAL_ANSWER') return '部分回答'
@@ -746,18 +925,27 @@ function formatPreviewMode(value: RetrievalPreview['answer_mode']) {
   return '建议拒答'
 }
 
+/** 将创建时间格式化为本地日期时间。 */
+// 参数 value：待格式化的创建时间字符串。
 function formatCreatedAt(value: string) {
+  // 待格式化的日期时间对象。
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
+  // 将个位数字补零到两位的格式化函数。
   const pad = (part: number) => String(part).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+/** 根据已完成数计算实验进度百分比。 */
+// 参数 current：已经完成的工作项数量。
+// 参数 total：本次任务的工作项总数量。
 function progressPercent(current: number, total: number) {
   if (total <= 0) return 0
   return Math.min(100, Math.round((current / total) * 100))
 }
 
+/** 将实验状态映射为界面样式类别。 */
+// 参数 value：检索实验的当前状态枚举。
 function statusClass(value: ExperimentStatus | undefined) {
   if (value === 'COMPLETED') return 'experiment-status-completed'
   if (value === 'FAILED') return 'experiment-status-failed'
@@ -765,12 +953,18 @@ function statusClass(value: ExperimentStatus | undefined) {
   return 'experiment-status-pending'
 }
 
+/** 按配置序号查找对应的实验结果。 */
+// 参数 index：实验配置在结果列表中的序号。
 function configResult(index: number): ExperimentConfigResult | undefined {
   return configResults.value.get(index)
 }
 
+/** 获取指定配置的运行状态。 */
+// 参数 index：需要读取状态的实验配置序号。
 function configStatus(index: number) {
+  // 当前配置已完成的用例结果数量。
   const completedCases = detail.value?.results.filter((item) => item.config_index === index).length ?? 0
+  // 当前实验配置是否存在预期用例数量。
   const expectedCases = detail.value && detail.value.config_results.length > 0
     ? detail.value.progress_total / detail.value.config_results.length
     : 0
@@ -780,6 +974,8 @@ function configStatus(index: number) {
   return completedCases ? '运行中' : formatStatus(detail.value?.status)
 }
 
+/** 展开指定配置的实验结果详情。 */
+// 参数 index：用户选择展开结果的配置序号。
 function chooseConfig(index: number) {
   expandedConfigIndex.value = expandedConfigIndex.value === index ? undefined : index
 }

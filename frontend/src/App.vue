@@ -1,3 +1,4 @@
+<!-- 文件作用：应用顶层页面结构，承载路由视图并提供全局布局。 -->
 <script setup lang="ts">
 import { ElButton } from 'element-plus'
 import { computed, onMounted } from 'vue'
@@ -16,10 +17,14 @@ import type { SessionItem } from '@/api/sessions'
 import AiModeSelector from '@/components/AiModeSelector.vue'
 import { useSessionStore } from '@/stores/session'
 
+// Vue Router 当前路由，用于确定导航高亮和页面状态。
 const route = useRoute()
+// Vue Router 导航实例，用于切换页面。
 const router = useRouter()
+// 聊天会话仓库，提供历史记录、流式状态和会话操作。
 const sessionStore = useSessionStore()
 
+// 侧栏导航项及其名称、路径和图标配置。
 const navItems = [
   { name: 'chat', label: 'AI 咨询', to: '/', icon: ChatLineRound },
   { name: 'system', label: '系统状态', to: '/system', icon: Monitor },
@@ -29,7 +34,9 @@ const navItems = [
   { name: 'retrieval-experiments', label: '检索实验', to: '/retrieval-experiments', icon: Search },
 ]
 
+// 当前页面是否为聊天咨询页。
 const isChatRoute = computed(() => route.name === 'chat')
+// 根据会话加载和生成状态计算的聊天区状态文案。
 const chatStatusText = computed(() => {
   if (sessionStore.historyLoading) return '正在恢复会话记录…'
   if (sessionStore.streaming) return '正在生成回答…'
@@ -40,14 +47,18 @@ onMounted(() => {
   void sessionStore.refreshRecentSessions()
 })
 
+/** 打开最近会话列表中的指定聊天会话。 */
+// 参数 conversation：从最近会话列表中选择的会话记录。
 function openRecentConversation(conversation: SessionItem) {
   if (sessionStore.streaming) return
   sessionStore.setSessionId(conversation.id)
   if (!isChatRoute.value) void router.push('/')
 }
 
+/** 刷新历史会话后清空当前会话并开始新对话。 */
 async function startNewConversation() {
   if (sessionStore.streaming) return
+  // 刷新最近会话记录是否成功。
   const saved = await sessionStore.refreshRecentSessions()
   if (!saved) return
 

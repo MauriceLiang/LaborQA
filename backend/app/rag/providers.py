@@ -1,4 +1,5 @@
-"""Factories and compatibility adapters for LangChain model providers."""
+# 文件作用：创建并检查聊天模型、嵌入模型等外部 Provider。
+"""创建兼容的聊天模型与嵌入模型，并封装 Provider 特定参数。"""
 
 from __future__ import annotations
 
@@ -13,7 +14,9 @@ from pydantic import SecretStr
 
 from app.core.config import Settings, settings
 
+# 聊天模型思考模式允许的配置值。
 ThinkingMode = Literal["default", "enabled", "disabled"]
+# 远程模型支持的推理强度选项。
 ReasoningEffort = Literal["low", "high", "max"]
 
 
@@ -23,9 +26,14 @@ def build_chat_model(
     thinking_mode: ThinkingMode = "default",
     reasoning_effort: ReasoningEffort | None = None,
 ) -> BaseChatModel:
-    """Build the configured OpenAI-compatible LangChain chat model."""
+    """根据应用配置构造 OpenAI 兼容的 LangChain 聊天模型。
+
+    参数：config 为模型连接配置；thinking_mode 和 reasoning_effort 控制推理参数。
+    返回：可用于同步或流式生成的 LangChain 聊天模型。
+    """
     from langchain_openai import ChatOpenAI
 
+    # kwargs 收集传递给 ChatOpenAI 的连接、模型和流式调用参数。
     kwargs: dict[str, Any] = {
         "model": config.llm_model,
         "api_key": config.llm_api_key,
@@ -50,6 +58,11 @@ def _deepseek_thinking_options(
     thinking_mode: ThinkingMode,
     reasoning_effort: ReasoningEffort | None = None,
 ) -> dict[str, Any]:
+    """把产品推理设置转换为 DeepSeek 兼容的模型请求参数。
+
+    参数：thinking_mode 为思考开关；reasoning_effort 为可选推理强度。
+    返回：需要合并到聊天模型初始化参数中的字典。
+    """
     if thinking_mode == "disabled":
         return {
             "reasoning_effort": "none",
@@ -68,7 +81,11 @@ def build_embeddings(
     *,
     http_client: Any | None = None,
 ) -> Embeddings:
-    """Build the configured LangChain embedding implementation."""
+    """按配置创建本地或远程的 LangChain 文本嵌入实现。
+
+    参数：config 为嵌入 Provider 设置；http_client 为可选复用 HTTP 客户端。
+    返回：实现 LangChain Embeddings 接口的嵌入服务。
+    """
     if config.embedding_provider == "local":
         from langchain_huggingface import HuggingFaceEmbeddings
 
@@ -93,6 +110,12 @@ def build_embeddings(
 
 
 def _resolve_local_model(model_name: str) -> str:
+    """优先使用本地模型路径，否则查找 Hugging Face 本地缓存。
+
+    参数：model_name 为模型名称或本地目录。
+    返回：可供模型加载器读取的本地路径或原模型名称。
+    """
+    # model_name 展开用户目录后对应的本地路径候选。
     local_path = Path(model_name).expanduser()
     if local_path.exists():
         return str(local_path)
@@ -107,12 +130,18 @@ def _resolve_local_model(model_name: str) -> str:
 
 
 def local_embedding_is_cached(config: Settings = settings) -> bool:
-    """Return whether the configured local embedding model is on disk."""
+    """检查当前配置的本地嵌入模型是否已在本机缓存。
+
+    参数：config 为包含本地模型名称的应用配置。
+    返回：模型可在本机离线加载时为 true。
+    """
     try:
         from huggingface_hub import snapshot_download
         from huggingface_hub.errors import LocalEntryNotFoundError
 
+        # 当前设置指定的本地嵌入模型名称或路径。
         model_name = config.local_embedding_model
+        # 展开用户目录后的本地模型路径候选。
         local_path = Path(model_name).expanduser()
         if local_path.exists():
             return True
@@ -123,6 +152,11 @@ def local_embedding_is_cached(config: Settings = settings) -> bool:
 
 
 def _resolve_local_device(device: str) -> str:
+    """将 auto 设备设置解析为当前机器可用的 CUDA、MPS 或 CPU。
+
+    参数：device 为用户配置的设备值。
+    返回：模型加载器可识别的设备标识。
+    """
     if device != "auto":
         return device
 
@@ -136,6 +170,8 @@ def _resolve_local_device(device: str) -> str:
 
 
 def _configure_local_torch_runtime() -> None:
+    """应用 macOS 下避免 PyTorch 与 FAISS OpenMP 冲突的线程配置。
+    """
     if sys.platform != "darwin":
         return
 
@@ -147,11 +183,9 @@ def _configure_local_torch_runtime() -> None:
 
 
 class CompatibleEmbeddings(Embeddings):
-    """OpenAI-compatible embeddings without model-specific tokenization.
+    """直接向 OpenAI 兼容嵌入端点提交文本并返回向量。
 
-    The configured service already receives bounded domain chunks. Sending
-    those strings directly also keeps compatibility with providers that do not
-    accept newer OpenAI SDK parameters such as ``encoding_format``.
+    不依赖模型专属分词器，兼容不支持新版 SDK 扩展参数的 Provider。
     """
 
     def __init__(
@@ -162,17 +196,35 @@ class CompatibleEmbeddings(Embeddings):
         base_url: str,
         http_client: httpx.Client | None = None,
     ) -> None:
-        self.model = model
-        self.openai_api_key = SecretStr(api_key)
-        self.openai_api_base = _without_endpoint_suffix(base_url, "/embeddings")
-        self._client = http_client
+        """保存远程嵌入请求所需的模型、凭证、端点和可选客户端。
+
+        参数：model 为嵌入模型名；api_key 为密钥；base_url 为服务地址；
+        http_client 为可选复用的 HTTP 客户端。
+        """
+        # 成员变量 model：当前使用的模型或模型名称。
+        self.model = model  # 远程嵌入 API 的模型名称。
+        # 成员变量 openai_api_key：远程 OpenAI 兼容服务的鉴权密钥。
+        self.openai_api_key = SecretStr(api_key)  # 隐藏显示的嵌入 API 密钥。
+        # 成员变量 openai_api_base：远程 OpenAI 兼容服务的 API 基础地址。
+        self.openai_api_base = _without_endpoint_suffix(base_url, "/embeddings")  # 去除重复 endpoint 后的 API 根地址。
+        # 成员变量 _client：复用的模型或 HTTP 请求客户端。
+        self._client = http_client  # 注入的 HTTP 客户端；为空时使用 httpx.post。
 
     @property
     def endpoint(self) -> str:
+        """返回最终嵌入请求 URL。
+        """
         return f"{self.openai_api_base}/embeddings"
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:
+        """批量请求文本向量并按原始输入顺序返回。
+
+        参数：texts 为需要转换为向量的文本列表。
+        返回：与输入一一对应的浮点向量列表。
+        """
+        # post 选择注入客户端的方法或 httpx 的全局 POST 函数。
         post = self._client.post if self._client is not None else httpx.post
+        # response 是远程嵌入服务返回的 HTTP 响应。
         response = post(
             self.endpoint,
             headers={
@@ -182,17 +234,32 @@ class CompatibleEmbeddings(Embeddings):
             timeout=60.0,
         )
         response.raise_for_status()
+        # payload 是服务端返回的 JSON 对象。
         payload = response.json()
+        # data 保存响应中的向量记录列表。
         data = payload["data"]
         if not isinstance(data, list) or len(data) != len(texts):
             raise ValueError("embedding response item count does not match request")
+        # ordered 按响应索引恢复为与输入文本相同的顺序。
         ordered = sorted(data, key=lambda item: item.get("index", 0))
+        # 局部变量 item：当前列表或结果集合中的一条数据。
         return [item["embedding"] for item in ordered]
 
     def embed_query(self, text: str) -> list[float]:
+        """将单条查询文本转换为向量。
+
+        参数：text 为需要嵌入的查询文本。
+        返回：查询对应的浮点向量。
+        """
         return self.embed_documents([text])[0]
 
 
 def _without_endpoint_suffix(base_url: str, suffix: str) -> str:
+    """规范化基础 URL，并移除已存在的指定 endpoint 后缀。
+
+    参数：base_url 为配置的服务地址；suffix 为需要移除的 endpoint 路径。
+    返回：不带末尾斜杠和重复 endpoint 的基础 URL。
+    """
+    # 去掉末尾斜杠后的服务 URL。
     normalized = base_url.rstrip("/")
     return normalized.removesuffix(suffix)

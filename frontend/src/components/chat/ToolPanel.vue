@@ -1,7 +1,9 @@
+<!-- 文件作用：展示聊天过程中调用的工具及其执行结果。 -->
 <script setup lang="ts">
 import type { ToolExecutionItem } from '@/types/sse'
 
 defineProps<{
+  /** 本条回答过程中产生的工具调用和输出列表。 */
   executions: ToolExecutionItem[]
 }>()
 </script>

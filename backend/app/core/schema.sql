@@ -1,3 +1,5 @@
+-- 文件作用：定义文档、会话、评估和检索实验使用的 SQLite 表及索引。
+-- 原始文档元数据、文件来源和导入状态。
 CREATE TABLE IF NOT EXISTS document (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_name VARCHAR(255) NOT NULL,
@@ -15,6 +17,7 @@ CREATE TABLE IF NOT EXISTS document (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 文档切分后的文本块及向量索引键。
 CREATE TABLE IF NOT EXISTS chunk (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     document_id INTEGER NOT NULL REFERENCES document(id) ON DELETE CASCADE,
@@ -25,6 +28,7 @@ CREATE TABLE IF NOT EXISTS chunk (
     UNIQUE (document_id, chunk_no)
 );
 
+-- 聊天会话标题和创建、更新时间。
 CREATE TABLE IF NOT EXISTS session (
     id VARCHAR(36) PRIMARY KEY,
     title VARCHAR(100),
@@ -32,6 +36,7 @@ CREATE TABLE IF NOT EXISTS session (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 用户提问和助手回答及其模式、风格和拒答状态。
 CREATE TABLE IF NOT EXISTS message (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     session_id VARCHAR(36) NOT NULL REFERENCES session(id) ON DELETE CASCADE,
@@ -44,6 +49,7 @@ CREATE TABLE IF NOT EXISTS message (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 回答引用的文本块、检索评分和证据来源。
 CREATE TABLE IF NOT EXISTS citation (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     message_id INTEGER NOT NULL REFERENCES message(id) ON DELETE CASCADE,
@@ -63,6 +69,7 @@ CREATE TABLE IF NOT EXISTS citation (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 聊天过程中工具调用的输入、输出和关联消息。
 CREATE TABLE IF NOT EXISTS tool_execution (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     message_id INTEGER REFERENCES message(id) ON DELETE SET NULL,
@@ -72,6 +79,7 @@ CREATE TABLE IF NOT EXISTS tool_execution (
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 评估用例内容、来源、版本和归档状态。
 CREATE TABLE IF NOT EXISTS evaluation_case (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     topic VARCHAR(50) NOT NULL,
@@ -92,6 +100,7 @@ CREATE TABLE IF NOT EXISTS evaluation_case (
     archived_at TEXT
 );
 
+-- 评估任务的执行状态、进度和汇总指标。
 CREATE TABLE IF NOT EXISTS evaluation_run (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name VARCHAR(100) NOT NULL,
@@ -115,6 +124,7 @@ CREATE TABLE IF NOT EXISTS evaluation_run (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 单个评估用例的回答、评分和诊断结果。
 CREATE TABLE IF NOT EXISTS evaluation_result (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     run_id INTEGER NOT NULL REFERENCES evaluation_run(id) ON DELETE CASCADE,
@@ -142,6 +152,7 @@ CREATE TABLE IF NOT EXISTS evaluation_result (
     UNIQUE (run_id, case_id)
 );
 
+-- 评估任务与用例之间的关系及运行时快照。
 CREATE TABLE IF NOT EXISTS evaluation_run_case (
     run_id INTEGER NOT NULL REFERENCES evaluation_run(id) ON DELETE CASCADE,
     case_id INTEGER NOT NULL REFERENCES evaluation_case(id),
@@ -152,6 +163,7 @@ CREATE TABLE IF NOT EXISTS evaluation_run_case (
     UNIQUE (run_id, position)
 );
 
+-- 回答过程中发现的知识缺口及其跟踪状态。
 CREATE TABLE IF NOT EXISTS missing_knowledge (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     topic_key VARCHAR(100) NOT NULL UNIQUE,
@@ -167,6 +179,7 @@ CREATE TABLE IF NOT EXISTS missing_knowledge (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 检索实验配置、运行进度和整体结论。
 CREATE TABLE IF NOT EXISTS retrieval_experiment (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name VARCHAR(100) NOT NULL,
@@ -187,6 +200,7 @@ CREATE TABLE IF NOT EXISTS retrieval_experiment (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 检索实验中单条策略配置的运行和指标结果。
 CREATE TABLE IF NOT EXISTS retrieval_experiment_result (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     experiment_id INTEGER NOT NULL REFERENCES retrieval_experiment(id) ON DELETE CASCADE,
@@ -203,6 +217,7 @@ CREATE TABLE IF NOT EXISTS retrieval_experiment_result (
     UNIQUE (experiment_id, config_index, case_id)
 );
 
+-- 可复用检索策略的参数、启用状态和版本。
 CREATE TABLE IF NOT EXISTS retrieval_strategy (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     name VARCHAR(100) NOT NULL,
@@ -217,6 +232,7 @@ CREATE TABLE IF NOT EXISTS retrieval_strategy (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+-- 检索策略各历史版本的配置快照。
 CREATE TABLE IF NOT EXISTS retrieval_strategy_version (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     strategy_id INTEGER NOT NULL REFERENCES retrieval_strategy(id) ON DELETE CASCADE,

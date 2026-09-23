@@ -1,3 +1,4 @@
+# 文件作用：构建包含 API 服务、文档转换器和运行时依赖的后端镜像。
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \

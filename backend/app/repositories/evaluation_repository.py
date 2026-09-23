@@ -1,3 +1,4 @@
+# 文件作用：封装评估用例、评估运行及其结果的数据库读写。
 """SQLite persistence for evaluation cases, batches, and per-case results."""
 
 from __future__ import annotations
@@ -14,12 +15,26 @@ from app.core.config import settings
 
 class EvaluationRepository:
     def __init__(self, database_path: Path | None = None) -> None:
+        """初始化评估数据仓库及数据库文件位置。
+
+        参数：
+        database_path：SQLite 数据库文件路径。
+        """
+        # 成员变量 database_path：SQLite 数据库文件路径。
         self.database_path = database_path or settings.database_path
 
     def seed_cases(
         self, cases: Sequence[dict[str, Any]], *, baseline_version: int = 1
     ) -> None:
+        """将内置基准评估用例写入数据库。
+
+        参数：
+        cases：本次查询或运行使用的评估用例集合。
+        baseline_version：当前内置评估基准数据的版本标识。
+        """
+        # 局部变量 key_prefix：当前缓存键使用的前缀。
         key_prefix = f"baseline-v{baseline_version}-"
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -36,8 +51,12 @@ class EvaluationRepository:
                 """,
                 (f"{key_prefix}%",),
             )
+            # 局部变量 position：当前循环或列表处理中的序号、位置。
+            # 局部变量 case：当前评估用例记录。
             for position, case in enumerate(cases, start=1):
+                # 局部变量 builtin_key：内置资料的稳定来源标识。
                 builtin_key = f"{key_prefix}{position:03d}"
+                # 局部变量 exists：目标文件、表或记录是否存在。
                 exists = connection.execute(
                     "SELECT 1 FROM evaluation_case WHERE builtin_key = ?",
                     (builtin_key,),
@@ -75,9 +94,24 @@ class EvaluationRepository:
         status: str | None = None,
         include_archived: bool = False,
     ) -> tuple[list[dict[str, Any]], int]:
+        """按筛选、状态和分页条件查询评估用例。
+
+        参数：
+        page：查询页码。
+        size：每页数据条数。
+        status：需要读取或设置的处理状态。
+        topic：评估用例或知识缺口所属的主题。
+        expected_type：用例预期的回答或拒答类型。
+        is_multi_turn：评估用例是否包含多轮对话。
+        origin：评估用例或资料的来源类别。
+        include_archived：查询结果是否包含已归档记录。
+        """
+        # 局部变量 conditions：当前查询使用的筛选条件。
         conditions: list[str] = []
+        # 局部变量 parameters：当前操作使用的参数集合。
         parameters: list[Any] = []
         if topic:
+            # 局部变量 escaped：已完成转义的安全文本。
             escaped = (
                 topic.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
             )
@@ -101,13 +135,17 @@ class EvaluationRepository:
         elif not include_archived:
             conditions.append("status = 'ACTIVE'")
 
+        # 局部变量 where_clause：SQL 查询的筛选子句。
         where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 total：符合当前条件的记录总数或项目总数。
             total = int(
                 connection.execute(
                     f"SELECT COUNT(*) FROM evaluation_case {where_clause}", parameters
                 ).fetchone()[0]
             )
+            # 局部变量 rows：本次查询返回的数据库记录集合。
             rows = connection.execute(
                 f"""
                 SELECT * FROM evaluation_case
@@ -117,6 +155,7 @@ class EvaluationRepository:
                 """,
                 [*parameters, size, (page - 1) * size],
             ).fetchall()
+            # 局部变量 row：数据库查询返回的当前记录行。
             return [self._case_item(row) for row in rows], total
 
     def get_cases(
@@ -125,16 +164,28 @@ class EvaluationRepository:
         *,
         include_archived: bool = False,
     ) -> list[dict[str, Any]]:
+        """按一组用例标识批量读取评估用例。
+
+        参数：
+        case_ids：评估用例标识列表。
+        include_archived：查询结果是否包含已归档记录。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 status_clause：根据任务状态生成的 SQL 条件。
             status_clause = "" if include_archived else " AND status = 'ACTIVE'"
             if case_ids is None:
+                # 局部变量 rows：本次查询返回的数据库记录集合。
                 rows = connection.execute(
                     f"SELECT * FROM evaluation_case WHERE 1 = 1{status_clause} ORDER BY id"
                 ).fetchall()
             elif not case_ids:
                 return []
             else:
+                # 局部变量 placeholders：提示模板中待填充的变量名集合。
                 placeholders = ",".join("?" for _ in case_ids)
+                # 局部变量 found：是否成功找到目标记录。
+                # 局部变量 row：数据库查询返回的当前记录行。
                 found = {
                     int(row["id"]): row
                     for row in connection.execute(
@@ -142,17 +193,32 @@ class EvaluationRepository:
                         list(case_ids),
                     ).fetchall()
                 }
+                # 局部变量 case_id：当前评估用例的数据库标识。
                 rows = [found[case_id] for case_id in case_ids if case_id in found]
             return [self._case_item(row) for row in rows]
 
     def get_case(
         self, case_id: int, *, include_archived: bool = False
     ) -> dict[str, Any] | None:
+        """按主键读取单条评估用例。
+
+        参数：
+        case_id：目标评估用例标识。
+        include_archived：查询结果是否包含已归档记录。
+        """
+        # 局部变量 cases：本次查询或运行使用的评估用例集合。
         cases = self.get_cases([case_id], include_archived=include_archived)
         return cases[0] if cases else None
 
     def create_case(self, case: dict[str, Any]) -> dict[str, Any]:
+        """创建用户维护的评估用例记录。
+
+        参数：
+        case：当前评测用例数据。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
             cursor = connection.execute(
                 """
                 INSERT INTO evaluation_case (
@@ -163,6 +229,7 @@ class EvaluationRepository:
                 """,
                 _case_values(case),
             )
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM evaluation_case WHERE id = ?", (cursor.lastrowid,)
             ).fetchone()
@@ -171,7 +238,16 @@ class EvaluationRepository:
     def update_case(
         self, case_id: int, expected_version: int, case: dict[str, Any]
     ) -> dict[str, Any] | None:
+        """更新评估用例内容并推进版本号。
+
+        参数：
+        case_id：目标评估用例标识。
+        case：当前评测用例数据。
+        expected_version：提交更新时客户端读取到的用例版本。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
             cursor = connection.execute(
                 """
                 UPDATE evaluation_case
@@ -185,13 +261,21 @@ class EvaluationRepository:
             )
             if cursor.rowcount == 0:
                 return None
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM evaluation_case WHERE id = ?", (case_id,)
             ).fetchone()
             return self._case_item(row)
 
     def archive_case(self, case_id: int) -> dict[str, Any] | None:
+        """归档评估用例并返回更新后的记录。
+
+        参数：
+        case_id：目标评估用例标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
             cursor = connection.execute(
                 """
                 UPDATE evaluation_case
@@ -203,12 +287,19 @@ class EvaluationRepository:
             )
             if cursor.rowcount == 0:
                 return None
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM evaluation_case WHERE id = ?", (case_id,)
             ).fetchone()
             return self._case_item(row)
 
     def has_active_run(self, case_id: int) -> bool:
+        """检查评估用例是否被正在执行的任务占用。
+
+        参数：
+        case_id：目标评估用例标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
             return (
                 connection.execute(
@@ -231,8 +322,19 @@ class EvaluationRepository:
         cases: Sequence[dict[str, Any]],
         config: dict[str, Any],
     ) -> dict[str, Any]:
+        """创建评估运行及其选中用例快照。
+
+        参数：
+        name：资源名称或模型名称。
+        config：当前应用或实验配置。
+        cases：当前任务使用的评估用例集合。
+        """
+        # 局部变量 case_ids：本次评估选择的用例标识列表。
+        # 局部变量 case：当前评估用例记录。
         case_ids = [int(case["id"]) for case in cases]
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
             cursor = connection.execute(
                 """
                 INSERT INTO evaluation_run (name, case_count, progress_total, config_json)
@@ -245,7 +347,10 @@ class EvaluationRepository:
                     json.dumps(config, ensure_ascii=False),
                 ),
             )
+            # 局部变量 run_id：当前评估运行的数据库标识。
             run_id = int(cursor.lastrowid)
+            # 局部变量 position：当前循环或列表处理中的序号、位置。
+            # 局部变量 case_id：当前评估用例的数据库标识。
             connection.executemany(
                 """
                 INSERT INTO evaluation_run_case (
@@ -272,12 +377,20 @@ class EvaluationRepository:
             )
 
     def delete_run(self, run_id: int) -> dict[str, Any] | None:
+        """删除评估运行和关联结果记录。
+
+        参数：
+        run_id：目标评测运行标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM evaluation_run WHERE id = ?", (run_id,)
             ).fetchone()
             if row is None:
                 return None
+            # 局部变量 run：当前评测任务或运行记录。
             run = dict(row)
             if run["status"] not in {"COMPLETED", "FAILED"}:
                 return run
@@ -285,15 +398,30 @@ class EvaluationRepository:
             return run
 
     def run_case_ids(self, run_id: int) -> list[int]:
+        """读取评估运行包含的用例标识。
+
+        参数：
+        run_id：目标评测运行标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 rows：本次查询返回的数据库记录集合。
             rows = connection.execute(
                 "SELECT case_id FROM evaluation_run_case WHERE run_id = ? ORDER BY position",
                 (run_id,),
             ).fetchall()
+            # 局部变量 row：数据库查询返回的当前记录行。
             return [int(row["case_id"]) for row in rows]
 
     def run_cases(self, run_id: int) -> list[dict[str, Any]]:
+        """读取评估运行时保存的用例快照。
+
+        参数：
+        run_id：目标评测运行标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 rows：本次查询返回的数据库记录集合。
             rows = connection.execute(
                 """
                 SELECT case_id, case_version, case_snapshot_json
@@ -302,10 +430,14 @@ class EvaluationRepository:
                 """,
                 (run_id,),
             ).fetchall()
+            # 局部变量 cases：本次查询或运行使用的评估用例集合。
             cases: list[dict[str, Any]] = []
+            # 局部变量 row：数据库查询返回的当前记录行。
             for row in rows:
+                # 局部变量 snapshot：任务创建时保存的不可变输入快照。
                 snapshot = json.loads(row["case_snapshot_json"] or "{}")
                 if not snapshot:
+                    # 局部变量 current：当前处理的对象或状态快照。
                     current = self.get_case(int(row["case_id"]), include_archived=True)
                     if current is None:
                         continue
@@ -320,6 +452,13 @@ class EvaluationRepository:
             return cases
 
     def set_run_status(self, run_id: int, status: str) -> None:
+        """更新评估运行的生命周期状态。
+
+        参数：
+        run_id：目标评测运行标识。
+        status：需要读取或设置的处理状态。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
             connection.execute(
                 "UPDATE evaluation_run SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -327,6 +466,13 @@ class EvaluationRepository:
             )
 
     def add_result(self, run_id: int, result: dict[str, Any]) -> None:
+        """保存单条评估用例执行结果。
+
+        参数：
+        run_id：目标评测运行标识。
+        result：本次操作或模型调用的结果数据。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -371,6 +517,13 @@ class EvaluationRepository:
             )
 
     def complete_run(self, run_id: int, metrics: dict[str, float | None]) -> None:
+        """将评估运行标记为完成并保存汇总指标。
+
+        参数：
+        run_id：目标评测运行标识。
+        metrics：运行结束后计算的汇总指标。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -397,6 +550,13 @@ class EvaluationRepository:
             )
 
     def fail_run(self, run_id: int, message: str) -> None:
+        """将评估运行标记为失败并记录错误信息。
+
+        参数：
+        run_id：目标评测运行标识。
+        message：需要保存或展示的消息内容。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -408,6 +568,9 @@ class EvaluationRepository:
             )
 
     def recover_interrupted_runs(self) -> None:
+        """将进程中断后遗留的运行恢复为可解释状态。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
             connection.execute(
                 """
@@ -421,14 +584,26 @@ class EvaluationRepository:
     def list_runs(
         self, *, page: int, size: int, status: str | None
     ) -> tuple[list[dict[str, Any]], int]:
+        """按条件和分页读取评估运行摘要。
+
+        参数：
+        page：查询页码。
+        size：每页数据条数。
+        status：需要读取或设置的处理状态。
+        """
+        # 局部变量 where_clause：SQL 查询的筛选子句。
         where_clause = "WHERE status = ?" if status else ""
+        # 局部变量 parameters：当前操作使用的参数集合。
         parameters: list[Any] = [status] if status else []
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 total：符合当前条件的记录总数或项目总数。
             total = int(
                 connection.execute(
                     f"SELECT COUNT(*) FROM evaluation_run {where_clause}", parameters
                 ).fetchone()[0]
             )
+            # 局部变量 rows：本次查询返回的数据库记录集合。
             rows = connection.execute(
                 f"""
                 SELECT * FROM evaluation_run
@@ -438,15 +613,24 @@ class EvaluationRepository:
                 """,
                 [*parameters, size, (page - 1) * size],
             ).fetchall()
+            # 局部变量 row：数据库查询返回的当前记录行。
             return [self._run_summary(row) for row in rows], total
 
     def get_run(self, run_id: int) -> dict[str, Any] | None:
+        """读取评估运行详情及其结果。
+
+        参数：
+        run_id：目标评测运行标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM evaluation_run WHERE id = ?", (run_id,)
             ).fetchone()
             if row is None:
                 return None
+            # 局部变量 results：本次批量处理生成的结果记录集合。
             results = connection.execute(
                 """
                 SELECT * FROM evaluation_result
@@ -455,9 +639,12 @@ class EvaluationRepository:
                 """,
                 (run_id,),
             ).fetchall()
+            # 局部变量 summary：当前对象的摘要信息。
             summary = self._run_summary(row)
+            # 局部变量 metrics：本次评测或实验的汇总指标。
             metrics = None
             if row["status"] == "COMPLETED":
+                # 局部变量 key：当前映射使用的键或稳定标识。
                 metrics = {
                     key: row[key]
                     for key in (
@@ -472,6 +659,7 @@ class EvaluationRepository:
                         "compliance_hit_rate",
                     )
                 }
+            # 局部变量 item：当前列表或结果集合中的一条数据。
             return {
                 **summary,
                 "config": json.loads(row["config_json"]),
@@ -481,6 +669,12 @@ class EvaluationRepository:
 
     @staticmethod
     def _case_item(row: sqlite3.Row) -> dict[str, Any]:
+        """将数据库行转换为评估用例响应字典。
+
+        参数：
+        row：从数据库读取的一行记录。
+        """
+        # 局部变量 columns：当前数据库表或结果包含的列名集合。
         columns = set(row.keys())
         return {
             "id": int(row["id"]),
@@ -502,6 +696,11 @@ class EvaluationRepository:
 
     @staticmethod
     def _run_summary(row: sqlite3.Row) -> dict[str, Any]:
+        """将数据库行转换为评估运行摘要字典。
+
+        参数：
+        row：从数据库读取的一行记录。
+        """
         return {
             "id": int(row["id"]),
             "name": row["name"],
@@ -515,6 +714,12 @@ class EvaluationRepository:
 
     @staticmethod
     def _result_item(row: sqlite3.Row) -> dict[str, Any]:
+        """将数据库行转换为评估用例结果字典。
+
+        参数：
+        row：从数据库读取的一行记录。
+        """
+        # 局部变量 columns：当前数据库表或结果包含的列名集合。
         columns = set(row.keys())
         return {
             "case_id": int(row["case_id"]),
@@ -547,6 +752,9 @@ class EvaluationRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
+        """创建 SQLite 连接上下文并统一管理数据库连接。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         connection = sqlite3.connect(str(self.database_path), timeout=5)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")
@@ -558,20 +766,42 @@ class EvaluationRepository:
 
 
 def _db_bool(value: bool | None) -> int | None:
+    """将 Python 布尔值转换为 SQLite 可保存的整数值。
+
+    参数：
+    value：需要转换或校验的输入值。
+    """
     return None if value is None else int(value)
 
 
 def _python_bool(value: int | None) -> bool | None:
+    """将 SQLite 整数值转换为 Python 布尔值。
+
+    参数：
+    value：需要转换或校验的输入值。
+    """
     return None if value is None else bool(value)
 
 
 def _json_list(row: sqlite3.Row, columns: set[str], column: str) -> list[Any]:
+    """从数据库行中解码指定 JSON 列表字段。
+
+    参数：
+    row：从数据库读取的一行记录。
+    columns：数据库记录包含的列名集合。
+    column：当前数据库列名。
+    """
     if column not in columns:
         return []
     return json.loads(row[column] or "[]")
 
 
 def _case_values(case: dict[str, Any]) -> tuple[Any, ...]:
+    """按数据库写入顺序提取评估用例字段值。
+
+    参数：
+    case：当前评测用例数据。
+    """
     return (
         case["topic"],
         case["expected_type"],
@@ -583,6 +813,11 @@ def _case_values(case: dict[str, Any]) -> tuple[Any, ...]:
 
 
 def _case_snapshot(case: dict[str, Any]) -> dict[str, Any]:
+    """构造评估运行使用的用例内容快照。
+
+    参数：
+    case：当前评测用例数据。
+    """
     return {
         "topic": case["topic"],
         "expected_type": case["expected_type"],

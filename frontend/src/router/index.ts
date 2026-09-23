@@ -1,3 +1,4 @@
+// 文件作用：定义前端页面路由及其对应的视图组件。
 import { createRouter, createWebHistory } from 'vue-router'
 
 import HomeView from '@/views/HomeView.vue'
@@ -7,6 +8,7 @@ import MissingKnowledgeView from '@/views/MissingKnowledgeView.vue'
 import EvaluationView from '@/views/EvaluationView.vue'
 import RetrievalExperimentView from '@/views/RetrievalExperimentView.vue'
 
+// 根据浏览器地址和页面配置创建的前端路由实例。
 const router = createRouter({
   history: createWebHistory(),
   routes: [

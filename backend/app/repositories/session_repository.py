@@ -1,3 +1,4 @@
+# 文件作用：封装聊天会话、消息、引用和工具执行记录的数据库读写。
 """SQLite persistence for sessions and their chat messages."""
 
 from __future__ import annotations
@@ -20,29 +21,57 @@ class SessionNotFoundError(LookupError):
 
 class SessionRepository:
     def __init__(self, database_path: Path | None = None) -> None:
+        """初始化聊天会话数据仓库及数据库文件位置。
+
+        参数：
+        database_path：SQLite 数据库文件路径。
+        """
+        # 成员变量 database_path：SQLite 数据库文件路径。
         self.database_path = database_path or settings.database_path
 
     def create_session(self, title: str | None = None) -> dict[str, Any]:
+        """创建聊天会话记录。
+
+        参数：
+        title：新建或更新会话的展示标题。
+        """
+        # 局部变量 session_id：聊天会话的唯一标识。
         session_id = str(uuid4())
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
             connection.execute(
                 "INSERT INTO session (id, title) VALUES (?, ?)",
                 (session_id, title),
             )
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM session WHERE id = ?", (session_id,)
             ).fetchone()
             return dict(row)
 
     def get_session(self, session_id: str) -> dict[str, Any] | None:
+        """按会话标识读取会话元数据。
+
+        参数：
+        session_id：目标聊天会话标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM session WHERE id = ?", (session_id,)
             ).fetchone()
             return dict(row) if row is not None else None
 
     def list_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
+        """按更新时间倒序读取最近会话。
+
+        参数：
+        limit：返回记录数量上限。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 rows：本次查询返回的数据库记录集合。
             rows = connection.execute(
                 """
                 SELECT s.*
@@ -57,10 +86,18 @@ class SessionRepository:
                 """,
                 (limit,),
             ).fetchall()
+            # 局部变量 row：数据库查询返回的当前记录行。
             return [dict(row) for row in rows]
 
     def list_messages(self, session_id: str) -> list[dict[str, Any]]:
+        """读取指定会话的消息列表。
+
+        参数：
+        session_id：目标聊天会话标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 rows：本次查询返回的数据库记录集合。
             rows = connection.execute(
                 """
                 SELECT * FROM message
@@ -74,12 +111,20 @@ class SessionRepository:
     def get_recent_context(
         self, session_id: str, turns: int = 3
     ) -> list[dict[str, Any]]:
+        """读取生成回答所需的最近上下文消息。
+
+        参数：
+        session_id：目标聊天会话标识。
+        turns：需要读取或处理的对话轮次数。
+        """
         if turns < 0:
             raise ValueError("turns must not be negative")
         if turns == 0:
             return []
 
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 rows：本次查询返回的数据库记录集合。
             rows = connection.execute(
                 """
                 WITH ordered_messages AS (
@@ -116,6 +161,14 @@ class SessionRepository:
         question: str,
         ai_mode: AiMode | str = AiMode.BALANCED,
     ) -> dict[str, Any]:
+        """保存用户提交的问题消息。
+
+        参数：
+        session_id：目标聊天会话标识。
+        question：用户提出的问题文本。
+        ai_mode：生成回答时采用的 AI 模式。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
             if (
                 connection.execute(
@@ -124,6 +177,7 @@ class SessionRepository:
                 is None
             ):
                 raise SessionNotFoundError(session_id)
+            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
             cursor = connection.execute(
                 """
                 INSERT INTO message (
@@ -137,13 +191,22 @@ class SessionRepository:
                 "UPDATE session SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (session_id,),
             )
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM message WHERE id = ?", (cursor.lastrowid,)
             ).fetchone()
             return self._load_messages(connection, [row])[0]
 
     def set_rewritten_question(self, message_id: int, text: str) -> bool:
+        """保存问题改写后的检索文本。
+
+        参数：
+        text：待处理的文本内容。
+        message_id：目标聊天消息的数据库标识。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
+            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
             cursor = connection.execute(
                 """
                 UPDATE message SET rewritten_question = ?
@@ -163,6 +226,18 @@ class SessionRepository:
         tool_executions: Sequence[Mapping[str, Any]] = (),
         ai_mode: AiMode | str = AiMode.BALANCED,
     ) -> dict[str, Any]:
+        """保存助手回答、引用和工具执行信息。
+
+        参数：
+        session_id：目标聊天会话标识。
+        answer_style：答案表达风格。
+        content：需要处理或保存的正文内容。
+        refused：模型回答是否因为证据不足或合规规则而拒答。
+        citations：回答中引用的来源记录集合。
+        tool_executions：本轮回答关联的工具执行记录集合。
+        ai_mode：生成回答时采用的 AI 模式。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         with self._connection() as connection:
             if (
                 connection.execute(
@@ -172,6 +247,7 @@ class SessionRepository:
             ):
                 raise SessionNotFoundError(session_id)
 
+            # 局部变量 cursor：负责执行本次 SQL 操作的数据库游标。
             cursor = connection.execute(
                 """
                 INSERT INTO message (
@@ -187,8 +263,10 @@ class SessionRepository:
                     int(refused),
                 ),
             )
+            # 局部变量 message_id：当前会话消息的数据库标识。
             message_id = int(cursor.lastrowid)
 
+            # 局部变量 citation：当前回答引用的资料来源记录。
             for citation in citations:
                 connection.execute(
                     """
@@ -215,6 +293,7 @@ class SessionRepository:
                     ),
                 )
 
+            # 局部变量 execution：当前工具调用的执行记录。
             for execution in tool_executions:
                 connection.execute(
                     """
@@ -234,6 +313,7 @@ class SessionRepository:
                 "UPDATE session SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
                 (session_id,),
             )
+            # 局部变量 row：数据库查询返回的当前记录行。
             row = connection.execute(
                 "SELECT * FROM message WHERE id = ?", (message_id,)
             ).fetchone()
@@ -243,6 +323,14 @@ class SessionRepository:
     def _load_messages(
         connection: sqlite3.Connection, rows: Sequence[sqlite3.Row]
     ) -> list[dict[str, Any]]:
+        """按数据库存储顺序批量加载消息行。
+
+        参数：
+        connection：当前使用的 SQLite 数据库连接。
+        rows：数据库查询返回的记录行集合。
+        """
+        # 局部变量 messages：当前会话的消息记录集合。
+        # 局部变量 row：数据库查询返回的当前记录行。
         messages = [
             {
                 "id": int(row["id"]),
@@ -262,9 +350,14 @@ class SessionRepository:
         if not messages:
             return messages
 
+        # 局部变量 by_id：按资源标识建立的查询映射。
+        # 局部变量 message：需要记录、保存或返回的消息文本。
         by_id = {message["id"]: message for message in messages}
+        # 局部变量 placeholders：提示模板中待填充的变量名集合。
         placeholders = ", ".join("?" for _ in by_id)
+        # 局部变量 message_ids：当前批量操作涉及的消息标识集合。
         message_ids = list(by_id)
+        # 局部变量 citation_rows：当前消息引用来源对应的数据库记录。
         citation_rows = connection.execute(
             f"""
             SELECT
@@ -281,6 +374,7 @@ class SessionRepository:
             """,
             message_ids,
         ).fetchall()
+        # 局部变量 row：当前消息引用对应的数据库记录行。
         for row in citation_rows:
             by_id[int(row["message_id"])]["citations"].append(
                 {
@@ -314,6 +408,7 @@ class SessionRepository:
                 }
             )
 
+        # 局部变量 execution_rows：当前消息工具执行记录对应的数据库行。
         execution_rows = connection.execute(
             f"""
             SELECT message_id, tool_name, input_json, output_json
@@ -335,6 +430,9 @@ class SessionRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
+        """创建 SQLite 连接上下文并统一管理数据库连接。
+        """
+        # 局部变量 connection：当前操作使用的数据库连接。
         connection = sqlite3.connect(str(self.database_path), timeout=5)
         connection.row_factory = sqlite3.Row
         connection.execute("PRAGMA foreign_keys = ON")

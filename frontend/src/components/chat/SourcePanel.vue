@@ -1,7 +1,9 @@
+<!-- 文件作用：展示回答引用的检索来源和片段评分信息。 -->
 <script setup lang="ts">
 import type { CitationItem } from '@/types/sse'
 
 defineProps<{
+  /** 当前回答引用的知识库来源及其检索信息。 */
   citations: CitationItem[]
 }>()
 </script>

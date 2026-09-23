@@ -1,3 +1,4 @@
+/* 文件作用：定义应用全局颜色、排版、布局和通用组件样式。 */
 :root {
   font-family: Inter, "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   color: #20352d;
@@ -6,84 +7,161 @@
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
 
-  /* Element Plus uses these tokens for components rendered outside view scopes. */
+  /* Element Plus 在视图作用域外渲染的组件也会读取这些主题变量。 */
   --el-font-family: Inter, "PingFang SC", "Microsoft YaHei", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  /* el-color-primary-rgb：Element Plus 主色的RGB 分量，供对应交互状态和主题样式使用。 */
   --el-color-primary-rgb: 18, 96, 71;
+  /* el-color-primary：Element Plus 主色的基础色值，供对应交互状态和主题样式使用。 */
   --el-color-primary: #126047;
+  /* el-color-primary-light-3：Element Plus 主色的浅色等级 3，供对应交互状态和主题样式使用。 */
   --el-color-primary-light-3: #4d9277;
+  /* el-color-primary-light-5：Element Plus 主色的浅色等级 5，供对应交互状态和主题样式使用。 */
   --el-color-primary-light-5: #7eaf9c;
+  /* el-color-primary-light-7：Element Plus 主色的浅色等级 7，供对应交互状态和主题样式使用。 */
   --el-color-primary-light-7: #abd0bd;
+  /* el-color-primary-light-8：Element Plus 主色的浅色等级 8，供对应交互状态和主题样式使用。 */
   --el-color-primary-light-8: #cce4d5;
+  /* el-color-primary-light-9：Element Plus 主色的浅色等级 9，供对应交互状态和主题样式使用。 */
   --el-color-primary-light-9: #eff7f2;
+  /* el-color-primary-dark-2：Element Plus 主色的深色等级 2，供对应交互状态和主题样式使用。 */
   --el-color-primary-dark-2: #0f523c;
+  /* el-color-success-rgb：Element Plus 成功色的RGB 分量，供对应交互状态和主题样式使用。 */
   --el-color-success-rgb: 38, 122, 93;
+  /* el-color-success：Element Plus 成功色的基础色值，供对应交互状态和主题样式使用。 */
   --el-color-success: #267a5d;
+  /* el-color-success-light-3：Element Plus 成功色的浅色等级 3，供对应交互状态和主题样式使用。 */
   --el-color-success-light-3: #6aa88e;
+  /* el-color-success-light-5：Element Plus 成功色的浅色等级 5，供对应交互状态和主题样式使用。 */
   --el-color-success-light-5: #9bc5b1;
+  /* el-color-success-light-7：Element Plus 成功色的浅色等级 7，供对应交互状态和主题样式使用。 */
   --el-color-success-light-7: #c3ded0;
+  /* el-color-success-light-8：Element Plus 成功色的浅色等级 8，供对应交互状态和主题样式使用。 */
   --el-color-success-light-8: #dcece4;
+  /* el-color-success-light-9：Element Plus 成功色的浅色等级 9，供对应交互状态和主题样式使用。 */
   --el-color-success-light-9: #eff8f3;
+  /* el-color-success-dark-2：Element Plus 成功色的深色等级 2，供对应交互状态和主题样式使用。 */
   --el-color-success-dark-2: #1c624b;
+  /* el-color-warning-rgb：Element Plus 警告色的RGB 分量，供对应交互状态和主题样式使用。 */
   --el-color-warning-rgb: 177, 123, 47;
+  /* el-color-warning：Element Plus 警告色的基础色值，供对应交互状态和主题样式使用。 */
   --el-color-warning: #b17b2f;
+  /* el-color-warning-light-3：Element Plus 警告色的浅色等级 3，供对应交互状态和主题样式使用。 */
   --el-color-warning-light-3: #c99b61;
+  /* el-color-warning-light-5：Element Plus 警告色的浅色等级 5，供对应交互状态和主题样式使用。 */
   --el-color-warning-light-5: #dfc398;
+  /* el-color-warning-light-7：Element Plus 警告色的浅色等级 7，供对应交互状态和主题样式使用。 */
   --el-color-warning-light-7: #eedec3;
+  /* el-color-warning-light-8：Element Plus 警告色的浅色等级 8，供对应交互状态和主题样式使用。 */
   --el-color-warning-light-8: #f5e9d7;
+  /* el-color-warning-light-9：Element Plus 警告色的浅色等级 9，供对应交互状态和主题样式使用。 */
   --el-color-warning-light-9: #fbf6ed;
+  /* el-color-warning-dark-2：Element Plus 警告色的深色等级 2，供对应交互状态和主题样式使用。 */
   --el-color-warning-dark-2: #8f6124;
+  /* el-color-danger-rgb：Element Plus 危险色的RGB 分量，供对应交互状态和主题样式使用。 */
   --el-color-danger-rgb: 182, 92, 88;
+  /* el-color-danger：Element Plus 危险色的基础色值，供对应交互状态和主题样式使用。 */
   --el-color-danger: #b65c58;
+  /* el-color-danger-light-3：Element Plus 危险色的浅色等级 3，供对应交互状态和主题样式使用。 */
   --el-color-danger-light-3: #cb8783;
+  /* el-color-danger-light-5：Element Plus 危险色的浅色等级 5，供对应交互状态和主题样式使用。 */
   --el-color-danger-light-5: #dfaaa7;
+  /* el-color-danger-light-7：Element Plus 危险色的浅色等级 7，供对应交互状态和主题样式使用。 */
   --el-color-danger-light-7: #efd0ce;
+  /* el-color-danger-light-8：Element Plus 危险色的浅色等级 8，供对应交互状态和主题样式使用。 */
   --el-color-danger-light-8: #f5dfdd;
+  /* el-color-danger-light-9：Element Plus 危险色的浅色等级 9，供对应交互状态和主题样式使用。 */
   --el-color-danger-light-9: #fcf3f2;
+  /* el-color-danger-dark-2：Element Plus 危险色的深色等级 2，供对应交互状态和主题样式使用。 */
   --el-color-danger-dark-2: #914945;
+  /* el-color-error-rgb：Element Plus 错误色的RGB 分量，供对应交互状态和主题样式使用。 */
   --el-color-error-rgb: 182, 92, 88;
+  /* el-color-error：Element Plus 错误色的基础色值，供对应交互状态和主题样式使用。 */
   --el-color-error: #b65c58;
+  /* el-color-error-light-3：Element Plus 错误色的浅色等级 3，供对应交互状态和主题样式使用。 */
   --el-color-error-light-3: #cb8783;
+  /* el-color-error-light-5：Element Plus 错误色的浅色等级 5，供对应交互状态和主题样式使用。 */
   --el-color-error-light-5: #dfaaa7;
+  /* el-color-error-light-7：Element Plus 错误色的浅色等级 7，供对应交互状态和主题样式使用。 */
   --el-color-error-light-7: #efd0ce;
+  /* el-color-error-light-8：Element Plus 错误色的浅色等级 8，供对应交互状态和主题样式使用。 */
   --el-color-error-light-8: #f5dfdd;
+  /* el-color-error-light-9：Element Plus 错误色的浅色等级 9，供对应交互状态和主题样式使用。 */
   --el-color-error-light-9: #fcf3f2;
+  /* el-color-error-dark-2：Element Plus 错误色的深色等级 2，供对应交互状态和主题样式使用。 */
   --el-color-error-dark-2: #914945;
+  /* el-color-info-rgb：Element Plus 信息色的RGB 分量，供对应交互状态和主题样式使用。 */
   --el-color-info-rgb: 117, 129, 149;
+  /* el-color-info：Element Plus 信息色的基础色值，供对应交互状态和主题样式使用。 */
   --el-color-info: #758195;
+  /* el-color-info-light-3：Element Plus 信息色的浅色等级 3，供对应交互状态和主题样式使用。 */
   --el-color-info-light-3: #9aa4b4;
+  /* el-color-info-light-5：Element Plus 信息色的浅色等级 5，供对应交互状态和主题样式使用。 */
   --el-color-info-light-5: #bbc2cd;
+  /* el-color-info-light-7：Element Plus 信息色的浅色等级 7，供对应交互状态和主题样式使用。 */
   --el-color-info-light-7: #d9dde4;
+  /* el-color-info-light-8：Element Plus 信息色的浅色等级 8，供对应交互状态和主题样式使用。 */
   --el-color-info-light-8: #e7eaf0;
+  /* el-color-info-light-9：Element Plus 信息色的浅色等级 9，供对应交互状态和主题样式使用。 */
   --el-color-info-light-9: #f4f6f8;
+  /* el-color-info-dark-2：Element Plus 信息色的深色等级 2，供对应交互状态和主题样式使用。 */
   --el-color-info-dark-2: #5c687b;
+  /* el-text-color-primary：Element Plus 对应层级文本的显示颜色。 */
   --el-text-color-primary: #263548;
+  /* el-text-color-regular：Element Plus 对应层级文本的显示颜色。 */
   --el-text-color-regular: #536077;
+  /* el-text-color-secondary：Element Plus 对应层级文本的显示颜色。 */
   --el-text-color-secondary: #758195;
+  /* el-text-color-placeholder：Element Plus 对应层级文本的显示颜色。 */
   --el-text-color-placeholder: #9aa6b4;
+  /* el-text-color-disabled：Element Plus 对应层级文本的显示颜色。 */
   --el-text-color-disabled: #b4bdc7;
+  /* el-border-color：项目样式使用的组件主题参数。 */
   --el-border-color: #d8e1dc;
+  /* el-border-color-light：Element Plus 对应层级边框的显示颜色。 */
   --el-border-color-light: #e5ece7;
+  /* el-border-color-lighter：Element Plus 对应层级边框的显示颜色。 */
   --el-border-color-lighter: #edf2ef;
+  /* el-border-color-extra-light：Element Plus 对应层级边框的显示颜色。 */
   --el-border-color-extra-light: #f4f7f5;
+  /* el-border-color-dark：Element Plus 对应层级边框的显示颜色。 */
   --el-border-color-dark: #c3d0c8;
+  /* el-border-color-darker：Element Plus 对应层级边框的显示颜色。 */
   --el-border-color-darker: #acbdb3;
+  /* el-fill-color：项目样式使用的组件主题参数。 */
   --el-fill-color: #f1f6f3;
+  /* el-fill-color-light：Element Plus 对应层级填充区域的背景色。 */
   --el-fill-color-light: #f5f8f6;
+  /* el-fill-color-lighter：Element Plus 对应层级填充区域的背景色。 */
   --el-fill-color-lighter: #fafcfb;
+  /* el-fill-color-extra-light：Element Plus 对应层级填充区域的背景色。 */
   --el-fill-color-extra-light: #fcfdfc;
+  /* el-fill-color-blank：Element Plus 对应层级填充区域的背景色。 */
   --el-fill-color-blank: #fff;
+  /* el-bg-color：项目样式使用的组件主题参数。 */
   --el-bg-color: #fff;
+  /* el-bg-color-page：Element Plus 对应层级组件或页面的背景色。 */
   --el-bg-color-page: #f8faf8;
+  /* el-bg-color-overlay：Element Plus 对应层级组件或页面的背景色。 */
   --el-bg-color-overlay: #fff;
+  /* el-overlay-color：项目样式使用的组件主题参数。 */
   --el-overlay-color: rgb(0 0 0 / 50%);
+  /* el-overlay-color-light：弹层遮罩对应亮度层级的颜色及透明度。 */
   --el-overlay-color-light: rgb(0 0 0 / 35%);
+  /* el-overlay-color-lighter：弹层遮罩对应亮度层级的颜色及透明度。 */
   --el-overlay-color-lighter: rgb(0 0 0 / 50%);
+  /* el-border-radius-base：基础组件对应尺寸的圆角半径。 */
   --el-border-radius-base: 8px;
+  /* el-border-radius-small：基础组件对应尺寸的圆角半径。 */
   --el-border-radius-small: 7px;
+  /* el-border-radius-round：基础组件对应尺寸的圆角半径。 */
   --el-border-radius-round: 999px;
+  /* el-border-radius-circle：基础组件对应尺寸的圆角半径。 */
   --el-border-radius-circle: 50%;
+  /* el-box-shadow：项目样式使用的组件主题参数。 */
   --el-box-shadow: 0 16px 40px rgb(31 68 54 / 14%);
+  /* el-box-shadow-light：组件对应层级的阴影样式。 */
   --el-box-shadow-light: 0 10px 26px rgb(31 68 54 / 12%);
+  /* el-box-shadow-lighter：组件对应层级的阴影样式。 */
   --el-box-shadow-lighter: 0 5px 12px rgb(31 68 54 / 8%);
 }
 
@@ -109,6 +187,7 @@ input {
 }
 
 .el-select__popper.el-popper {
+  /* el-popper-border-radius：下拉浮层和提示浮层的圆角半径。 */
   --el-popper-border-radius: 8px;
 
   border-color: #d8e1dc;
@@ -284,17 +363,26 @@ input {
 }
 
 .el-switch {
+  /* el-switch-on-color：开关处于选中状态时使用的颜色。 */
   --el-switch-on-color: #126047;
+  /* el-switch-off-color：开关处于未选中状态时使用的颜色。 */
   --el-switch-off-color: #cbd9d1;
 }
 
 .el-pagination {
+  /* el-pagination-hover-color：分页组件的文字、按钮或背景样式参数。 */
   --el-pagination-hover-color: #185b44;
+  /* el-pagination-button-color：分页组件的文字、按钮或背景样式参数。 */
   --el-pagination-button-color: #526458;
+  /* el-pagination-button-disabled-color：分页组件的文字、按钮或背景样式参数。 */
   --el-pagination-button-disabled-color: #b4bdc7;
+  /* el-pagination-button-bg-color：分页组件的文字、按钮或背景样式参数。 */
   --el-pagination-button-bg-color: #fff;
+  /* el-pagination-bg-color：分页组件的文字、按钮或背景样式参数。 */
   --el-pagination-bg-color: #fff;
+  /* el-pagination-border-radius：分页组件的文字、按钮或背景样式参数。 */
   --el-pagination-border-radius: 7px;
+  /* el-pagination-item-gap：分页组件条目间距。 */
   --el-pagination-item-gap: 8px;
 }
 
@@ -351,7 +439,9 @@ input {
 }
 
 .el-dialog {
+  /* el-dialog-border-radius：对话框圆角半径。 */
   --el-dialog-border-radius: 12px;
+  /* el-dialog-padding-primary：对话框内容区域的内部留白。 */
   --el-dialog-padding-primary: 20px;
   border: 1px solid #dbe9e1;
   box-shadow: 0 20px 52px rgb(31 68 54 / 17%);
@@ -385,11 +475,17 @@ input {
 }
 
 .el-message-box {
+  /* el-messagebox-width：消息框默认宽度。 */
   --el-messagebox-width: 520px;
+  /* el-messagebox-border-radius：消息框圆角半径。 */
   --el-messagebox-border-radius: 12px;
+  /* el-messagebox-padding-primary：消息框主要内容区域的留白。 */
   --el-messagebox-padding-primary: 20px;
+  /* el-messagebox-title-color：消息框标题文字颜色。 */
   --el-messagebox-title-color: #155a42;
+  /* el-messagebox-content-color：消息框正文文字颜色。 */
   --el-messagebox-content-color: #536077;
+  /* el-messagebox-box-shadow：消息框浮层阴影。 */
   --el-messagebox-box-shadow: 0 20px 52px rgb(31 68 54 / 17%);
   padding: 0;
   border: 1px solid #dbe9e1;
