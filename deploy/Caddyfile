@@ -1,3 +1,6 @@
+# 文件作用：配置公开站点域名及到前端容器的反向代理。
 mauriceliang.xyz {
-    reverse_proxy frontend:80
+    reverse_proxy frontend:80 {
+        header_up X-Auth-Client-IP {remote_host}
+    }
 }

@@ -160,6 +160,8 @@ backend/.venv/bin/python -m pip install --upgrade pip
 backend/.venv/bin/python -m pip install -r backend/requirements.txt
 ```
 
+按上面的步骤复制根目录 `.env.example` 后，本地开发环境首次启动会自动创建测试管理员 `admin1 / 123456`。该账号仅用于本地开发。生产环境使用 `deploy/.env` 中的一次性 `AUTH_BOOTSTRAP_ADMIN_IDENTIFIER` / `AUTH_BOOTSTRAP_ADMIN_PASSWORD`；应用仅在数据库没有系统管理员时创建首位管理员，成功后应删除这两项并运行 `docker compose up -d --force-recreate backend`。
+
 编辑根目录 `.env`，至少配置 LLM 服务：
 
 ```dotenv
@@ -218,7 +220,7 @@ cd backend
 | <http://127.0.0.1:8000> | API 服务 |
 | <http://127.0.0.1:8000/docs> | Swagger UI |
 | <http://127.0.0.1:8000/redoc> | ReDoc |
-| <http://127.0.0.1:8000/api/health> | 服务健康检查 |
+| <http://127.0.0.1:8000/api/health/live> | 最小公共存活检查 |
 
 ### 3. 启动前端
 
@@ -343,13 +345,25 @@ FastAPI 会自动生成完整 OpenAPI 契约，启动后访问 `/docs` 或 `/ope
 
 | 分组 | 入口 | 说明 |
 | --- | --- | --- |
-| 健康检查 | `GET /api/health` | 返回数据库、索引、Embedding、DOC 转换器和 LLM 配置状态 |
+| 健康检查 | `GET /api/health/live`、`GET /api/health` | 公共接口只返回存活状态；详细数据库、索引、Embedding、DOC 转换器和 LLM 状态仅系统管理员可查 |
+| 认证 | `/api/auth/*`、`/api/admin/users*` | HttpOnly 服务端登录、本人会话管理和系统管理员账号管理 |
 | 对话 | `POST /api/sessions`、`POST /api/chat/stream` | 会话管理与 SSE 流式 RAG 问答 |
 | 资料 | `/api/documents/*` | 上传、查询、重导入、删除资料及查看分块 |
 | 辅助工具 | `POST /api/tools/material-checklist` | 生成咨询材料清单 |
 | 评测 | `/api/evaluations/*` | 用例管理、评测运行和逐题结果 |
 | 知识缺口 | `/api/missing-knowledge*` | 查看和维护证据不足的问题 |
 | 检索实验 | `/api/retrieval-strategies*`、`/api/retrieval-experiments*` | 策略管理、快速试跑和正式实验 |
+
+应用不开放自助注册。生产首次启动时，若数据库还没有系统管理员，后端读取 `deploy/.env` 中的 `AUTH_BOOTSTRAP_ADMIN_IDENTIFIER` 和 `AUTH_BOOTSTRAP_ADMIN_PASSWORD` 自动创建首位管理员；密码须为 12 至 128 位。创建成功并确认可登录后，应删除这两项并运行 `docker compose up -d --force-recreate backend`。若未配置引导凭据且数据库没有系统管理员，后端会停止启动并给出配置提示。
+
+本地开发环境若关闭测试账号自动创建，或需要离线恢复管理员，可在后端目录运行：
+
+~~~bash
+cd backend
+.venv/bin/python -m app.cli init-admin --login-identifier 你的管理员账号
+~~~
+
+命令会交互式提示设置密码；之后由系统管理员在“账号管理”中创建普通用户和知识管理员。
 
 `/api/chat/stream` 返回 `text/event-stream`，正常流程包含以下事件：
 
@@ -391,11 +405,11 @@ error    终止性错误事件
 cp deploy/.env.example deploy/.env
 mkdir -p data uploads model-cache backups
 
-# 编辑 deploy/.env，至少填写 LLM_API_KEY、LLM_BASE_URL、LLM_MODEL
+# 编辑 deploy/.env：填写模型 API、AUTH_RATE_LIMIT_SECRET 和首位管理员引导账号；详见 deploy/README.md
 docker compose config
 docker compose up -d --build
 docker compose ps
-curl https://mauriceliang.xyz/api/health
+curl https://mauriceliang.xyz/api/health/live
 ```
 
 部署架构：
@@ -456,7 +470,7 @@ npm run build
 
 ### 推荐验证顺序
 
-1. `GET /api/health` 确认数据库、Embedding 和向量索引状态。
+1. `GET /api/health/live` 确认服务存活；系统管理员登录工作台后可在“系统状态”查看数据库、Embedding 和向量索引状态。
 2. 上传一份最小资料，确认“成功”状态和分块可见。
 3. 发起一条有明确依据的问题，核对流式回答和来源片段。
 4. 发起一条知识库未覆盖的问题，确认系统拒答并记录知识缺口。
@@ -467,12 +481,12 @@ npm run build
 
 | 现象 | 优先检查 |
 | --- | --- |
-| 提示“知识库尚未就绪” | 是否已经在“资料管理”完成资料导入；`/api/health` 中 `vector_store` 是否为 `ready` |
+| 提示“知识库尚未就绪” | 是否已经在“资料管理”完成资料导入；系统管理员可在“系统状态”检查 `vector_store` |
 | 提示“向量索引与当前 Embedding 配置不兼容” | 是否修改了 Embedding 模型、Provider、归一化方式或分块参数；备份后重新建立索引 |
 | 提示“模型服务暂不可用” | `LLM_API_KEY`、`LLM_BASE_URL`、`LLM_MODEL` 是否完整，服务地址是否可访问 |
 | 本地 Embedding 首次启动很慢 | 模型正在下载或加载；检查 `model-cache/`、网络和容器日志 |
 | Docker 中流式回答一次性出现 | 检查 Nginx 的 `proxy_buffering off`、`proxy_cache off` 和超时配置，详见 [`frontend/nginx.conf`](frontend/nginx.conf) |
-| 旧版 DOC 导入失败 | 检查 `DOC_PARSER_BACKEND`、LibreOffice 是否安装，以及 `/api/health` 中 `doc_converter` 状态 |
+| 旧版 DOC 导入失败 | 检查 `DOC_PARSER_BACKEND`、LibreOffice 是否安装，以及系统管理员“系统状态”中的 `doc_converter` |
 | 上传文件超过限制 | 后端 `MAX_UPLOAD_SIZE_MB` 与 Nginx `client_max_body_size` 需要同步调整 |
 
 ## 项目结构
@@ -649,8 +663,9 @@ retrieval_strategy、retrieval_experiment
 - [后端代码地图](backend/README.md)
 - [前端代码地图](frontend/README.md)
 - [Docker 部署与运维](deploy/README.md)
+- [LaborQA 考核材料（2026-11）](docs/assessment/2026-11/01_项目简介与系统架构.md)
 
-项目本地的 `docs/` 目录还包含需求文档、系统设计、接口设计、开发规范、原型图和 `.docx` 交付物。这些资料已由仓库忽略规则排除，不上传到远端，因此不在这里创建远端链接；需要完整项目资料时，请从本地交付包或团队文档库获取。
+项目本地的 `docs/` 目录还包含需求文档、系统设计、接口设计、开发规范、原型图和 `.docx` 交付物，默认由仓库忽略规则排除；`docs/assessment/2026-11/` 是本次考核材料目录，包含验收矩阵、真实评测与实验结果、演示步骤、部署限制及版本说明。
 
 ## 贡献与资料维护
 

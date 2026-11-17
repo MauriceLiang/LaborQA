@@ -1,14 +1,19 @@
+<!-- 文件作用：展示当前会话标题及会话相关操作入口。 -->
 <script setup lang="ts">
 import { ElButton } from 'element-plus'
 import { CirclePlus, Document } from '@element-plus/icons-vue'
 
 defineProps<{
+  /** 当前会话标识，用于判断会话操作状态。 */
   sessionId: string
+  /** 历史会话加载状态。 */
   historyLoading: boolean
+  /** 聊天回答流是否进行中。 */
   streaming: boolean
 }>()
 
 defineEmits<{
+  /** 请求父组件创建并切换到新会话。 */
   newSession: []
 }>()
 </script>

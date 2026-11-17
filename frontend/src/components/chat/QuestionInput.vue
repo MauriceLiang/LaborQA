@@ -1,3 +1,4 @@
+<!-- 文件作用：收集用户问题并提供发送、停止和输入状态交互。 -->
 <script setup lang="ts">
 import { ref } from 'vue'
 import { ElButton } from 'element-plus'
@@ -7,12 +8,17 @@ import AnswerStyleSwitch from '@/components/chat/AnswerStyleSwitch.vue'
 import type { AnswerStyle } from '@/types/sse'
 
 defineProps<{
+  /** 输入框当前内容，由父组件维护。 */
   modelValue: string
+  /** 当前是否禁止提交或编辑。 */
   disabled: boolean
+  /** 是否正在生成回答，决定显示停止操作。 */
   streaming: boolean
+  /** 当前选中的回答表达风格。 */
   answerStyle: AnswerStyle
 }>()
 
+// 向父组件回传输入值、回答风格、折叠状态和提交控制事件。
 const emit = defineEmits<{
   'update:modelValue': [value: string]
   'update:answerStyle': [value: AnswerStyle]
@@ -21,13 +27,18 @@ const emit = defineEmits<{
   stop: []
 }>()
 
+// 标记问题输入区域是否折叠收起。
 const collapsed = ref(false)
 
+/** 切换输入区域的展开状态并通知父组件。 */
 function toggleCollapsed() {
   collapsed.value = !collapsed.value
   emit('update:collapsed', collapsed.value)
 }
 
+/** 按下 Enter 且未组合输入时提交问题，Shift+Enter 保留换行。
+ * @param event 当前文本框键盘事件。
+ */
 function handleKeydown(event: KeyboardEvent) {
   if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
     event.preventDefault()

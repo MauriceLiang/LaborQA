@@ -1,3 +1,4 @@
+// 文件作用：创建 Vue 应用实例并注册路由、状态管理及全局样式。
 import { createApp } from 'vue'
 import { createPinia } from 'pinia'
 import {
@@ -17,12 +18,22 @@ import {
 
 import App from './App.vue'
 import router from './router'
+import { useAuthStore } from './stores/auth'
 import 'element-plus/dist/index.css'
 import './styles.css'
 
+// 根 Vue 组件对应的应用实例，后续在其上注册插件并挂载页面。
 const app = createApp(App)
+const pinia = createPinia()
 
-app.use(createPinia()).use(router)
+app.use(pinia)
+app.use(router)
+window.addEventListener('laborqa:auth-expired', () => {
+  const authStore = useAuthStore(pinia)
+  const redirect = router.currentRoute.value.fullPath
+  authStore.clearAuthentication()
+  void router.replace({ name: 'login', query: { redirect } })
+})
 app.use(ElAlert)
 app.use(ElButton)
 app.use(ElCard)

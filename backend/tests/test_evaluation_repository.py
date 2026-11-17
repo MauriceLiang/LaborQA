@@ -57,7 +57,7 @@ def test_seed_new_baseline_archives_old_builtin_and_preserves_custom() -> None:
             assert (
                 connection.execute(
                     "SELECT COUNT(*) FROM evaluation_case WHERE builtin_key LIKE 'baseline-v2-%'"
-            ).fetchone()[0]
+                ).fetchone()[0]
                 == 2
             )
 
@@ -71,10 +71,13 @@ def test_new_baseline_version_archives_previous_builtin_cases() -> None:
 
         repository.seed_cases(cases, baseline_version=3)
         with sqlite3.connect(database_path) as connection:
-            assert connection.execute(
-                "SELECT COUNT(*) FROM evaluation_case "
-                "WHERE status = 'ACTIVE' AND builtin_key LIKE 'baseline-v3-%'"
-            ).fetchone()[0] == 60
+            assert (
+                connection.execute(
+                    "SELECT COUNT(*) FROM evaluation_case "
+                    "WHERE status = 'ACTIVE' AND builtin_key LIKE 'baseline-v3-%'"
+                ).fetchone()[0]
+                == 60
+            )
 
         repository.seed_cases(cases, baseline_version=4)
 

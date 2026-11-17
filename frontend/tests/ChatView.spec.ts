@@ -101,11 +101,13 @@ function mountView() {
   return mount(ChatView, { global: { plugins: [createPinia()] } })
 }
 
-function mountViewWithStore() {
+function mountViewWithStore(initialSessionId = '') {
   const pinia = createPinia()
+  const store = useSessionStore(pinia)
+  if (initialSessionId) store.setSessionId(initialSessionId)
   return {
     wrapper: mount(ChatView, { global: { plugins: [pinia] } }),
-    store: useSessionStore(pinia),
+    store,
   }
 }
 
@@ -141,7 +143,7 @@ describe('ChatView', () => {
       expect.any(Object),
       expect.any(AbortSignal),
     )
-    expect(localStorage.getItem('labor-rights-qa.session-id')).toBe(session.id)
+    expect(localStorage.getItem('labor-rights-qa.session-id')).toBeNull()
     expect(wrapper.text()).toContain('请保存工资记录。')
     expect(wrapper.text()).toContain('工资支付规定.txt')
     expect(wrapper.text()).toContain('参考资料（1）')
@@ -154,9 +156,8 @@ describe('ChatView', () => {
   })
 
   it('restores a saved session and its citations on mount', async () => {
-    localStorage.setItem('labor-rights-qa.session-id', session.id)
     vi.mocked(sessionsApi.getSessionMessages).mockResolvedValue(history)
-    const { wrapper } = mountViewWithStore()
+    const { wrapper } = mountViewWithStore(session.id)
     await flushPromises()
 
     expect(sessionsApi.getSessionMessages).toHaveBeenCalledWith(session.id)
@@ -184,11 +185,10 @@ describe('ChatView', () => {
   })
 
   it('reloads messages when a different recent session is selected', async () => {
-    localStorage.setItem('labor-rights-qa.session-id', session.id)
     vi.mocked(sessionsApi.getSessionMessages)
       .mockResolvedValueOnce(history)
       .mockResolvedValueOnce(nextHistory)
-    const { wrapper, store } = mountViewWithStore()
+    const { wrapper, store } = mountViewWithStore(session.id)
     await flushPromises()
 
     store.setSessionId(nextSession.id)

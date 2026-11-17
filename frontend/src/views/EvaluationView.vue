@@ -1,3 +1,4 @@
+<!-- 文件作用：组织评估用例维护、评估任务执行和结果展示页面。 -->
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import {
@@ -37,25 +38,42 @@ import MarkdownContent from '@/components/chat/MarkdownContent.vue'
 import { usePreferencesStore } from '@/stores/preferences'
 import { aiModeLabel } from '@/types/preferences'
 
+// 提供当前模型及回答偏好设置的状态仓库。
 const preferencesStore = usePreferencesStore()
+// 当前页评估用例列表。
 const cases = ref<EvaluationCase[]>([])
+// 评估用例列表当前页码。
 const casePage = ref(1)
+// 评估用例列表每页数量。
 const caseSize = ref(20)
+// 符合筛选条件的评估用例总数。
 const caseTotal = ref(0)
+// 评估用例列表总页数。
 const casePages = ref(0)
+// 筛选表单中正在编辑的主题关键词。
 const topicInput = ref('')
+// 已应用的主题关键词筛选条件。
 const topicFilter = ref('')
+// 已应用的预期回答类型筛选条件。
 const expectedTypeFilter = ref<EvaluationExpectedType | ''>('')
+// 已应用的多轮对话筛选条件。
 const multiTurnFilter = ref<'' | 'true' | 'false'>('')
+// 已应用的用例来源筛选条件。
 const caseOriginFilter = ref<EvaluationCaseOrigin | ''>('')
+// 已应用的用例状态筛选条件。
 const caseStatusFilter = ref<EvaluationCaseStatus | ''>('')
+// 当前评测选中的用例 ID 集合。
 const selectedCaseIds = ref(new Set<number>())
+// 用例列表请求是否正在执行。
 const loadingCases = ref(false)
+// 用例列表加载错误信息。
 const casesError = ref('')
+// 用例请求版本号，用于忽略过期响应。
 let caseRequestId = 0
 
 type CaseForm = EvaluationCaseInput
 
+// 创建字段为空且采用默认类型的用例表单。
 const emptyCaseForm = (): CaseForm => ({
   topic: '',
   expected_type: 'ANSWER',
@@ -65,42 +83,73 @@ const emptyCaseForm = (): CaseForm => ({
   should_show_compliance: false,
 })
 
+// 用例新建或编辑对话框是否显示。
 const caseDialogVisible = ref(false)
+// 当前正在编辑的用例；无值表示新建。
 const editingCase = ref<EvaluationCase>()
+// 用例编辑表单中的字段值。
 const caseForm = ref<CaseForm>(emptyCaseForm())
+// 用例表单校验或保存失败信息。
 const caseFormError = ref('')
+// 用例保存请求是否正在执行。
 const savingCase = ref(false)
+// 当前正在归档的用例 ID。
 const deletingCaseId = ref<number>()
+// 评测用例的选择范围。
 const caseScope = ref<EvaluationCaseScope>('BUILTIN_BASELINE')
 
+// 评测运行列表。
 const runs = ref<EvaluationRunSummary[]>([])
+// 评测运行列表当前页码。
 const runPage = ref(1)
+// 评测运行列表每页数量。
 const runSize = 10
+// 评测运行总数。
 const runTotal = ref(0)
+// 评测运行列表总页数。
 const runPages = ref(0)
+// 评测运行列表请求是否正在执行。
 const loadingRuns = ref(false)
+// 当前正在删除的运行 ID。
 const deletingRunId = ref<number>()
+// 评测运行列表加载错误信息。
 const runsError = ref('')
+// 新评测任务名称输入值。
 const runName = ref('')
+// 新评测任务采用的回答风格。
 const answerStyle = ref<EvaluationAnswerStyle>('plain')
+// 评测任务创建请求是否正在执行。
 const creatingRun = ref(false)
+// 评测任务创建失败信息。
 const createError = ref('')
+// 当前展开的评测运行 ID。
 const selectedRunId = ref<number>()
+// 当前选中评测运行的详细结果。
 const runDetail = ref<EvaluationRunDetail>()
+// 评测运行详情请求是否正在执行。
 const loadingDetail = ref(false)
+// 评测运行详情加载失败信息。
 const detailError = ref('')
+// 各运行详情请求的版本号映射。
 const detailRequestVersions = new Map<number, number>()
+// 当前选择的运行详情请求版本。
 let selectedRunVersion = 0
+// 评测运行状态轮询定时器。
 let pollTimer: ReturnType<typeof setInterval> | undefined
 
+// 当前页所有活动用例是否均已选中。
 const selectedPageFully = computed(
   () => {
+    // 当前页状态为活动的评估用例。
     const activeCases = cases.value.filter((item) => item.status === 'ACTIVE')
     return activeCases.length > 0 && activeCases.every((item) => selectedCaseIds.value.has(item.id))
   },
 )
+// 当前选中运行在列表中的摘要记录。
 const selectedRunSummary = computed(() => runs.value.find((run) => run.id === selectedRunId.value))
+// 全量活动用例选择入口的显示文案。
 const allActiveCaseLabel = computed(() => {
+  // 当前筛选是否覆盖全部活动用例。
   const isUnfilteredActiveList = !topicFilter.value
     && !expectedTypeFilter.value
     && !multiTurnFilter.value
@@ -108,26 +157,34 @@ const allActiveCaseLabel = computed(() => {
     && !caseStatusFilter.value
   return isUnfilteredActiveList ? `全部活动用例（${caseTotal.value} 条）` : '全部活动用例'
 })
+// 当前展示的评测运行名称。
 const displayedRunName = computed(
   () => runDetail.value?.name ?? selectedRunSummary.value?.name ?? `评测批次 #${selectedRunId.value ?? ''}`,
 )
+// 当前运行详情或摘要的状态值。
 const displayedStatus = computed(
   () => runDetail.value?.status ?? selectedRunSummary.value?.status,
 )
+// 当前评测结果是否包含不可用指标。
 const hasUnavailableMetrics = computed(() => {
+  // 当前评测运行的汇总指标。
   const metrics = runDetail.value?.metrics
   return metrics !== null
     && metrics !== undefined
     && Object.values(metrics).some((value) => value === null)
 })
+// 判断评测运行状态是否已结束的函数。
 const terminalStatus = (status: EvaluationJobStatus | undefined) =>
   status === 'COMPLETED' || status === 'FAILED'
 
+/** 按当前筛选和分页条件加载评估用例。 */
 async function loadCases() {
+  // 当前详情请求的版本号。
   const requestId = ++caseRequestId
   loadingCases.value = true
   casesError.value = ''
   try {
+    // 本次后端请求返回的数据。
     const result = await getEvaluationCases({
       page: casePage.value,
       size: caseSize.value,
@@ -149,12 +206,14 @@ async function loadCases() {
   }
 }
 
+/** 应用评估用例筛选项并重新加载第一页。 */
 function applyCaseFilters() {
   topicFilter.value = topicInput.value.trim()
   casePage.value = 1
   void loadCases()
 }
 
+/** 初始化并打开新建评估用例表单。 */
 function openCreateCase() {
   editingCase.value = undefined
   caseForm.value = emptyCaseForm()
@@ -162,6 +221,8 @@ function openCreateCase() {
   caseDialogVisible.value = true
 }
 
+/** 将选中用例填入表单并打开编辑窗口。 */
+// 参数 item：当前选中的 EvaluationCase，包含来源、状态及用例正文；编辑和归档前会检查来源/状态以保护内置或已停用用例。
 function openEditCase(item: EvaluationCase) {
   if (item.status !== 'ACTIVE') return
   editingCase.value = item
@@ -177,44 +238,57 @@ function openEditCase(item: EvaluationCase) {
   caseDialogVisible.value = true
 }
 
+/** 在多轮用例中追加一个对话轮次。 */
 function addCaseTurn() {
   if (caseForm.value.turns.length < 10) caseForm.value.turns.push('')
 }
 
+/** 移除指定位置的对话轮次。 */
+// 参数 index：需要移除的对话轮次在表单中的下标。
 function removeCaseTurn(index: number) {
   if (caseForm.value.turns.length <= 1) return
   caseForm.value.turns.splice(index, 1)
 }
 
+/** 为当前用例追加一个预期答案要点。 */
 function addExpectedPoint() {
   if (caseForm.value.expected_points.length < 20) caseForm.value.expected_points.push('')
 }
 
+/** 移除指定位置的预期答案要点。 */
+// 参数 index：需要移除的预期要点在表单中的下标。
 function removeExpectedPoint(index: number) {
   caseForm.value.expected_points.splice(index, 1)
 }
 
+/** 为当前用例追加一个预期引用来源。 */
 function addExpectedSource() {
   if (caseForm.value.expected_sources.length < 20) {
     caseForm.value.expected_sources.push({ file_name: '', chunk_no: null })
   }
 }
 
+/** 移除指定位置的预期引用来源。 */
+// 参数 index：需要移除的预期来源在表单中的下标。
 function removeExpectedSource(index: number) {
   caseForm.value.expected_sources.splice(index, 1)
 }
 
+/** 校验评估用例表单并返回首个错误提示。 */
 function validateCaseForm(): string | undefined {
   caseForm.value.topic = caseForm.value.topic.trim()
   if (!caseForm.value.topic) return '请填写用例主题'
+  // 去除首尾空白后的对话轮次文本。
   const turns = caseForm.value.turns.map((turn) => turn.trim())
   if (turns.some((turn) => !turn)) return '每轮问题都不能为空'
   caseForm.value.turns = turns
+  // 去空并过滤空值后的预期答案要点。
   const points = caseForm.value.expected_points.map((point) => point.trim()).filter(Boolean)
   if (caseForm.value.expected_type === 'ANSWER' && points.length === 0) {
     return '应回答用例至少需要一个预期要点'
   }
   caseForm.value.expected_points = points
+  // 规范化后的预期引用来源字段。
   const sources = caseForm.value.expected_sources.map((source) => ({
     file_name: source.file_name.trim(),
     chunk_no: source.chunk_no === null || source.chunk_no === undefined || Number.isNaN(Number(source.chunk_no))
@@ -228,7 +302,9 @@ function validateCaseForm(): string | undefined {
   return undefined
 }
 
+/** 创建或更新当前评估用例并刷新列表。 */
 async function saveCase() {
+  // 用例表单校验发现的错误提示。
   const validationError = validateCaseForm()
   if (validationError) {
     caseFormError.value = validationError
@@ -256,6 +332,8 @@ async function saveCase() {
   }
 }
 
+/** 确认后归档指定评估用例。 */
+// 参数 item：准备归档的 EvaluationCase；函数只允许用户创建且状态为 ACTIVE 的用例进入归档请求。
 async function archiveCase(item: EvaluationCase) {
   if (item.origin === 'BUILTIN' || item.status !== 'ACTIVE' || deletingCaseId.value !== undefined) return
   try {
@@ -276,6 +354,7 @@ async function archiveCase(item: EvaluationCase) {
   casesError.value = ''
   try {
     await deleteEvaluationCase(item.id)
+    // 根据选择变化生成的用例 ID 集合。
     const next = new Set(selectedCaseIds.value)
     next.delete(item.id)
     selectedCaseIds.value = next
@@ -289,36 +368,49 @@ async function archiveCase(item: EvaluationCase) {
   }
 }
 
+/** 切换评估用例列表页码。 */
+// 参数 nextPage：用户选择的目标页码。
 function changeCasePage(nextPage: number) {
   casePage.value = nextPage
   void loadCases()
 }
 
+/** 修改用例列表每页数量并重置页码。 */
+// 参数 nextSize：用户选择的每页数量。
 function changeCaseSize(nextSize: number) {
   caseSize.value = nextSize
   casePage.value = 1
   void loadCases()
 }
 
+/** 将指定用例加入或移出本次评测选择集。 */
+// 参数 checked：当前用例是否处于选中状态。
+// 参数 id：目标业务记录的唯一标识。
 function toggleCase(id: number, checked: boolean) {
+  // 根据选择变化生成的用例 ID 集合。
   const next = new Set(selectedCaseIds.value)
   if (checked) next.add(id)
   else next.delete(id)
   selectedCaseIds.value = next
 }
 
+/** 全选或取消选择当前页活动用例。 */
 function toggleCurrentPage() {
+  // 根据选择变化生成的用例 ID 集合。
   const next = new Set(selectedCaseIds.value)
+  // 当前页状态为活动的评估用例。
   const activeCases = cases.value.filter((item) => item.status === 'ACTIVE')
   if (selectedPageFully.value) activeCases.forEach((item) => next.delete(item.id))
   else activeCases.forEach((item) => next.add(item.id))
   selectedCaseIds.value = next
 }
 
+/** 按当前分页条件加载评测运行记录。 */
 async function loadRuns() {
   loadingRuns.value = true
   runsError.value = ''
   try {
+    // 本次后端请求返回的数据。
     const result = await getEvaluationRuns({ page: runPage.value, size: runSize })
     runs.value = result.items
     runTotal.value = result.total
@@ -330,7 +422,10 @@ async function loadRuns() {
   }
 }
 
+/** 将运行详情中的最新状态同步到列表摘要。 */
+// 参数 detail：当前读取到的资源详情数据。
 function syncRunSummary(detail: EvaluationRunDetail) {
+  // 运行记录在当前列表中的位置。
   const index = runs.value.findIndex((run) => run.id === detail.id)
   if (index === -1) return
 
@@ -344,6 +439,7 @@ function syncRunSummary(detail: EvaluationRunDetail) {
   }
 }
 
+/** 停止评测运行状态轮询。 */
 function stopPolling() {
   if (pollTimer !== undefined) {
     clearInterval(pollTimer)
@@ -351,6 +447,8 @@ function stopPolling() {
   }
 }
 
+/** 开始轮询指定评测运行的最新状态。 */
+// 参数 id：目标业务记录的唯一标识。
 function startPolling(id: number) {
   if (pollTimer !== undefined) return
   pollTimer = setInterval(() => {
@@ -358,13 +456,18 @@ function startPolling(id: number) {
   }, 2000)
 }
 
+/** 加载指定运行详情，并按请求版本丢弃过期响应。 */
+// 参数 id：目标业务记录的唯一标识。
+// 参数 showLoading：是否显示详情区域的加载状态。
 async function loadRunDetail(id: number, showLoading = false) {
+  // 当前运行详情请求版本。
   const version = selectedRunVersion
   if (detailRequestVersions.get(id) === version) return
   detailRequestVersions.set(id, version)
   if (showLoading) loadingDetail.value = true
   detailError.value = ''
   try {
+    // 本次后端请求返回的数据。
     const result = await getEvaluationRun(id)
     if (version !== selectedRunVersion || selectedRunId.value !== id) return
     runDetail.value = result
@@ -381,6 +484,8 @@ async function loadRunDetail(id: number, showLoading = false) {
   }
 }
 
+/** 选中或取消展开指定评测运行。 */
+// 参数 run：评测运行记录。
 function toggleRun(run: EvaluationRunSummary) {
   stopPolling()
   selectedRunVersion += 1
@@ -398,6 +503,8 @@ function toggleRun(run: EvaluationRunSummary) {
   void loadRunDetail(run.id, true)
 }
 
+/** 确认后删除指定评测运行及其结果。 */
+// 参数 run：评测运行记录。
 async function deleteRun(run: EvaluationRunSummary) {
   if (!terminalStatus(run.status) || deletingRunId.value !== undefined) return
   try {
@@ -436,7 +543,9 @@ async function deleteRun(run: EvaluationRunSummary) {
   }
 }
 
+/** 按当前选中用例和答案风格创建评测任务。 */
 async function createRun() {
+  // 去除首尾空白后的评测任务名称。
   const name = runName.value.trim()
   if (!name) {
     createError.value = '请填写评测批次名称'
@@ -450,6 +559,7 @@ async function createRun() {
   creatingRun.value = true
   createError.value = ''
   try {
+    // 新建评测任务接口返回的任务信息。
     const job = await createEvaluationRun({
       name,
       case_ids: caseScope.value === 'SELECTED'
@@ -474,11 +584,15 @@ async function createRun() {
   }
 }
 
+/** 切换评测运行列表页码。 */
+// 参数 nextPage：用户选择的目标页码。
 function changeRunPage(nextPage: number) {
   runPage.value = nextPage
   void loadRuns()
 }
 
+/** 将评测任务状态转换为中文展示文本。 */
+// 参数 status：评测运行的当前状态枚举。
 function formatStatus(status: EvaluationJobStatus | undefined) {
   if (status === 'PENDING') return '排队中'
   if (status === 'RUNNING') return '运行中'
@@ -487,14 +601,20 @@ function formatStatus(status: EvaluationJobStatus | undefined) {
   return '加载中'
 }
 
+/** 将比例数值格式化为百分比文本。 */
+// 参数 value：后端返回的 0 到 1 比率或空值；有效数字转为百分比并保留一位小数，空值显示为“不适用”。
 function formatRate(value: number | null | undefined) {
   return value === null || value === undefined ? '不适用' : `${(value * 100).toFixed(1)}%`
 }
 
+/** 将可空布尔值格式化为中文文本。 */
+// 参数 value：评测指标可能缺失的布尔结果；true/false 显示为“是/否”，null 保留“不适用”以区别于失败。
 function formatFlag(value: boolean | null) {
   return value === null ? '不适用' : value ? '是' : '否'
 }
 
+/** 将回答模式转换为中文展示文本。 */
+// 参数 value：后端 answer_mode 枚举值；函数将 RAG、部分回答、工具回答和拒答路径映射为面向用户的中文标签。
 function formatAnswerMode(value: string | null | undefined) {
   if (value === 'RAG_ANSWER') return '完整回答'
   if (value === 'PARTIAL_ANSWER') return '部分回答'
@@ -503,6 +623,8 @@ function formatAnswerMode(value: string | null | undefined) {
   return '未记录'
 }
 
+/** 将证据判定结果转换为中文展示文本。 */
+// 参数 value：后端 evidence_decision 枚举值；根据 SUFFICIENT、PARTIAL 或 INSUFFICIENT 显示对应中文证据结论。
 function formatEvidenceDecision(value: string | null | undefined) {
   if (value === 'SUFFICIENT') return '证据充分'
   if (value === 'PARTIAL') return '证据部分充分'
@@ -510,22 +632,33 @@ function formatEvidenceDecision(value: string | null | undefined) {
   return '未记录'
 }
 
+/** 格式化评估用例编号。 */
+// 参数 id：目标业务记录的唯一标识。
 function formatCaseId(id: number) {
   return `#${String(id).padStart(3, '0')}`
 }
 
+/** 将创建时间格式化为本地日期时间。 */
+// 参数 value：服务端返回的 ISO 时间字符串；转为本地时间显示，若日期无效则原样返回以免丢失原始信息。
 function formatCreatedAt(value: string) {
+  // 待格式化的日期时间对象。
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
+  // 将个位数字补零到两位的格式化函数。
   const pad = (part: number) => String(part).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}`
 }
 
+/** 根据已完成数计算任务进度百分比。 */
+// 参数 current：已经完成的工作项数量。
+// 参数 total：本次任务的工作项总数量。
 function progressPercent(current: number, total: number) {
   if (total <= 0) return 0
   return Math.min(100, Math.round((current / total) * 100))
 }
 
+/** 将评测任务状态映射为界面样式类别。 */
+// 参数 status：业务记录当前的状态枚举。
 function statusClass(status: EvaluationJobStatus | undefined) {
   if (status === 'COMPLETED') return 'evaluation-status-completed'
   if (status === 'FAILED') return 'evaluation-status-failed'
@@ -1165,7 +1298,8 @@ onBeforeUnmount(() => {
   color: #9aa5b4;
 }
 
-/* Keep filter controls free of the global inset focus ring. */
+/* 筛选栏输入框和下拉框使用自定义边框反馈；
+   覆盖 Element Plus 全局内阴影焦点描边，避免悬停或聚焦时出现双层描边。 */
 .evaluation-filter-input:hover :deep(.el-input__wrapper),
 .evaluation-filter-select:hover :deep(.el-select__wrapper),
 .evaluation-filter-input :deep(.el-input__wrapper:hover),
@@ -1200,7 +1334,8 @@ onBeforeUnmount(() => {
   box-shadow: none;
 }
 
-/* Keep the section action aligned with the filter submit action at every breakpoint. */
+/* 固定分区标题右侧操作按钮的宽度，使其与筛选提交按钮保持一致；
+   在窄屏换行时也维持标题区操作列的对齐关系。 */
 .evaluation-section-heading .evaluation-primary {
   width: 90px;
   min-width: 90px;

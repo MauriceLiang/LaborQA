@@ -1,3 +1,4 @@
+# 文件作用：声明 Python 项目基础元数据及构建工具配置。
 [project]
 name = "laborqa"
 version = "0.1.0"

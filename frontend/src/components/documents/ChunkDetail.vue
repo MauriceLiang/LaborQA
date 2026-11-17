@@ -1,10 +1,19 @@
+<!-- 文件作用：展示单个文档文本块的详细内容和检索元数据。 -->
 <script setup lang="ts">
 import { ElDialog } from 'element-plus'
 
 import type { ChunkItem } from '@/api/documents'
 
-defineProps<{ chunk?: ChunkItem; modelValue: boolean }>()
-defineEmits<{ 'update:modelValue': [value: boolean] }>()
+defineProps<{
+  /** 当前选中的文本块；未选中时不展示正文。 */
+  chunk?: ChunkItem
+  /** 控制详情弹窗的显示状态。 */
+  modelValue: boolean
+}>()
+defineEmits<{
+  /** 向父组件同步弹窗开关状态。 */
+  'update:modelValue': [value: boolean]
+}>()
 </script>
 
 <template>

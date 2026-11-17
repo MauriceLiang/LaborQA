@@ -1,13 +1,17 @@
+<!-- 文件作用：将聊天回答中的 Markdown 内容渲染为安全的格式化内容。 -->
 <script setup lang="ts">
 import { computed } from 'vue'
 
 import MarkdownInline from '@/components/chat/MarkdownInline.vue'
 import { parseMarkdown } from '@/utils/markdown'
 
+// 组件接收的 Markdown 原文属性。
 const props = defineProps<{
+  /** 待解析并展示的 Markdown 回答文本。 */
   content: string
 }>()
 
+// blocks 是将 props.content 解析后得到的块级 Markdown 结构。
 const blocks = computed(() => parseMarkdown(props.content))
 </script>
 

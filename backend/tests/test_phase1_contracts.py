@@ -29,6 +29,17 @@ from app.services.retrieval_experiment_service import RetrievalExperimentService
 
 EXPECTED_OPERATIONS = {
     ("get", "/api/health"),
+    ("get", "/api/health/live"),
+    ("post", "/api/auth/login"),
+    ("get", "/api/auth/me"),
+    ("post", "/api/auth/logout"),
+    ("post", "/api/auth/change-password"),
+    ("get", "/api/auth/sessions"),
+    ("delete", "/api/auth/sessions/{session_id}"),
+    ("get", "/api/admin/users"),
+    ("post", "/api/admin/users"),
+    ("patch", "/api/admin/users/{user_id}"),
+    ("post", "/api/admin/users/{user_id}/revoke-sessions"),
     ("post", "/api/documents/upload"),
     ("get", "/api/documents"),
     ("get", "/api/documents/builtin/status"),
@@ -366,7 +377,9 @@ class Phase1ContractTests(unittest.TestCase):
         initialize_database()
 
         with sqlite3.connect(settings.database_path) as connection:
-            columns = {row[1] for row in connection.execute("PRAGMA table_info('citation')")}
+            columns = {
+                row[1] for row in connection.execute("PRAGMA table_info('citation')")
+            }
             self.assertTrue(
                 {
                     "lexical_score",

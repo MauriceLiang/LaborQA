@@ -1,3 +1,4 @@
+import { createPinia } from 'pinia'
 import { nextTick } from 'vue'
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import { ElMessage, ElMessageBox } from 'element-plus'
@@ -10,6 +11,7 @@ import type {
   DocumentItem,
   DocumentPage,
 } from '@/api/documents'
+import type { UserRole } from '@/api/auth'
 import * as documentsApi from '@/api/documents'
 import { ApiError } from '@/api/http'
 import DocumentsView from '@/views/DocumentsView.vue'
@@ -17,6 +19,7 @@ import ChunkDetail from '@/components/documents/ChunkDetail.vue'
 import ChunkList from '@/components/documents/ChunkList.vue'
 import DocumentList from '@/components/documents/DocumentList.vue'
 import DocumentUpload from '@/components/documents/DocumentUpload.vue'
+import { useAuthStore } from '@/stores/auth'
 
 vi.mock('@/api/documents', () => ({
   deleteDocument: vi.fn(),
@@ -63,9 +66,19 @@ function page(items: DocumentItem[]) {
   return { items, page: 1, size: 10, total: items.length, pages: items.length ? 1 : 0 }
 }
 
-function mountView() {
+function mountView(role: UserRole = 'KNOWLEDGE_ADMIN') {
+  const pinia = createPinia()
+  useAuthStore(pinia).user = {
+    id: 'acd6c5b7-f167-4711-bfe0-871a8cf052bf',
+    login_identifier: 'knowledge-admin',
+    role,
+    status: 'ACTIVE',
+    created_at: '2026-09-15T00:00:00Z',
+    updated_at: '2026-09-15T00:00:00Z',
+  }
   return shallowMount(DocumentsView, {
     global: {
+      plugins: [pinia],
       stubs: {
         ElAlert: {
           props: ['title'],
@@ -108,6 +121,15 @@ afterEach(() => {
 })
 
 describe('DocumentsView', () => {
+  it('keeps shared document actions read-only for ordinary users', () => {
+    const wrapper = mountView('USER')
+
+    expect(wrapper.findComponent(DocumentUpload).exists()).toBe(false)
+    expect(wrapper.find('.document-builtin-import-button').exists()).toBe(false)
+    expect(wrapper.findComponent(DocumentList).props('canManage')).toBe(false)
+    wrapper.unmount()
+  })
+
   it('imports builtin documents and reports the final success status', async () => {
     vi.useFakeTimers()
     const accepted: BuiltinDocumentImportAccepted = {

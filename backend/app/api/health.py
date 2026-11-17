@@ -1,5 +1,7 @@
-from fastapi import APIRouter, Request
+# 文件作用：提供最小公共存活探针和受系统管理员保护的详细健康检查。
+from fastapi import APIRouter, Depends, Request
 
+from app.api.dependencies import require_roles
 from app.core.config import settings
 from app.core.database import database_is_ready
 from app.core.schemas import ApiResponse, HealthData
@@ -10,8 +12,19 @@ from app.services.vector_store import VectorStoreSignatureMismatch
 router = APIRouter()
 
 
-@router.get("/health", response_model=ApiResponse[HealthData])
+@router.get("/health/live", response_model=ApiResponse[dict[str, str]])
+def get_liveness() -> ApiResponse[dict[str, str]]:
+    """提供不包含内部配置和组件详情的最小存活探针。"""
+    return ApiResponse(code=0, message="success", data={"service": "ok"})
+
+
+@router.get(
+    "/health",
+    response_model=ApiResponse[HealthData],
+    dependencies=[Depends(require_roles("SYSTEM_ADMIN"))],
+)
 def get_health(request: Request) -> ApiResponse[HealthData]:
+    """汇总数据库、向量索引、嵌入和文档转换器的健康状态。"""
     document_service = request.app.state.document_service
     vector_store = document_service.vector_store
     production_index = vector_store.index_path

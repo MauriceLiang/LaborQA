@@ -1,3 +1,4 @@
+<!-- 文件作用：组织缺失知识记录浏览、筛选和处理页面。 -->
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { ElButton, ElInput, ElOption, ElSelect } from 'element-plus'
@@ -18,20 +19,35 @@ interface Draft {
   note: string
 }
 
+// 当前页知识缺口记录列表。
 const items = ref<MissingKnowledgeItem[]>([])
+// 按记录 ID 保存的未提交状态和备注草稿。
 const drafts = ref<Record<number, Draft>>({})
+// 搜索框中的问题或缺口关键词。
 const keywordInput = ref('')
+// 知识缺口记录状态筛选值。
 const statusFilter = ref<MissingKnowledgeStatus | ''>('')
+// 知识缺口记录排序方式。
 const sortFilter = ref<MissingKnowledgeSort>('count_desc')
+// 知识缺口列表当前页码。
 const page = ref(1)
+// 知识缺口列表每页数量。
 const size = ref(20)
+// 符合筛选条件的记录总数。
 const total = ref(0)
+// 知识缺口列表总页数。
 const pages = ref(0)
+// 知识缺口列表请求是否正在执行。
 const loading = ref(false)
+// 当前正在保存的记录 ID。
 const savingId = ref<number>()
+// 记录列表加载失败信息。
 const pageError = ref('')
+// 记录更新操作失败信息。
 const actionError = ref('')
+// 请求版本号，用于忽略过期列表响应。
 let requestId = 0
+// 缺口主题代码到中文名称的映射表。
 const topicLabels: Record<string, string> = {
   wage_payment: '工资支付与欠薪',
   termination: '劳动关系解除与经济补偿',
@@ -42,8 +58,11 @@ const topicLabels: Record<string, string> = {
   other: '其他劳动权益问题',
 }
 
+/** 按当前筛选、排序和分页条件加载知识缺口记录。 */
 async function loadItems() {
+  // 本次列表请求的版本号。
   const currentRequest = ++requestId
+  // 本次列表查询使用的筛选、排序和分页参数。
   const query: MissingKnowledgeQuery = {
     page: page.value,
     size: size.value,
@@ -54,6 +73,7 @@ async function loadItems() {
   loading.value = true
   pageError.value = ''
   try {
+    // 本次后端请求返回的数据。
     const result = await getMissingKnowledge(query)
     if (currentRequest !== requestId) return
     items.value = result.items
@@ -69,34 +89,45 @@ async function loadItems() {
   }
 }
 
+/** 应用关键词和状态筛选并从第一页重新查询。 */
 function applyFilters() {
   page.value = 1
   void loadItems()
 }
 
+/** 更新记录排序方式并重新加载第一页。 */
+// 参数 nextSort：用户选择的排序方式。
 function changeSort(nextSort: MissingKnowledgeSort) {
   sortFilter.value = nextSort
   page.value = 1
   void loadItems()
 }
 
+/** 切换知识缺口列表页码。 */
+// 参数 nextPage：用户选择的目标页码。
 function changePage(nextPage: number) {
   page.value = nextPage
   void loadItems()
 }
 
+/** 更新每页记录数量并回到第一页。 */
+// 参数 nextSize：用户选择的每页数量。
 function changeSize(nextSize: number | string) {
   size.value = Number(nextSize)
   page.value = 1
   void loadItems()
 }
 
+/** 保存指定知识缺口记录的状态及备注。 */
+// 参数 item：当前待保存的 MissingKnowledgeItem，提供记录 ID 及原始状态；编辑草稿按该 ID 取出后提交状态和备注。
 async function save(item: MissingKnowledgeItem) {
+  // 指定记录当前编辑中的状态和备注。
   const draft = drafts.value[item.id]
   if (!draft) return
   savingId.value = item.id
   actionError.value = ''
   try {
+    // 更新接口返回的最新知识缺口记录。
     const updated = await updateMissingKnowledge(item.id, {
       status: draft.status,
       note: draft.note.trim() || null,
@@ -114,13 +145,19 @@ async function save(item: MissingKnowledgeItem) {
   }
 }
 
+/** 将日期字符串格式化为界面日期文本。 */
+// 参数 value：后端返回的时间字符串；转换为本地日期时间供列表显示，解析失败时保留原值便于定位异常数据。
 function formatDate(value: string) {
+  // 待格式化的日期时间对象。
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return value
+  // 将个位数字补零到两位的格式化函数。
   const pad = (part: number) => String(part).padStart(2, '0')
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
+/** 将主题代码映射为中文标签。 */
+// 参数 topicKey：知识缺口记录中的主题代码。
 function topicLabel(topicKey: string) {
   return topicLabels[topicKey] ?? topicKey
 }

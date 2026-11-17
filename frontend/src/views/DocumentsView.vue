@@ -1,3 +1,4 @@
+<!-- 文件作用：组织文档上传、列表浏览、导入状态和文本块查看页面。 -->
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { ElAlert, ElButton, ElMessage, ElMessageBox } from 'element-plus'
@@ -20,42 +21,76 @@ import {
   type DocumentUploadAccepted,
 } from '@/api/documents'
 import { ApiError, getErrorMessage } from '@/api/http'
+import { useAuthStore } from '@/stores/auth'
 
+// 文档处理状态轮询的间隔，单位为毫秒。
 const POLL_INTERVAL_MS = 2000
+const authStore = useAuthStore()
+const canManageDocuments = computed(() =>
+  authStore.hasAnyRole(['KNOWLEDGE_ADMIN', 'SYSTEM_ADMIN']),
+)
 
+// 当前页文档记录列表。
 const documents = ref<DocumentItem[]>([])
+// 符合筛选条件的文档总数。
 const totalDocuments = ref(0)
+// 文档列表当前页码。
 const documentPage = ref(1)
+// 文档列表每页显示数量。
 const documentPageSize = ref(10)
+// 文档名称关键词筛选值。
 const keyword = ref('')
+// 文档处理状态筛选值；空字符串表示不过滤状态。
 const status = ref<DocumentItem['status'] | ''>('')
+// 当前选中文档的唯一标识。
 const selectedDocumentId = ref<number>()
+// 文档列表请求是否正在执行。
 const pageLoading = ref(false)
+// 文档列表或状态刷新失败时展示的错误信息。
 const pageError = ref('')
+// 文档操作或文本分块请求失败时展示的错误信息。
 const actionError = ref('')
+// 当前正在删除的文档标识，用于防止重复提交。
 const deletingDocumentId = ref<number>()
+// 内置资料导入及其后续处理是否仍在进行。
 const builtinImportActive = ref(false)
 
+// 当前页文本分块记录列表。
 const chunks = ref<ChunkItem[]>([])
+// 当前文档的文本分块总数。
 const totalChunks = ref(0)
+// 文本分块列表当前页码。
 const chunkPage = ref(1)
+// 文本分块列表每页显示数量。
 const chunkPageSize = ref(10)
+// 文本分块请求是否正在执行。
 const chunksLoading = ref(false)
+// 当前选中的文本分块。
 const selectedChunk = ref<ChunkItem>()
+// 文本分块详情面板是否显示。
 const chunkDetailVisible = ref(false)
 
+// 文档处理状态轮询定时器句柄。
 let pollingTimer: ReturnType<typeof setInterval> | undefined
+// 是否已有一轮文档状态轮询尚未结束。
 let pollingInProgress = false
+// 页面组件是否仍挂载，用于阻止卸载后的状态更新。
 let isMounted = false
+// 文档列表请求版本号，用于丢弃过期响应。
 let documentRequestId = 0
+// 分块请求版本号，用于丢弃过期响应。
 let chunkRequestId = 0
+// 需要持续查询处理状态的文档 ID 集合。
 const trackedProcessingIds = new Set<number>()
+// 本次内置资料导入所关联的文档 ID 集合。
 const builtinTrackedIds = new Set<number>()
 
+// 根据选中文档 ID 从当前列表解析出的文档记录。
 const selectedDocument = computed(() =>
   documents.value.find((document) => document.id === selectedDocumentId.value),
 )
 
+/** 停止文档处理状态轮询并释放定时器。 */
 function stopPolling() {
   if (pollingTimer !== undefined) {
     clearInterval(pollingTimer)
@@ -63,16 +98,19 @@ function stopPolling() {
   }
 }
 
+/** 根据挂载状态和待处理文档集合启动或停止轮询。 */
 function syncPolling() {
   stopPolling()
   if (!isMounted || trackedProcessingIds.size === 0) return
   pollingTimer = setInterval(() => void pollProcessingDocuments(), POLL_INTERVAL_MS)
 }
 
+/** 确认内置资料处理已结束，展示汇总结果并刷新文档列表。 */
 async function finishBuiltinImportIfReady() {
   if (!isMounted || !builtinImportActive.value || builtinTrackedIds.size > 0) return
 
   try {
+    // 内置资料导入状态查询返回的总体进度和文件明细。
     const status = await getBuiltinDocumentStatus()
     if (status.processing > 0) {
       for (const item of status.items) {
@@ -108,6 +146,7 @@ async function finishBuiltinImportIfReady() {
   }
 }
 
+/** 清空当前文档及分块的选择状态，并使未完成的分块请求失效。 */
 function clearSelection() {
   chunkRequestId += 1
   selectedDocumentId.value = undefined
@@ -118,7 +157,10 @@ function clearSelection() {
   chunkDetailVisible.value = false
 }
 
+/** 将最新文档信息插入或更新到当前列表中。 */
+// 参数 document：新获取的 DocumentItem；按 ID 替换列表中的旧记录，若当前页尚无此记录则插入列表开头，并在超出每页容量时移除末尾记录。
 function upsertDocument(document: DocumentItem) {
+  // 目标文档在当前列表中的下标。
   const index = documents.value.findIndex((item) => item.id === document.id)
   if (index >= 0) {
     documents.value[index] = document
@@ -128,19 +170,24 @@ function upsertDocument(document: DocumentItem) {
   if (documents.value.length > documentPageSize.value) documents.value.pop()
 }
 
+/** 首次加载后自动选中可用文档，并加载其文本分块。 */
 async function selectInitialDocument() {
   if (selectedDocumentId.value !== undefined || documents.value.length === 0) return
+  // 当前正在处理或展示的文档记录。
   const document = documents.value.find((item) => item.status === 'SUCCESS') ?? documents.value[0]
   selectedDocumentId.value = document.id
   chunkPage.value = 1
   if (document.status === 'SUCCESS') await loadChunks()
 }
 
+/** 按当前筛选和分页条件读取文档列表，并同步处理状态跟踪。 */
 async function loadDocuments() {
+  // 本次请求的版本号，用于判断响应是否过期。
   const requestId = ++documentRequestId
   pageLoading.value = true
   pageError.value = ''
   try {
+    // 本次后端请求返回的数据。
     const result = await getDocuments({
       page: documentPage.value,
       size: documentPageSize.value,
@@ -169,8 +216,11 @@ async function loadDocuments() {
   }
 }
 
+/** 读取当前选中文档的指定页文本分块。 */
 async function loadChunks() {
+  // 本次请求的版本号，用于判断响应是否过期。
   const requestId = ++chunkRequestId
+  // 当前正在处理或展示的文档记录。
   const document = selectedDocument.value
   if (!document || document.status !== 'SUCCESS') {
     chunks.value = []
@@ -179,11 +229,14 @@ async function loadChunks() {
     return
   }
 
+  // 发起分块请求时捕获的页码。
   const requestedPage = chunkPage.value
+  // 发起分块请求时捕获的每页数量。
   const requestedSize = chunkPageSize.value
   chunksLoading.value = true
   actionError.value = ''
   try {
+    // 本次后端请求返回的数据。
     const result = await getDocumentChunks(document.id, requestedPage, requestedSize)
     if (
       !isMounted ||
@@ -205,6 +258,7 @@ async function loadChunks() {
   }
 }
 
+/** 刷新所有处理中资料的状态，并在任务结束后更新关联界面。 */
 async function pollProcessingDocuments() {
   if (pollingInProgress) return
   for (const document of documents.value) {
@@ -217,8 +271,10 @@ async function pollProcessingDocuments() {
 
   pollingInProgress = true
   pageError.value = ''
+  // 本轮轮询是否发现文档离开处理中状态。
   let reachedTerminalStatus = false
   try {
+    // 并发读取得到的文档状态结果列表。
     const results = await Promise.all(
       [...trackedProcessingIds].map(async (id) => {
         try {
@@ -236,6 +292,7 @@ async function pollProcessingDocuments() {
     if (!isMounted) return
     for (const updated of results) {
       if (!updated) continue
+      // 目标文档在当前列表中的下标。
       const index = documents.value.findIndex((document) => document.id === updated.id)
       if (updated.status === 'PROCESSING') trackedProcessingIds.add(updated.id)
       else {
@@ -247,6 +304,7 @@ async function pollProcessingDocuments() {
         if (selectedDocumentId.value === updated.id) upsertDocument(updated)
         continue
       }
+      // 本轮轮询前列表中保存的文档记录。
       const previous = documents.value[index]
       documents.value[index] = updated
       if (previous.status === 'PROCESSING' && updated.status !== 'PROCESSING') {
@@ -268,12 +326,14 @@ async function pollProcessingDocuments() {
   }
 }
 
+/** 触发内置资料导入并跟踪后台处理任务。 */
 async function onImportBuiltin() {
   if (builtinImportActive.value) return
 
   builtinImportActive.value = true
   actionError.value = ''
   try {
+    // 本次后端请求返回的数据。
     const result = await importBuiltinDocuments()
     if (!isMounted) return
 
@@ -300,6 +360,8 @@ async function onImportBuiltin() {
   }
 }
 
+/** 切换当前选中文档；再次点击同一文档时取消选择。 */
+// 参数 document：用户点选的 DocumentItem；使用其 ID 切换当前选择，并依据处理状态清空旧分块详情或重新加载成功文档的分块。
 async function selectDocument(document: DocumentItem) {
   if (selectedDocumentId.value === document.id) {
     clearSelection()
@@ -315,6 +377,8 @@ async function selectDocument(document: DocumentItem) {
   if (document.status === 'SUCCESS') await loadChunks()
 }
 
+/** 接收上传完成事件，选中新资料并开始跟踪解析状态。 */
+// 参数 uploaded：上传组件返回的文件受理信息。
 async function onUpload(uploaded: DocumentUploadAccepted) {
   keyword.value = ''
   status.value = ''
@@ -344,6 +408,8 @@ async function onUpload(uploaded: DocumentUploadAccepted) {
   }
 }
 
+/** 重新提交指定文档的导入任务并刷新其状态。 */
+// 参数 document：需要重新导入的 DocumentItem；使用其 ID 提交任务并跟踪处理状态，使用文件名恢复失败状态筛选，同时刷新记录及成功后的分块。
 async function onReimport(document: DocumentItem) {
   actionError.value = ''
   try {
@@ -376,6 +442,8 @@ async function onReimport(document: DocumentItem) {
   }
 }
 
+/** 确认并删除指定文档，同时维护分页、选择和处理状态。 */
+// 参数 document：待删除的 DocumentItem；文件名用于确认提示，ID 用于删除请求和清理选择/轮询状态，原处理状态用于失败时恢复轮询。
 async function onDelete(document: DocumentItem) {
   if (deletingDocumentId.value !== undefined) return
   try {
@@ -417,6 +485,8 @@ async function onDelete(document: DocumentItem) {
   }
 }
 
+/** 应用文档关键词及状态筛选条件。 */
+// 参数 query：筛选表单提交的查询条件。
 async function onFilter(query: { keyword: string; status: DocumentItem['status'] | '' }) {
   keyword.value = query.keyword
   status.value = query.status
@@ -425,12 +495,16 @@ async function onFilter(query: { keyword: string; status: DocumentItem['status']
   await loadDocuments()
 }
 
+/** 切换文档列表页码。 */
+// 参数 page：用户选择的目标页码。
 async function onDocumentPage(page: number) {
   documentPage.value = page
   clearSelection()
   await loadDocuments()
 }
 
+/** 修改文档列表每页数量并回到第一页。 */
+// 参数 size：列表每页显示的记录数量。
 async function onDocumentSize(size: number) {
   documentPageSize.value = size
   documentPage.value = 1
@@ -438,17 +512,23 @@ async function onDocumentSize(size: number) {
   await loadDocuments()
 }
 
+/** 切换文本分块列表页码。 */
+// 参数 page：用户选择的目标页码。
 async function onChunkPage(page: number) {
   chunkPage.value = page
   await loadChunks()
 }
 
+/** 修改文本分块每页数量并回到第一页。 */
+// 参数 size：列表每页显示的记录数量。
 async function onChunkSize(size: number) {
   chunkPageSize.value = size
   chunkPage.value = 1
   await loadChunks()
 }
 
+/** 选中指定文本分块并打开详情面板。 */
+// 参数 chunk：当前文本分块记录。
 function openChunk(chunk: ChunkItem) {
   selectedChunk.value = chunk
   chunkDetailVisible.value = true
@@ -477,6 +557,7 @@ onUnmounted(() => {
       </div>
       <div class="documents-page-actions">
         <ElButton
+          v-if="canManageDocuments"
           class="document-builtin-import-button"
           type="primary"
           :loading="builtinImportActive"
@@ -494,7 +575,7 @@ onUnmounted(() => {
     <ElAlert v-if="pageError" :title="pageError" type="error" show-icon :closable="false" />
     <ElAlert v-if="actionError" :title="actionError" type="error" show-icon :closable="true" @close="actionError = ''" />
 
-    <DocumentUpload @uploaded="onUpload" />
+    <DocumentUpload v-if="canManageDocuments" @uploaded="onUpload" />
 
     <DocumentList
       :documents="documents"
@@ -506,6 +587,7 @@ onUnmounted(() => {
       :deleting-id="deletingDocumentId"
       :keyword="keyword"
       :status="status"
+      :can-manage="canManageDocuments"
       @filter="onFilter"
       @page="onDocumentPage"
       @size="onDocumentSize"

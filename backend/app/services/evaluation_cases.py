@@ -1,4 +1,5 @@
-"""Versioned seed set for the Phase 8 evaluation workflow."""
+# 文件作用：提供内置评估用例及评估基准数据。
+"""定义版本化的评测基线用例及其初始数据，为评测服务提供可追踪的种子集；用例版本变化与用户维护的用例生命周期分开管理。"""
 
 from __future__ import annotations
 
@@ -431,8 +432,16 @@ _REJECT_CASES = [
 
 
 def fixed_evaluation_cases() -> list[dict[str, Any]]:
+    """返回内置固定评估用例集合。"""
+    # 局部变量 cases：本次查询或运行使用的评估用例集合。
     cases: list[dict[str, Any]] = []
+    # 局部变量 topic：评估用例或知识缺口所属主题。
+    # 局部变量 question：用户提交或模型改写后的问题文本。
+    # 局部变量 points：答案需要覆盖的评估要点列表。
+    # 局部变量 source_files：本次扫描或导入的源文件列表。
+    # 局部变量 compliance：当前请求的合规判断或提示状态。
     for topic, question, points, source_files, compliance in _SINGLE_TURN_CASES:
+        # 局部变量 file_name：经过校验的源文件名称。
         cases.append(
             {
                 "topic": topic,
@@ -446,6 +455,7 @@ def fixed_evaluation_cases() -> list[dict[str, Any]]:
                 "should_show_compliance": compliance,
             }
         )
+    # 局部变量 turns：多轮评估用例中的对话轮次。
     for topic, turns, points, source_files, compliance in _MULTI_TURN_CASES:
         cases.append(
             {
@@ -475,4 +485,5 @@ def fixed_evaluation_cases() -> list[dict[str, Any]]:
 
 
 def baseline_version() -> int:
+    """返回当前内置评估基准数据版本标识。"""
     return _BASELINE_VERSION

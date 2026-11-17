@@ -1,3 +1,4 @@
+<!-- 文件作用：展示会话消息列表、回答状态、引用来源和工具执行信息。 -->
 <script setup lang="ts">
 import type { UiMessage } from '@/types/chat'
 

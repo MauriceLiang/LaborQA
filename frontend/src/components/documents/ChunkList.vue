@@ -1,3 +1,4 @@
+<!-- 文件作用：分页展示文档包含的文本块并支持查看详情。 -->
 <script setup lang="ts">
 import { ElPagination } from 'element-plus'
 import { ArrowRight } from '@element-plus/icons-vue'
@@ -5,21 +6,33 @@ import { ArrowRight } from '@element-plus/icons-vue'
 import type { ChunkItem } from '@/api/documents'
 
 defineProps<{
+  /** 当前页显示的文本块。 */
   chunks: ChunkItem[]
+  /** 列表或分页请求是否正在进行。 */
   loading: boolean
+  /** 当前页码。 */
   page: number
+  /** 每页文本块数量。 */
   size: number
+  /** 文本块总数。 */
   total: number
+  /** 当前选中文本块的标识。 */
   selectedId?: number
 }>()
 
+// 向父组件回报文本块选择及分页器操作。
 const emit = defineEmits<{
   select: [chunk: ChunkItem]
   page: [page: number]
   size: [size: number]
 }>()
 
+/** 折叠空白并截断较长文本块，生成列表预览摘要。
+ * @param content 文本块完整正文。
+ * @returns 最多 180 个字符的单行摘要。
+ */
 function summarize(content: string) {
+  // compact 是去掉首尾空白并合并内部空白后的文本。
   const compact = content.replace(/\s+/g, ' ').trim()
   return compact.length > 180 ? `${compact.slice(0, 180)}…` : compact
 }

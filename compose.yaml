@@ -1,3 +1,4 @@
+# 文件作用：定义本地及生产部署使用的后端、前端容器和服务依赖。
 name: laborqa
 
 services:
@@ -30,7 +31,7 @@ services:
           "CMD",
           "python",
           "-c",
-          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=5).read()"
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health/live', timeout=5).read()"
         ]
       interval: 30s
       timeout: 10s

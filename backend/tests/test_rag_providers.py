@@ -41,7 +41,7 @@ def test_llm_generation_parameter_defaults() -> None:
     ],
 )
 def test_llm_generation_parameter_boundaries_are_validated(
-    field: str, value: float | int
+    field: str, value: float
 ) -> None:
     with pytest.raises(ValidationError):
         Settings(_env_file=None, **{field: value})
@@ -72,9 +72,7 @@ def test_build_chat_model_with_thinking_enabled() -> None:
         llm_model="test-model",
     )
 
-    model = build_chat_model(
-        config, thinking_mode="enabled", reasoning_effort="max"
-    )
+    model = build_chat_model(config, thinking_mode="enabled", reasoning_effort="max")
 
     assert model.reasoning_effort == "max"
     assert model.extra_body == {"thinking": {"type": "enabled"}}

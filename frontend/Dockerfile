@@ -1,3 +1,4 @@
+# 文件作用：构建 Vue 前端静态资源并打包到 Nginx 运行镜像中。
 FROM node:20-alpine AS builder
 
 WORKDIR /app

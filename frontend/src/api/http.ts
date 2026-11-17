@@ -1,16 +1,24 @@
+// 文件作用：创建统一 HTTP 客户端，处理 API 错误格式和健康检查请求。
 import axios from 'axios'
+import type { InternalAxiosRequestConfig } from 'axios'
 
 import type { paths } from '@/types/api.generated'
 
+/** 从生成的 OpenAPI 路径类型中提取健康检查 HTTP 响应。 */
 type HealthResponse = paths['/api/health']['get']['responses'][200]['content']['application/json']
+/** 健康检查响应中非空的业务数据结构。 */
 export type HealthData = NonNullable<HealthResponse['data']>
 
 interface ApiResponse<T> {
+  /** 后端约定的业务状态码；0 表示成功。 */
   code: number
+  /** 面向调用方的状态或错误说明。 */
   message: string
+  /** 成功时的业务数据，错误或无数据时为空。 */
   data: T | null
 }
 
+/** 携带后端业务错误码的前端 API 异常。 */
 export class ApiError extends Error {
   constructor(
     readonly code: number,
@@ -21,6 +29,23 @@ export class ApiError extends Error {
   }
 }
 
+// CSRF token 只保存在当前页面内存，不写入 localStorage 或可被脚本长期读取的存储。
+let csrfToken = ''
+
+/** 更新当前登录会话使用的 CSRF token。 */
+export function setCsrfToken(value: string) {
+  csrfToken = value
+}
+
+/** 读取当前页面内存中的 CSRF token，供原生流式 fetch 复用。 */
+export function getCsrfToken() {
+  return csrfToken
+}
+
+/** 将网络、超时和业务异常转换成适合界面展示的提示。
+ * @param error 捕获到的任意异常对象。
+ * @returns 中文错误提示文本。
+ */
 export function getErrorMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message
 
@@ -38,24 +63,50 @@ export function getErrorMessage(error: unknown): string {
   return '请求失败，请稍后重试'
 }
 
+/** 项目共用 Axios 客户端，集中配置 API 地址和请求超时。 */
 export const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api',
   timeout: 8000,
+  withCredentials: true,
+})
+
+http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const method = (config.method || 'get').toUpperCase()
+  const isMutation = !['GET', 'HEAD', 'OPTIONS'].includes(method)
+  const isLogin = config.url?.replace(/\/+$/, '').endsWith('/auth/login')
+  if (isMutation && !isLogin && csrfToken) {
+    config.headers.set('X-CSRF-Token', csrfToken)
+  }
+  return config
 })
 
 http.interceptors.response.use(
+  // response 是 Axios 收到的成功 HTTP 响应。
   (response) => {
+    // body 是后端统一包装的 API 响应体。
     const body = response.data as ApiResponse<unknown>
     if (body.code !== 0) {
       throw new ApiError(body.code, body.message || '后端请求失败')
     }
     return { ...response, data: body.data }
   },
+  // error 是 Axios 请求失败时传入的原始异常。
   (error: unknown) => {
     if (axios.isAxiosError(error)) {
+      const requestUrl = error.config?.url || ''
+      if (
+        error.response?.status === 401 &&
+        !requestUrl.endsWith('/auth/login') &&
+        !requestUrl.endsWith('/auth/me') &&
+        typeof window !== 'undefined'
+      ) {
+        window.dispatchEvent(new Event('laborqa:auth-expired'))
+      }
+      // requestId 用于将前端错误和后端请求日志关联起来。
       const requestId = error.response?.headers['x-request-id']
       if (requestId) console.error(`API request failed (X-Request-ID: ${requestId})`)
 
+      // body 是失败响应中的未校验内容，后续需逐字段检查结构。
       const body: unknown = error.response?.data
       if (
         typeof body === 'object' &&
@@ -72,7 +123,11 @@ http.interceptors.response.use(
   },
 )
 
+/** 请求后端健康检查端点并返回健康数据。
+ * @returns 服务、数据库和检索组件状态。
+ */
 export async function getHealth(): Promise<HealthData> {
+  // response 保存健康检查端点的 HTTP 响应。
   const response = await http.get<HealthData>('/health')
   return response.data
 }
