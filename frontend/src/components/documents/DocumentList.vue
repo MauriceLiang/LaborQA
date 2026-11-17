@@ -26,6 +26,8 @@ const props = defineProps<{
   keyword: string
   /** 已提交的文档状态过滤条件；空字符串表示不筛选。 */
   status: DocumentItem['status'] | ''
+  /** 当前账号是否允许导入、重试或删除共享资料。 */
+  canManage?: boolean
 }>()
 
 // 向页面发送筛选、分页、选择和文档操作事件。
@@ -158,7 +160,7 @@ function selectWithKeyboard(event: KeyboardEvent, document: DocumentItem) {
             <th scope="col">Chunk 数</th>
             <th scope="col">创建时间</th>
             <th scope="col">处理说明</th>
-            <th scope="col">操作</th>
+            <th v-if="canManage" scope="col">操作</th>
           </tr>
         </thead>
         <tbody>
@@ -199,7 +201,7 @@ function selectWithKeyboard(event: KeyboardEvent, document: DocumentItem) {
               <span v-else-if="document.status === 'PROCESSING'" class="muted-copy">正在解析并建立索引</span>
               <span v-else class="muted-copy">—</span>
             </td>
-            <td>
+            <td v-if="canManage">
               <div class="document-operation-actions">
                 <ElButton
                   v-if="document.status === 'FAILED'"
@@ -223,7 +225,7 @@ function selectWithKeyboard(event: KeyboardEvent, document: DocumentItem) {
             </td>
           </tr>
           <tr v-if="!loading && documents.length === 0" class="document-empty-row">
-            <td colspan="8">暂无资料</td>
+            <td :colspan="canManage ? 8 : 7">暂无资料</td>
           </tr>
         </tbody>
       </table>

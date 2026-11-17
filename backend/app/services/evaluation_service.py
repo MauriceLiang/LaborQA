@@ -16,8 +16,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from app.core.config import Settings, settings
 from app.core.error_codes import ErrorCode
 from app.core.errors import AppError
-from app.rag.errors import EmbeddingUnavailableError, ModelUnavailableError
 from app.rag.ai_modes import DEFAULT_AI_MODE
+from app.rag.errors import EmbeddingUnavailableError, ModelUnavailableError
 from app.rag.runtime_config import runtime_config_snapshot
 from app.repositories.evaluation_repository import EvaluationRepository
 from app.schemas.contracts import (
@@ -74,8 +74,7 @@ class EvaluationService:
         ).read_text(encoding="utf-8")
 
     def initialize(self) -> None:
-        """初始化评估仓库并恢复遗留任务状态。
-        """
+        """初始化评估仓库并恢复遗留任务状态。"""
         self.repository.seed_cases(
             fixed_evaluation_cases(), baseline_version=baseline_version()
         )
@@ -310,9 +309,7 @@ class EvaluationService:
         run["config"] = {
             **runtime_config_snapshot(
                 self.config,
-                ai_mode=AiMode(
-                    run["config"].get("ai_mode", DEFAULT_AI_MODE.value)
-                ),
+                ai_mode=AiMode(run["config"].get("ai_mode", DEFAULT_AI_MODE.value)),
             ),
             **run["config"],
         }
@@ -354,9 +351,7 @@ class EvaluationService:
             # 局部变量 answer_style：本次生成答案使用的表达风格。
             answer_style = AnswerStyle(run["config"]["answer_style"])
             # 局部变量 ai_mode：本次回答生成使用的 AI 模式。
-            ai_mode = AiMode(
-                run["config"].get("ai_mode", DEFAULT_AI_MODE.value)
-            )
+            ai_mode = AiMode(run["config"].get("ai_mode", DEFAULT_AI_MODE.value))
             # 局部变量 cases：本次查询或运行使用的评估用例集合。
             cases = self.repository.run_cases(run_id)
             # 局部变量 case：当前评测用例数据，包含问题轮次和预期要点/来源；本流程据这些字段构造输入、执行判定或汇总该用例结果。
@@ -373,9 +368,7 @@ class EvaluationService:
                     VectorStoreSignatureMismatch,
                 ) as exc:
                     logger.exception("Evaluation case %s failed", case["id"])
-                    result = _failed_result(
-                        case["id"], self._system_error_message(exc)
-                    )
+                    result = _failed_result(case["id"], self._system_error_message(exc))
                 except Exception as exc:
                     logger.exception("Evaluation case %s failed", case["id"])
                     result = _failed_result(case["id"], str(exc) or "评测用例执行失败")
@@ -427,9 +420,7 @@ class EvaluationService:
             if "ai_mode" in signature(answer_once).parameters:
                 answer_kwargs["ai_mode"] = ai_mode
             # 局部变量 output：当前流程生成的输出内容。
-            output = await answer_once(
-                question, history, answer_style, **answer_kwargs
-            )
+            output = await answer_once(question, history, answer_style, **answer_kwargs)
             outputs.append(output)
             # 局部变量 retrieved_sources：检索阶段返回的来源列表。
             retrieved_sources = output.get(
@@ -718,6 +709,7 @@ def _calculate_metrics(
     results：本次处理生成的结果列表。
     cases：当前任务使用的评估用例集合。
     """
+
     def rate(successes: int, total: int) -> float | None:
         """计算成功数占总数的比例。
 

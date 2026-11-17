@@ -125,8 +125,7 @@ class DocumentService:
             raise
 
     def get_builtin_status(self) -> dict:
-        """扫描内置资料并汇总导入状态。
-        """
+        """扫描内置资料并汇总导入状态。"""
         with self._import_lock:
             # 局部变量 specs：扫描或注册得到的内置文档定义集合。
             specs = list_builtin_documents(self.config)
@@ -211,8 +210,8 @@ class DocumentService:
     def import_builtin_batch(self, document_ids: list[int]) -> None:
         """按传入 ID 顺序复用单文档导入流程；单个任务若发生未预期异常会记录上下文并继续处理后续资料，避免批量导入被单项故障中断。
 
-            参数：
-            document_ids：本次批量操作涉及的文档标识集合。
+        参数：
+        document_ids：本次批量操作涉及的文档标识集合。
         """
         # 局部变量 document_id：文档记录的唯一标识。
         for document_id in document_ids:
@@ -381,7 +380,9 @@ class DocumentService:
         path：输入文件或索引路径。
         """
         try:
-            return path.expanduser().resolve().is_relative_to(self.file_storage.upload_dir)
+            return (
+                path.expanduser().resolve().is_relative_to(self.file_storage.upload_dir)
+            )
         except OSError:
             return False
 
@@ -431,8 +432,8 @@ class DocumentService:
     def delete_document(self, document_id: int) -> dict:
         """协调删除文档主记录、分块、引用、向量和源文件；数据库事务先确定删除结果，后续向量或文件清理失败会留下日志以便运维发现孤儿数据。
 
-            参数：
-            document_id：文档记录的唯一标识。
+        参数：
+        document_id：文档记录的唯一标识。
         """
         with self._import_lock:
             # 局部变量 deleted：当前文件是否已经删除。
@@ -461,8 +462,8 @@ class DocumentService:
     def import_document(self, document_id: int) -> None:
         """作为后台任务处理一份文档：读取已保存文件、解析并切分正文、写入数据库和向量索引，同时更新处理状态；可恢复错误会转换为失败状态供界面查看。
 
-            参数：
-            document_id：文档记录的唯一标识。
+        参数：
+        document_id：文档记录的唯一标识。
         """
         with self._import_lock:
             # 局部变量 document：按任务 ID 重新读取的文档记录；只有仍处于 PROCESSING 状态时才继续解析，避免重复执行已结束的导入任务。
@@ -669,8 +670,7 @@ class DocumentService:
             self._rebuild_index()
 
     def _rebuild_index(self) -> None:
-        """根据有效文档重建向量索引。
-        """
+        """根据有效文档重建向量索引。"""
         try:
             # 局部变量 chunks：当前文档或任务涉及的文本分块集合。
             chunks = self.repository.list_success_chunks()

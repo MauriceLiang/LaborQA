@@ -432,8 +432,7 @@ _REJECT_CASES = [
 
 
 def fixed_evaluation_cases() -> list[dict[str, Any]]:
-    """返回内置固定评估用例集合。
-    """
+    """返回内置固定评估用例集合。"""
     # 局部变量 cases：本次查询或运行使用的评估用例集合。
     cases: list[dict[str, Any]] = []
     # 局部变量 topic：评估用例或知识缺口所属主题。
@@ -486,6 +485,5 @@ def fixed_evaluation_cases() -> list[dict[str, Any]]:
 
 
 def baseline_version() -> int:
-    """返回当前内置评估基准数据版本标识。
-    """
+    """返回当前内置评估基准数据版本标识。"""
     return _BASELINE_VERSION

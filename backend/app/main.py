@@ -8,12 +8,15 @@ from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response
 
+from app.api.admin import router as admin_router
+from app.api.auth import router as auth_router
 from app.api.contracts import router as contracts_router
 from app.api.health import router as health_router
 from app.core.config import settings
 from app.core.database import initialize_database
 from app.core.errors import register_exception_handlers
 from app.core.logging_config import configure_logging
+from app.services.auth_service import AuthService
 from app.services.chat_service import ChatService
 from app.services.document_service import DocumentService
 from app.services.evaluation_service import EvaluationService
@@ -33,6 +36,9 @@ async def lifespan(app: FastAPI):
     """
     configure_logging()
     initialize_database()
+    # 认证服务与业务仓储共用同一数据库，统一验证账户、Cookie 会话和角色。
+    app.state.auth_service = AuthService(database_path=settings.database_path)
+    app.state.auth_service.ensure_development_admin()
     # 文档业务服务，负责恢复未完成导入并提供文档、向量存储能力。
     document_service = DocumentService(settings)
     document_service.recover_interrupted_imports()
@@ -81,6 +87,8 @@ app.add_middleware(
     expose_headers=["X-Request-ID"],
 )
 app.include_router(health_router, prefix=settings.api_prefix)
+app.include_router(auth_router, prefix=settings.api_prefix)
+app.include_router(admin_router, prefix=settings.api_prefix)
 app.include_router(contracts_router, prefix=settings.api_prefix)
 register_exception_handlers(app)
 

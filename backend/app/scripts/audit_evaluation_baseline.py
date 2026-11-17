@@ -89,8 +89,7 @@ def _audit(cases: Sequence[dict[str, Any]]) -> list[str]:
 
 
 def main() -> int:
-    """读取并审计基准用例数据，输出问题并返回退出码。
-    """
+    """读取并审计基准用例数据，输出问题并返回退出码。"""
     # 局部变量 cases：本次查询或运行使用的评估用例集合。
     cases = fixed_evaluation_cases()
     # 局部变量 answer_cases：预期系统生成实质性答案的评估用例。

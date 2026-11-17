@@ -11,8 +11,7 @@ SCHEMA_PATH = Path(__file__).with_name("schema.sql")
 
 
 def initialize_database() -> None:
-    """创建数据库目录、启用外键并执行建表脚本和兼容性迁移。
-    """
+    """创建数据库目录、启用外键并执行建表脚本和兼容性迁移。"""
     # 按应用设置解析出的 SQLite 数据库文件或内存库路径。
     database_path = settings.database_path
     if database_path != Path(":memory:"):
@@ -33,6 +32,7 @@ def initialize_database() -> None:
         _migrate_evaluation_schema(connection)
         _migrate_retrieval_experiment_schema(connection)
         _migrate_retrieval_strategy_schema(connection)
+        _migrate_auth_ownership_schema(connection)
 
 
 def _migrate_document_schema(connection: sqlite3.Connection) -> None:
@@ -42,8 +42,7 @@ def _migrate_document_schema(connection: sqlite3.Connection) -> None:
     """
     # sqlite_master 中记录的 document 建表语句查询结果。
     row = connection.execute(
-        "SELECT sql FROM sqlite_master "
-        "WHERE type = 'table' AND name = 'document'"
+        "SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'document'"
     ).fetchone()
     # 规范化为小写的建表 SQL，用于判断旧表是否支持 md 文件类型。
     table_sql = str(row[0] or "").lower() if row else ""
@@ -185,9 +184,7 @@ def _migrate_evaluation_schema(connection: sqlite3.Connection) -> None:
     # 标记本次迁移是否新加拒答率，以决定是否回填历史结果。
     refusal_rate_added = "refusal_rate" not in run_columns
     if refusal_rate_added:
-        connection.execute(
-            "ALTER TABLE evaluation_run ADD COLUMN refusal_rate REAL"
-        )
+        connection.execute("ALTER TABLE evaluation_run ADD COLUMN refusal_rate REAL")
         connection.execute(
             """
             UPDATE evaluation_run
@@ -319,7 +316,12 @@ def _migrate_evaluation_schema(connection: sqlite3.Connection) -> None:
                 case_snapshot_json = ?
             WHERE run_id = ? AND case_id = ?
             """,
-            (int(row[2] or 1), json.dumps(snapshot, ensure_ascii=False), row[0], row[1]),
+            (
+                int(row[2] or 1),
+                json.dumps(snapshot, ensure_ascii=False),
+                row[0],
+                row[1],
+            ),
         )
 
     connection.execute(
@@ -394,6 +396,32 @@ def _migrate_retrieval_experiment_schema(connection: sqlite3.Connection) -> None
     )
 
 
+def _migrate_auth_ownership_schema(connection: sqlite3.Connection) -> None:
+    """为既有聊天会话添加所有者字段，并将匿名历史数据隔离封存。
+
+    参数：connection 为当前数据库迁移连接。
+    """
+    columns = _table_columns(connection, "session")
+    if "owner_user_id" not in columns:
+        connection.execute(
+            "ALTER TABLE session ADD COLUMN owner_user_id VARCHAR(36) "
+            "REFERENCES app_user(id) ON DELETE SET NULL"
+        )
+    if "ownership_state" not in columns:
+        connection.execute(
+            "ALTER TABLE session ADD COLUMN ownership_state VARCHAR(30) "
+            "NOT NULL DEFAULT 'LEGACY_QUARANTINED'"
+        )
+    connection.execute(
+        "UPDATE session SET ownership_state = 'LEGACY_QUARANTINED' "
+        "WHERE owner_user_id IS NULL"
+    )
+    connection.execute(
+        "CREATE INDEX IF NOT EXISTS idx_session_owner_updated "
+        "ON session(owner_user_id, ownership_state, updated_at DESC, created_at DESC)"
+    )
+
+
 def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
     """读取指定 SQLite 表的全部列名。
 
@@ -408,8 +436,7 @@ def _table_columns(connection: sqlite3.Connection, table_name: str) -> set[str]:
 
 
 def database_is_ready() -> bool:
-    """通过轻量查询确认配置的 SQLite 数据库当前可连接。
-    """
+    """通过轻量查询确认配置的 SQLite 数据库当前可连接。"""
     try:
         # 短超时连接仅用于探活，不创建数据库结构或修改业务数据。
         with closing(

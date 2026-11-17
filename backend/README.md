@@ -67,7 +67,7 @@ RetrievalExperimentService.initialize（恢复实验、准备内置策略）
 
 应用创建阶段还会注册：
 
-- `/api/health` 和业务 Router。
+- 公共最小探针 `/api/health/live`、受系统管理员保护的 `/api/health` 和业务 Router。
 - `AppError` 等异常到统一 API 错误响应的映射。
 - CORS 中间件。
 - 为每个请求生成 `X-Request-ID` 的 middleware。
@@ -269,4 +269,4 @@ cd backend
 .venv/bin/python -m app.scripts.audit_evaluation_baseline
 ```
 
-配置或索引兼容性发生变化时，先确认 `/api/health`，再重新导入资料和运行 baseline；不要只用单个 Chat 请求判断改动是否正确。
+配置或索引兼容性发生变化时，由系统管理员登录后确认 `/api/health` 的内部状态，再重新导入资料和运行 baseline；公共部署探活使用 `/api/health/live`。

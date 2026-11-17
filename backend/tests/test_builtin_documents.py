@@ -5,6 +5,8 @@ from types import SimpleNamespace
 from unittest.mock import call, patch
 
 import pytest
+from fastapi import BackgroundTasks
+
 from app.api.contracts import get_builtin_document_status, import_builtin_documents
 from app.core.config import Settings, settings
 from app.core.database import initialize_database
@@ -14,7 +16,6 @@ from app.services.builtin_documents import list_builtin_documents, sha256_file
 from app.services.document_service import DocumentService
 from app.services.file_storage import FileStorage
 from app.services.vector_store import VectorStoreService
-from fastapi import BackgroundTasks
 
 SCHEMA_PATH = Path(__file__).parents[1] / "app" / "core" / "schema.sql"
 
@@ -45,7 +46,9 @@ class _EmbeddingService:
         )
 
 
-def _service(tmp_path: Path, builtin_dir: Path) -> tuple[DocumentService, DocumentRepository]:
+def _service(
+    tmp_path: Path, builtin_dir: Path
+) -> tuple[DocumentService, DocumentRepository]:
     database_path = tmp_path / "documents.db"
     with sqlite3.connect(database_path) as connection:
         connection.executescript(SCHEMA_PATH.read_text(encoding="utf-8"))
@@ -115,7 +118,11 @@ def test_builtin_lifecycle_imports_in_order_and_is_idempotent(tmp_path: Path) ->
     service, repository = _service(tmp_path, builtin_dir)
 
     initial = service.get_builtin_status()
-    assert (initial["total"], initial["missing"], initial["all_imported"]) == (2, 2, False)
+    assert (initial["total"], initial["missing"], initial["all_imported"]) == (
+        2,
+        2,
+        False,
+    )
 
     plan = service.prepare_builtin_import()
     assert plan.total == 2
@@ -150,7 +157,9 @@ def test_legacy_upload_with_matching_hash_is_claimed(tmp_path: Path) -> None:
     (builtin_dir / "劳动法.md").write_text(content, encoding="utf-8")
     service, repository = _service(tmp_path, builtin_dir)
 
-    uploaded = service.upload(io.BytesIO(content.encode()), "劳动法.md", "text/markdown")
+    uploaded = service.upload(
+        io.BytesIO(content.encode()), "劳动法.md", "text/markdown"
+    )
     repository.update_document(uploaded["id"], status="SUCCESS", chunk_count=0)
 
     status = service.get_builtin_status()
@@ -197,7 +206,9 @@ def test_outdated_refresh_preserves_document_id_and_removes_citations(
     chunks, _ = repository.list_chunks(document["id"])
     with repository._connection() as connection:
         session_id = "builtin-refresh-session"
-        connection.execute("INSERT INTO session (id, title) VALUES (?, ?)", (session_id, "刷新"))
+        connection.execute(
+            "INSERT INTO session (id, title) VALUES (?, ?)", (session_id, "刷新")
+        )
         cursor = connection.execute(
             "INSERT INTO message (session_id, role, content) VALUES (?, ?, ?)",
             (session_id, "assistant", "引用"),
@@ -242,7 +253,9 @@ def test_builtin_batch_continues_after_an_unexpected_failure(tmp_path: Path) -> 
     assert importer.call_args_list == [call(1), call(2), call(3)]
 
 
-def test_old_document_schema_migrates_source_columns(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+def test_old_document_schema_migrates_source_columns(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
     database_path = tmp_path / "old.db"
     with sqlite3.connect(database_path) as connection:
         connection.executescript(
@@ -269,12 +282,8 @@ def test_old_document_schema_migrates_source_columns(monkeypatch: pytest.MonkeyP
     initialize_database()
 
     with sqlite3.connect(database_path) as connection:
-        columns = {
-            row[1] for row in connection.execute("PRAGMA table_info(document)")
-        }
-        indexes = {
-            row[1] for row in connection.execute("PRAGMA index_list(document)")
-        }
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(document)")}
+        indexes = {row[1] for row in connection.execute("PRAGMA index_list(document)")}
         row = connection.execute(
             "SELECT source_type, source_key, source_hash FROM document WHERE id = 1"
         ).fetchone()

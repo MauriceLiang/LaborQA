@@ -1,5 +1,52 @@
 -- 文件作用：定义文档、会话、评估和检索实验使用的 SQLite 表及索引。
 -- 原始文档元数据、文件来源和导入状态。
+CREATE TABLE IF NOT EXISTS app_user (
+    id VARCHAR(36) PRIMARY KEY,
+    login_identifier VARCHAR(80) NOT NULL UNIQUE,
+    password_hash VARCHAR(255) NOT NULL,
+    role VARCHAR(30) NOT NULL CHECK (role IN ('USER', 'KNOWLEDGE_ADMIN', 'SYSTEM_ADMIN')),
+    status VARCHAR(20) NOT NULL DEFAULT 'ACTIVE' CHECK (status IN ('ACTIVE', 'DISABLED')),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    password_changed_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS auth_session (
+    id VARCHAR(36) PRIMARY KEY,
+    user_id VARCHAR(36) NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+    token_hash VARCHAR(64) NOT NULL UNIQUE,
+    csrf_token_hash VARCHAR(64) NOT NULL,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT NOT NULL,
+    expires_at TEXT NOT NULL,
+    idle_expires_at TEXT NOT NULL,
+    revoked_at TEXT,
+    device_info VARCHAR(255)
+);
+
+CREATE TABLE IF NOT EXISTS auth_login_attempt (
+    key_type VARCHAR(20) NOT NULL CHECK (key_type IN ('IDENTIFIER', 'IP')),
+    key_hash VARCHAR(64) NOT NULL,
+    window_started_at TEXT NOT NULL,
+    failure_count INTEGER NOT NULL DEFAULT 0 CHECK (failure_count >= 0),
+    locked_until TEXT,
+    PRIMARY KEY (key_type, key_hash)
+);
+
+CREATE TABLE IF NOT EXISTS audit_event (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    actor_user_id VARCHAR(36) REFERENCES app_user(id) ON DELETE SET NULL,
+    action VARCHAR(80) NOT NULL,
+    resource_type VARCHAR(80) NOT NULL,
+    resource_id VARCHAR(80),
+    result VARCHAR(20) NOT NULL,
+    request_id VARCHAR(64),
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_auth_session_user_active
+    ON auth_session(user_id, revoked_at, expires_at);
+
 CREATE TABLE IF NOT EXISTS document (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     file_name VARCHAR(255) NOT NULL,
@@ -32,6 +79,9 @@ CREATE TABLE IF NOT EXISTS chunk (
 CREATE TABLE IF NOT EXISTS session (
     id VARCHAR(36) PRIMARY KEY,
     title VARCHAR(100),
+    owner_user_id VARCHAR(36) REFERENCES app_user(id) ON DELETE SET NULL,
+    ownership_state VARCHAR(30) NOT NULL DEFAULT 'LEGACY_QUARANTINED'
+        CHECK (ownership_state IN ('OWNED', 'LEGACY_QUARANTINED')),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );

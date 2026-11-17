@@ -61,8 +61,10 @@ class FakeLlm:
     ) -> str:
         self.completions.append((messages, json_mode))
         if json_mode:
-            return '{"decision":"SUFFICIENT","reason":"evidence supports the answer",' \
+            return (
+                '{"decision":"SUFFICIENT","reason":"evidence supports the answer",'
                 '"supported_points":["证据支持回答"],"missing_points":[]}'
+            )
         return "那公司以不符合录用条件解除劳动关系是否合法？"
 
     async def stream(self, messages: list[dict[str, str]]):
@@ -389,8 +391,10 @@ def test_answer_once_exposes_answer_modes_and_diagnostics() -> None:
         ) -> str:
             self.completions.append((messages, json_mode))
             if json_mode:
-                return '{"decision":"PARTIAL","reason":"仅支持部分事实",' \
+                return (
+                    '{"decision":"PARTIAL","reason":"仅支持部分事实",'
                     '"supported_points":["已知事实"],"missing_points":["关键条件"]}'
+                )
             return "仅依据已知事实说明。"
 
     class InsufficientJudge(FakeLlm):
@@ -403,8 +407,10 @@ def test_answer_once_exposes_answer_modes_and_diagnostics() -> None:
         ) -> str:
             self.completions.append((messages, json_mode))
             if json_mode:
-                return '{"decision":"INSUFFICIENT","reason":"证据不足",' \
+                return (
+                    '{"decision":"INSUFFICIENT","reason":"证据不足",'
                     '"supported_points":[],"missing_points":["关键条件"]}'
+                )
             return "不应生成普通回答。"
 
     cases = (
@@ -470,9 +476,13 @@ def test_answer_mode_mapping_is_pure_and_prioritizes_tool_requests() -> None:
             "公司拖欠工资，我应该准备什么材料？",
         )
         assert checklist is not None
-        assert service._decide_answer_mode(sufficient, checklist) is AnswerMode.RAG_ANSWER
+        assert (
+            service._decide_answer_mode(sufficient, checklist) is AnswerMode.RAG_ANSWER
+        )
         assert service._decide_answer_mode(partial, checklist) is AnswerMode.TOOL_ONLY
-        assert service._decide_answer_mode(insufficient, checklist) is AnswerMode.TOOL_ONLY
+        assert (
+            service._decide_answer_mode(insufficient, checklist) is AnswerMode.TOOL_ONLY
+        )
         assert service._decide_answer_mode(sufficient, None) is AnswerMode.RAG_ANSWER
         assert service._decide_answer_mode(partial, None) is AnswerMode.PARTIAL_ANSWER
         assert service._decide_answer_mode(insufficient, None) is AnswerMode.REFUSAL
@@ -532,8 +542,10 @@ def test_insufficient_evidence_judgement_is_recorded() -> None:
             json_mode: bool = False,
             temperature: float | None = None,
         ) -> str:
-            return '{"decision":"INSUFFICIENT","reason":"not supported",' \
+            return (
+                '{"decision":"INSUFFICIENT","reason":"not supported",'
                 '"supported_points":[],"missing_points":["关键事实"]}'
+            )
 
     with tempfile.TemporaryDirectory() as directory:
         service, sessions, _, _ = _service(directory)
@@ -559,8 +571,10 @@ def test_partial_evidence_generates_scoped_answer_without_missing_record() -> No
         ) -> str:
             self.completions.append((messages, json_mode))
             if json_mode:
-                return '{"decision":"PARTIAL","reason":"仅覆盖部分事实",' \
+                return (
+                    '{"decision":"PARTIAL","reason":"仅覆盖部分事实",'
                     '"supported_points":["已知事实"],"missing_points":["关键条件"]}'
+                )
             return "普通回答不应使用这一路径。"
 
     with tempfile.TemporaryDirectory() as directory:

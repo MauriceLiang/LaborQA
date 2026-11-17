@@ -116,8 +116,7 @@ class _LazyEmbeddings(Embeddings):
 
     @property
     def inner(self) -> Embeddings:
-        """按需创建并缓存底层嵌入模型实例。
-        """
+        """按需创建并缓存底层嵌入模型实例。"""
         if self._inner is None:
             # 成员变量 _inner：按需创建并缓存的嵌入模型。
             self._inner = self._factory()
@@ -177,8 +176,7 @@ class LangChainEmbeddingService(Embeddings):
 
     @property
     def embedding_dimension(self) -> int | None:
-        """返回当前嵌入模型已知的向量维度。
-        """
+        """返回当前嵌入模型已知的向量维度。"""
         return self.provider.dimension
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:

@@ -42,46 +42,60 @@ class SessionService:
         # 后续会话读写统一使用的仓储实例。
         self.repository = repository or SessionRepository(database_path)
 
-    def create_session(self, title: str | None = None) -> dict[str, Any]:
+    def create_session(
+        self, title: str | None = None, owner_user_id: str | None = None
+    ) -> dict[str, Any]:
         """创建会话并将仓储记录转换为 JSON 兼容的数据项。
 
         参数：title 为可选的会话标题。
         """
-        return self._session_item(self.repository.create_session(title))
+        return self._session_item(self.repository.create_session(title, owner_user_id))
 
-    def get_session(self, session_id: UUID | str) -> dict[str, Any] | None:
+    def get_session(
+        self, session_id: UUID | str, owner_user_id: str | None = None
+    ) -> dict[str, Any] | None:
         """按会话标识查询单个会话，不存在时返回 None。
 
         参数：session_id 为 UUID 对象或字符串形式的会话标识。
         """
         # 仓储返回的会话数据库记录；记录不存在时为 None。
-        row = self.repository.get_session(str(session_id))
+        row = self.repository.get_session(str(session_id), owner_user_id)
         return self._session_item(row) if row is not None else None
 
-    def list_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
+    def list_sessions(
+        self, limit: int = 20, owner_user_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """按仓储默认顺序获取最近会话并转换为 API 数据项。
 
         参数：limit 为最多返回的会话数量。
         """
         # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
-        return [self._session_item(row) for row in self.repository.list_sessions(limit)]
+        return [
+            self._session_item(row)
+            for row in self.repository.list_sessions(limit, owner_user_id)
+        ]
 
-    def list_messages(self, session_id: UUID | str) -> list[dict[str, Any]]:
+    def list_messages(
+        self, session_id: UUID | str, owner_user_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """列出会话的完整消息历史，不存在的会话会转换为业务错误。
 
         参数：session_id 为待查询会话的 UUID 或字符串标识。
         """
         # 仓储统一使用的字符串会话标识。
         normalized_id = str(session_id)
-        self._require_session(normalized_id)
+        self._require_session(normalized_id, owner_user_id)
         # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
         return [
             self._message_item(row)
-            for row in self.repository.list_messages(normalized_id)
+            for row in self.repository.list_messages(normalized_id, owner_user_id)
         ]
 
     def get_recent_context(
-        self, session_id: UUID | str, turns: int = 3
+        self,
+        session_id: UUID | str,
+        turns: int = 3,
+        owner_user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """获取供上下文窗口使用的最近若干轮消息。
 
@@ -89,11 +103,13 @@ class SessionService:
         """
         # 仓储统一使用的字符串会话标识。
         normalized_id = str(session_id)
-        self._require_session(normalized_id)
+        self._require_session(normalized_id, owner_user_id)
         # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
         return [
             self._message_item(row)
-            for row in self.repository.get_recent_context(normalized_id, turns)
+            for row in self.repository.get_recent_context(
+                normalized_id, turns, owner_user_id
+            )
         ]
 
     def create_user_message(
@@ -101,6 +117,7 @@ class SessionService:
         session_id: UUID | str,
         question: str,
         ai_mode: AiMode | str = AiMode.BALANCED,
+        owner_user_id: str | None = None,
     ) -> dict[str, Any]:
         """持久化用户问题及 AI 模式，并转换仓储异常为应用错误。
 
@@ -109,19 +126,21 @@ class SessionService:
         try:
             # 新建的用户消息数据库记录。
             row = self.repository.create_user_message(
-                str(session_id), question, ai_mode
+                str(session_id), question, ai_mode, owner_user_id
             )
         # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except SessionNotFoundError as exc:
             raise self._session_not_found() from exc
         return self._message_item(row)
 
-    def set_rewritten_question(self, message_id: int, text: str) -> None:
+    def set_rewritten_question(
+        self, message_id: int, text: str, owner_user_id: str | None = None
+    ) -> None:
         """更新用户消息的查询改写文本，目标消息不存在时抛出 ValueError。
 
         参数：message_id 为消息主键；text 为改写后的检索问题。
         """
-        if not self.repository.set_rewritten_question(message_id, text):
+        if not self.repository.set_rewritten_question(message_id, text, owner_user_id):
             raise ValueError("user message not found")
 
     def persist_assistant(
@@ -133,6 +152,7 @@ class SessionService:
         citations: Sequence[Mapping[str, Any] | CitationItem],
         tool_executions: Sequence[Mapping[str, Any] | ToolExecutionItem] = (),
         ai_mode: AiMode | str = AiMode.BALANCED,
+        owner_user_id: str | None = None,
     ) -> dict[str, Any]:
         """校验引用和工具记录后保存助手回答及其生成模式。
 
@@ -174,24 +194,26 @@ class SessionService:
                 ],
                 [execution.model_dump(mode="json") for execution in execution_items],
                 AiMode(ai_mode).value,
+                owner_user_id,
             )
         # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
         except SessionNotFoundError as exc:
             raise self._session_not_found() from exc
         return self._message_item(row)
 
-    def _require_session(self, session_id: str) -> None:
+    def _require_session(
+        self, session_id: str, owner_user_id: str | None = None
+    ) -> None:
         """确认会话存在，不存在时抛出统一的会话未找到错误。
 
         参数：session_id 为已规范化的字符串会话标识。
         """
-        if self.repository.get_session(session_id) is None:
+        if self.repository.get_session(session_id, owner_user_id) is None:
             raise self._session_not_found()
 
     @staticmethod
     def _session_not_found() -> AppError:
-        """构造统一的会话不存在应用异常。
-        """
+        """构造统一的会话不存在应用异常。"""
         return AppError(ErrorCode.SESSION_NOT_FOUND, "会话不存在", http_status=404)
 
     @staticmethod
@@ -200,7 +222,9 @@ class SessionService:
 
         参数：row 为仓储返回的会话记录映射。
         """
-        return SessionItem.model_validate(row).model_dump(mode="json")
+        return SessionItem.model_validate(
+            {key: row[key] for key in SessionItem.model_fields if key in row}
+        ).model_dump(mode="json")
 
     @staticmethod
     def _message_item(row: Mapping[str, Any]) -> dict[str, Any]:

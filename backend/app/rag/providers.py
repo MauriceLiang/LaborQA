@@ -37,9 +37,7 @@ def build_chat_model(
     kwargs: dict[str, Any] = {
         "model": config.llm_model,
         "api_key": config.llm_api_key,
-        "base_url": _without_endpoint_suffix(
-            config.llm_base_url, "/chat/completions"
-        ),
+        "base_url": _without_endpoint_suffix(config.llm_base_url, "/chat/completions"),
         "streaming": True,
         "use_responses_api": False,
     }
@@ -170,8 +168,7 @@ def _resolve_local_device(device: str) -> str:
 
 
 def _configure_local_torch_runtime() -> None:
-    """应用 macOS 下避免 PyTorch 与 FAISS OpenMP 冲突的线程配置。
-    """
+    """应用 macOS 下避免 PyTorch 与 FAISS OpenMP 冲突的线程配置。"""
     if sys.platform != "darwin":
         return
 
@@ -206,14 +203,15 @@ class CompatibleEmbeddings(Embeddings):
         # 成员变量 openai_api_key：远程 OpenAI 兼容服务的鉴权密钥。
         self.openai_api_key = SecretStr(api_key)  # 隐藏显示的嵌入 API 密钥。
         # 成员变量 openai_api_base：远程 OpenAI 兼容服务的 API 基础地址。
-        self.openai_api_base = _without_endpoint_suffix(base_url, "/embeddings")  # 去除重复 endpoint 后的 API 根地址。
+        self.openai_api_base = _without_endpoint_suffix(
+            base_url, "/embeddings"
+        )  # 去除重复 endpoint 后的 API 根地址。
         # 成员变量 _client：复用的模型或 HTTP 请求客户端。
         self._client = http_client  # 注入的 HTTP 客户端；为空时使用 httpx.post。
 
     @property
     def endpoint(self) -> str:
-        """返回最终嵌入请求 URL。
-        """
+        """返回最终嵌入请求 URL。"""
         return f"{self.openai_api_base}/embeddings"
 
     def embed_documents(self, texts: list[str]) -> list[list[float]]:

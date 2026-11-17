@@ -14,8 +14,8 @@ from app.core.database import initialize_database
 from app.core.error_codes import ErrorCode
 from app.core.errors import AppError
 from app.main import app
-from app.rag.errors import ModelUnavailableError
 from app.rag.ai_modes import DEFAULT_AI_MODE
+from app.rag.errors import ModelUnavailableError
 from app.rag.runtime_config import runtime_config_snapshot
 from app.schemas.contracts import (
     AiMode,

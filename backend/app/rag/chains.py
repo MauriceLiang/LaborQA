@@ -124,11 +124,7 @@ class RagChain:
         # 成员变量 rewrite_chain：将用户问题改写为检索查询的处理链。
         self.rewrite_chain = self.rewrite_prompt | rewrite_model | StrOutputParser()
         # 成员变量 evidence_chain：判断证据充分性的处理链。
-        self.evidence_chain = (
-            self.evidence_prompt
-            | evidence_model
-            | JsonOutputParser()
-        )
+        self.evidence_chain = self.evidence_prompt | evidence_model | JsonOutputParser()
         # 成员变量 answer_chain：负责生成最终回答的 RAG 链。
         self.answer_chain = RunnableBranch(
             (lambda state: bool(state["refused"]), RunnableLambda(_refusal)),
@@ -138,8 +134,8 @@ class RagChain:
     def set_chat_model(self, model: BaseChatModel) -> None:
         """将同一个聊天模型实例绑定到改写、证据判断和回答阶段，供旧接口或显式单模型调用方继续使用；各阶段仍按当前配置分别应用采样参数。
 
-            参数：
-            model：当前使用的模型或模型名称。
+        参数：
+        model：当前使用的模型或模型名称。
         """
 
         self._set_chat_models(model, evidence_model=model, answer_model=model)
@@ -227,10 +223,7 @@ class RagChain:
             float(item.get("retrieval_score", item.get("score", 0.0)))
             for item in evidence
         )
-        if (
-            max_retrieval_score
-            < self.config.rag_score_threshold
-        ):
+        if max_retrieval_score < self.config.rag_score_threshold:
             return (
                 _evidence_judgement(
                     EvidenceDecision.INSUFFICIENT,
@@ -437,16 +430,16 @@ class RagChain:
     ) -> list[dict[str, str]]:
         """渲染最终答案链所需的消息序列，并把问题、证据、回答风格、合规提示及工具结果填入对应模板；此方法只准备模型输入，不执行生成。
 
-            参数：
-            answer_style：本次生成答案使用的表达风格。
-            question：用户提交或模型改写后的问题文本。
-            rewritten_question：模型改写后的检索查询文本。
-            evidence：支持或限制回答的检索证据。
-            compliance_required：当前问题是否要求展示合规提示。
-            tool_execution：本次工具调用的执行结果记录。
-            answer_mode：本次问题采用的回答处理路径。
-            supported_points：已被证据或答案支持的预期要点。
-            missing_points：证据或答案尚未覆盖的预期要点列表。
+        参数：
+        answer_style：本次生成答案使用的表达风格。
+        question：用户提交或模型改写后的问题文本。
+        rewritten_question：模型改写后的检索查询文本。
+        evidence：支持或限制回答的检索证据。
+        compliance_required：当前问题是否要求展示合规提示。
+        tool_execution：本次工具调用的执行结果记录。
+        answer_mode：本次问题采用的回答处理路径。
+        supported_points：已被证据或答案支持的预期要点。
+        missing_points：证据或答案尚未覆盖的预期要点列表。
         """
 
         # 局部变量 prompt_value：填充后的模型提示内容对象。
@@ -492,8 +485,7 @@ def _evidence_from_document(document: Document) -> dict[str, Any]:
 
 
 def _answer_prompt() -> ChatPromptTemplate:
-    """构造生成最终答案时使用的提示模板。
-    """
+    """构造生成最终答案时使用的提示模板。"""
     # 局部变量 template：当前模型调用使用的提示词模板。
     template = (_PROMPT_DIR / "answer_system.txt").read_text(encoding="utf-8")
     # 局部变量 name：经过规范化或校验的资源名称。
@@ -521,8 +513,7 @@ def _answer_prompt() -> ChatPromptTemplate:
 
 
 def _rewrite_prompt() -> ChatPromptTemplate:
-    """构造将用户问题改写为检索查询时使用的提示模板。
-    """
+    """构造将用户问题改写为检索查询时使用的提示模板。"""
     # 局部变量 template：当前模型调用使用的提示词模板。
     template = _escape_fstring_literals(
         (_PROMPT_DIR / "question_rewrite.txt").read_text(encoding="utf-8")
@@ -537,8 +528,7 @@ def _rewrite_prompt() -> ChatPromptTemplate:
 
 
 def _evidence_prompt() -> ChatPromptTemplate:
-    """构造判断检索证据是否充分时使用的提示模板。
-    """
+    """构造判断检索证据是否充分时使用的提示模板。"""
     # 局部变量 template：当前模型调用使用的提示词模板。
     template = _escape_fstring_literals(
         (_PROMPT_DIR / "evidence_judge.txt").read_text(encoding="utf-8")
@@ -617,8 +607,7 @@ def _evidence_judgement(
 
 
 def _failed_closed_judgement() -> EvidenceJudgement:
-    """构造保守拒答的证据判定结果。
-    """
+    """构造保守拒答的证据判定结果。"""
     return _evidence_judgement(
         EvidenceDecision.INSUFFICIENT,
         "证据充分性判断未成功，无法安全确认回答范围。",
@@ -699,9 +688,7 @@ def _answer_input(
     refused：模型回答是否因为证据不足或合规规则而拒答。
     """
     return {
-        "refused": (
-            answer_mode is AnswerMode.REFUSAL if refused is None else refused
-        ),
+        "refused": (answer_mode is AnswerMode.REFUSAL if refused is None else refused),
         "answer_style": answer_style.value,
         "answer_style_instructions": ANSWER_STYLE_INSTRUCTIONS[answer_style.value],
         "answer_mode": answer_mode.value,

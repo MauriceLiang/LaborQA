@@ -76,8 +76,7 @@ class _ExperimentChunkRepository:
         self.chunks = chunks
 
     def list_success_chunks(self) -> list[dict[str, Any]]:
-        """列出成功导入文档的有效分块。
-        """
+        """列出成功导入文档的有效分块。"""
         return self.chunks
 
     def get_chunks_by_ids(self, chunk_ids: list[int]) -> dict[int, dict[str, Any]]:
@@ -183,8 +182,7 @@ class RetrievalExperimentService:
         self.parser = parser
 
     def initialize(self) -> None:
-        """初始化实验和策略仓库并准备内置策略。
-        """
+        """初始化实验和策略仓库并准备内置策略。"""
         self.repository.recover_interrupted_experiments()
         self.strategy_repository.seed_builtins(_builtin_strategies())
 
@@ -564,8 +562,8 @@ class RetrievalExperimentService:
     async def preview(self, payload: RetrievalPreviewRequest) -> dict[str, Any]:
         """使用指定策略和当前生产索引对单个问题执行一次完整检索与回答，汇总阶段轨迹、证据和限制说明，不创建持久化实验运行。
 
-            参数：
-            payload：经过校验的请求数据或持久化内容。
+        参数：
+        payload：经过校验的请求数据或持久化内容。
         """
 
         # 局部变量 strategy：当前检索策略及其参数配置。
@@ -1016,9 +1014,7 @@ class RetrievalExperimentService:
                 **runtime_config_snapshot(
                     self.config,
                     ai_mode=AiMode(
-                        experiment["snapshot"].get(
-                            "ai_mode", DEFAULT_AI_MODE.value
-                        )
+                        experiment["snapshot"].get("ai_mode", DEFAULT_AI_MODE.value)
                     ),
                 ),
                 **experiment["snapshot"].get("runtime_config", {}),
@@ -1150,8 +1146,7 @@ class RetrievalExperimentService:
                 )
 
     def _embedding_signature(self) -> EmbeddingSignature:
-        """读取当前嵌入模型签名以构造实验索引。
-        """
+        """读取当前嵌入模型签名以构造实验索引。"""
         # 局部变量 profile：本次模型或检索运行使用的参数配置。
         profile = self.production_vector_store.meta
         # 局部变量 dimension：嵌入向量的维度。
@@ -1381,9 +1376,7 @@ class RetrievalExperimentService:
             if "ai_mode" in signature(answer_once).parameters:
                 answer_kwargs["ai_mode"] = ai_mode
             # 局部变量 output：当前流程生成的输出内容。
-            output = await answer_once(
-                question, history, answer_style, **answer_kwargs
-            )
+            output = await answer_once(question, history, answer_style, **answer_kwargs)
             outputs.append(output)
             history.extend(
                 [
@@ -1459,8 +1452,7 @@ class RetrievalExperimentService:
 
 
 def _builtin_strategies() -> list[dict[str, Any]]:
-    """构造系统内置的检索策略定义。
-    """
+    """构造系统内置的检索策略定义。"""
     # 局部变量 strategies：本次实验可用的检索策略集合。
     strategies = [
         {

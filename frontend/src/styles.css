@@ -288,16 +288,17 @@ input {
 }
 
 .el-button--danger:where(:not(.is-disabled):not(.is-text):not(.is-link):not(.is-plain)) {
-  color: #a24d4d;
-  border-color: #edcfca;
+  color: #fff;
+  background: #a24d4d;
+  border-color: #a24d4d;
 }
 
 .el-button--danger:where(:not(.is-disabled):not(.is-text):not(.is-link):not(.is-plain)):hover,
 .el-button--danger:where(:not(.is-disabled):not(.is-text):not(.is-link):not(.is-plain)):focus,
 .el-button--danger:where(:not(.is-disabled):not(.is-text):not(.is-link):not(.is-plain)):active {
-  color: #823737;
-  background: #fff5f3;
-  border-color: #dca7a1;
+  color: #fff;
+  background: #823737;
+  border-color: #823737;
 }
 
 .el-button--danger.is-text,
@@ -858,6 +859,33 @@ input {
 
 .app-topbar-right-non-chat {
   padding-right: 12px;
+}
+
+.account-identity {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 9px;
+  padding-left: 14px;
+  border-left: 1px solid #e6ece8;
+  font-size: 12px;
+}
+
+.account-identity__name {
+  max-width: 150px;
+  overflow: hidden;
+  color: #34433d;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-identity__role {
+  padding: 4px 8px;
+  color: #185b44;
+  background: #eef5f0;
+  border-radius: 999px;
+  white-space: nowrap;
 }
 
 .ai-mode-selector {

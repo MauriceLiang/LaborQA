@@ -149,8 +149,7 @@ class MissingKnowledgeRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        """创建 SQLite 连接上下文并统一管理数据库连接。
-        """
+        """创建 SQLite 连接上下文并统一管理数据库连接。"""
         # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         connection = sqlite3.connect(str(self.database_path), timeout=5)
         connection.row_factory = sqlite3.Row

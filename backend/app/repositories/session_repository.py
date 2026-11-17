@@ -29,7 +29,9 @@ class SessionRepository:
         # 成员变量 database_path：SQLite 数据库文件路径。
         self.database_path = database_path or settings.database_path
 
-    def create_session(self, title: str | None = None) -> dict[str, Any]:
+    def create_session(
+        self, title: str | None = None, owner_user_id: str | None = None
+    ) -> dict[str, Any]:
         """创建聊天会话记录。
 
         参数：
@@ -40,8 +42,14 @@ class SessionRepository:
         # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             connection.execute(
-                "INSERT INTO session (id, title) VALUES (?, ?)",
-                (session_id, title),
+                "INSERT INTO session (id, title, owner_user_id, ownership_state) "
+                "VALUES (?, ?, ?, ?)",
+                (
+                    session_id,
+                    title,
+                    owner_user_id,
+                    "OWNED" if owner_user_id else "LEGACY_QUARANTINED",
+                ),
             )
             # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
@@ -49,7 +57,9 @@ class SessionRepository:
             ).fetchone()
             return dict(row)
 
-    def get_session(self, session_id: str) -> dict[str, Any] | None:
+    def get_session(
+        self, session_id: str, owner_user_id: str | None = None
+    ) -> dict[str, Any] | None:
         """按会话标识读取会话元数据。
 
         参数：
@@ -59,11 +69,15 @@ class SessionRepository:
         with self._connection() as connection:
             # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
-                "SELECT * FROM session WHERE id = ?", (session_id,)
+                """SELECT * FROM session WHERE id = ? AND owner_user_id IS ?
+                   AND ownership_state = ?""",
+                (session_id, owner_user_id, self._ownership_state(owner_user_id)),
             ).fetchone()
             return dict(row) if row is not None else None
 
-    def list_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
+    def list_sessions(
+        self, limit: int = 20, owner_user_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """按更新时间倒序读取最近会话。
 
         参数：
@@ -76,7 +90,9 @@ class SessionRepository:
                 """
                 SELECT s.*
                 FROM session AS s
-                WHERE EXISTS (
+                WHERE s.owner_user_id IS ?
+                  AND s.ownership_state = ?
+                  AND EXISTS (
                     SELECT 1
                     FROM message AS m
                     WHERE m.session_id = s.id
@@ -84,12 +100,14 @@ class SessionRepository:
                 ORDER BY s.updated_at DESC, s.created_at DESC, s.id DESC
                 LIMIT ?
                 """,
-                (limit,),
+                (owner_user_id, self._ownership_state(owner_user_id), limit),
             ).fetchall()
             # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             return [dict(row) for row in rows]
 
-    def list_messages(self, session_id: str) -> list[dict[str, Any]]:
+    def list_messages(
+        self, session_id: str, owner_user_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """读取指定会话的消息列表。
 
         参数：
@@ -97,6 +115,8 @@ class SessionRepository:
         """
         # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
+            if not self._session_owned(connection, session_id, owner_user_id):
+                raise SessionNotFoundError(session_id)
             # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 """
@@ -109,7 +129,10 @@ class SessionRepository:
             return self._load_messages(connection, rows)
 
     def get_recent_context(
-        self, session_id: str, turns: int = 3
+        self,
+        session_id: str,
+        turns: int = 3,
+        owner_user_id: str | None = None,
     ) -> list[dict[str, Any]]:
         """读取生成回答所需的最近上下文消息。
 
@@ -119,11 +142,12 @@ class SessionRepository:
         """
         if turns < 0:
             raise ValueError("turns must not be negative")
-        if turns == 0:
-            return []
-
         # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
+            if not self._session_owned(connection, session_id, owner_user_id):
+                raise SessionNotFoundError(session_id)
+            if turns == 0:
+                return []
             # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
                 """
@@ -160,6 +184,7 @@ class SessionRepository:
         session_id: str,
         question: str,
         ai_mode: AiMode | str = AiMode.BALANCED,
+        owner_user_id: str | None = None,
     ) -> dict[str, Any]:
         """保存用户提交的问题消息。
 
@@ -172,7 +197,9 @@ class SessionRepository:
         with self._connection() as connection:
             if (
                 connection.execute(
-                    "SELECT 1 FROM session WHERE id = ?", (session_id,)
+                    """SELECT 1 FROM session WHERE id = ? AND owner_user_id IS ?
+                       AND ownership_state = ?""",
+                    (session_id, owner_user_id, self._ownership_state(owner_user_id)),
                 ).fetchone()
                 is None
             ):
@@ -188,8 +215,9 @@ class SessionRepository:
                 (session_id, question, question, AiMode(ai_mode).value),
             )
             connection.execute(
-                "UPDATE session SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (session_id,),
+                """UPDATE session SET updated_at = CURRENT_TIMESTAMP WHERE id = ?
+                   AND owner_user_id IS ? AND ownership_state = ?""",
+                (session_id, owner_user_id, self._ownership_state(owner_user_id)),
             )
             # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
@@ -197,7 +225,9 @@ class SessionRepository:
             ).fetchone()
             return self._load_messages(connection, [row])[0]
 
-    def set_rewritten_question(self, message_id: int, text: str) -> bool:
+    def set_rewritten_question(
+        self, message_id: int, text: str, owner_user_id: str | None = None
+    ) -> bool:
         """保存问题改写后的检索文本。
 
         参数：
@@ -210,9 +240,13 @@ class SessionRepository:
             cursor = connection.execute(
                 """
                 UPDATE message SET rewritten_question = ?
-                WHERE id = ? AND role = 'user'
+                WHERE id = ? AND role = 'user' AND EXISTS (
+                    SELECT 1 FROM session AS s
+                    WHERE s.id = message.session_id AND s.owner_user_id IS ?
+                      AND s.ownership_state = ?
+                )
                 """,
-                (text, message_id),
+                (text, message_id, owner_user_id, self._ownership_state(owner_user_id)),
             )
             return cursor.rowcount == 1
 
@@ -225,6 +259,7 @@ class SessionRepository:
         citations: Sequence[Mapping[str, Any]],
         tool_executions: Sequence[Mapping[str, Any]] = (),
         ai_mode: AiMode | str = AiMode.BALANCED,
+        owner_user_id: str | None = None,
     ) -> dict[str, Any]:
         """保存助手回答、引用和工具执行信息。
 
@@ -241,7 +276,9 @@ class SessionRepository:
         with self._connection() as connection:
             if (
                 connection.execute(
-                    "SELECT 1 FROM session WHERE id = ?", (session_id,)
+                    """SELECT 1 FROM session WHERE id = ? AND owner_user_id IS ?
+                       AND ownership_state = ?""",
+                    (session_id, owner_user_id, self._ownership_state(owner_user_id)),
                 ).fetchone()
                 is None
             ):
@@ -310,8 +347,9 @@ class SessionRepository:
                 )
 
             connection.execute(
-                "UPDATE session SET updated_at = CURRENT_TIMESTAMP WHERE id = ?",
-                (session_id,),
+                """UPDATE session SET updated_at = CURRENT_TIMESTAMP WHERE id = ?
+                   AND owner_user_id IS ? AND ownership_state = ?""",
+                (session_id, owner_user_id, self._ownership_state(owner_user_id)),
             )
             # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
             row = connection.execute(
@@ -428,10 +466,31 @@ class SessionRepository:
             )
         return messages
 
+    @staticmethod
+    def _ownership_state(owner_user_id: str | None) -> str:
+        """将有账号的会话与隔离的匿名历史数据区分开。"""
+        return "OWNED" if owner_user_id else "LEGACY_QUARANTINED"
+
+    @classmethod
+    def _session_owned(
+        cls,
+        connection: sqlite3.Connection,
+        session_id: str,
+        owner_user_id: str | None,
+    ) -> bool:
+        """在当前数据事务中检查目标会话所有者，统一对外隐藏他人会话存在性。"""
+        return (
+            connection.execute(
+                """SELECT 1 FROM session WHERE id = ? AND owner_user_id IS ?
+               AND ownership_state = ?""",
+                (session_id, owner_user_id, cls._ownership_state(owner_user_id)),
+            ).fetchone()
+            is not None
+        )
+
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        """创建 SQLite 连接上下文并统一管理数据库连接。
-        """
+        """创建 SQLite 连接上下文并统一管理数据库连接。"""
         # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         connection = sqlite3.connect(str(self.database_path), timeout=5)
         connection.row_factory = sqlite3.Row

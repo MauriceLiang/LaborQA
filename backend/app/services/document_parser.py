@@ -34,8 +34,7 @@ def find_doc_converter(preferred: str | None = None) -> str | None:
 
 
 def package_doc_parser_available() -> bool:
-    """检查纯 Python 的旧版 DOC 转换包是否已安装且可调用。
-    """
+    """检查纯 Python 的旧版 DOC 转换包是否已安装且可调用。"""
     try:
         from doc2docx import convert
     except ImportError:

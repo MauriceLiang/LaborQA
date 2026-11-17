@@ -128,15 +128,13 @@ class VectorStoreService(VectorStore):
 
     @property
     def meta(self) -> IndexMeta | None:
-        """返回当前 FAISS 索引元数据。
-        """
+        """返回当前 FAISS 索引元数据。"""
         with self._lock:
             return self._meta
 
     @property
     def status(self) -> str:
-        """计算向量索引的当前就绪状态。
-        """
+        """计算向量索引的当前就绪状态。"""
         with self._lock:
             if self._meta is not None and not self.is_signature_compatible():
                 return "incompatible"
@@ -148,8 +146,7 @@ class VectorStoreService(VectorStore):
 
     @property
     def is_ready(self) -> bool:
-        """判断向量索引是否已加载且可检索。
-        """
+        """判断向量索引是否已加载且可检索。"""
         return self.status == "ready"
 
     def load(self) -> bool:
@@ -250,18 +247,18 @@ class VectorStoreService(VectorStore):
     ) -> None:
         """保留旧调用方一次提交分块及预计算向量的兼容入口；新导入流程优先使用 add_documents，由嵌入服务生成并校验向量。
 
-            参数：
-            chunks_with_vectors：已完成向量化并准备写入索引的文本分块。
-            documents：本次检索、解析或批量处理的文档集合。
+        参数：
+        chunks_with_vectors：已完成向量化并准备写入索引的文本分块。
+        documents：本次检索、解析或批量处理的文档集合。
         """
         self._add_with_documents(chunks_with_vectors, documents)
 
     def add_documents(self, documents: list[Document], **kwargs: Any) -> list[str]:
         """实现 LangChain 文档写入契约：接受调用方提供的向量或通过当前嵌入服务计算向量，补齐稳定分块元数据后更新并持久化索引。
 
-            参数：
-            documents：本次检索、解析或批量处理的文档集合。
-            kwargs：传递给模型或底层函数的额外关键字参数。
+        参数：
+        documents：本次检索、解析或批量处理的文档集合。
+        kwargs：传递给模型或底层函数的额外关键字参数。
         """
         if not documents:
             return []
@@ -312,11 +309,11 @@ class VectorStoreService(VectorStore):
     ) -> list[str]:
         """实现 LangChain VectorStore 的文本插入接口，将文本、元数据和可选 ID 转换为 Document 后交给统一写入路径处理。
 
-            参数：
-            texts：本批次需要处理的文本列表。
-            metadatas：与文本或向量对应的元数据集合。
-            ids：当前批量操作涉及的对象标识集合。
-            kwargs：传递给模型或底层函数的额外关键字参数。
+        参数：
+        texts：本批次需要处理的文本列表。
+        metadatas：与文本或向量对应的元数据集合。
+        ids：当前批量操作涉及的对象标识集合。
+        kwargs：传递给模型或底层函数的额外关键字参数。
         """
         if kwargs:
             # 局部变量 unexpected：当前未预料到的异常对象。
@@ -353,12 +350,12 @@ class VectorStoreService(VectorStore):
     ) -> "VectorStoreService":
         """实现 LangChain 标准工厂接口：先用给定 Embeddings 生成文本向量，再创建带项目持久化配置的向量库实例并写入索引。
 
-            参数：
-            texts：本批次需要处理的文本列表。
-            embedding：生成文本向量的嵌入模型实例。
-            metadatas：与文本或向量对应的元数据集合。
-            ids：当前批量操作涉及的对象标识集合。
-            kwargs：传递给模型或底层函数的额外关键字参数。
+        参数：
+        texts：本批次需要处理的文本列表。
+        embedding：生成文本向量的嵌入模型实例。
+        metadatas：与文本或向量对应的元数据集合。
+        ids：当前批量操作涉及的对象标识集合。
+        kwargs：传递给模型或底层函数的额外关键字参数。
         """
         # 局部变量 config：从 LangChain 工厂 kwargs 中取出的 Settings；若调用方未显式传入，则使用应用默认配置创建持久化索引。
         config = kwargs.pop("config", settings)
@@ -837,10 +834,10 @@ class VectorStoreService(VectorStore):
     ) -> tuple[np.ndarray, np.ndarray]:
         """在 macOS 上隔离小型索引的 FAISS 搜索调用，避免与 PyTorch 加载的另一套 OpenMP 运行时竞争线程资源。
 
-            参数：
-            index：当前记录在列表中的位置或索引序号。
-            query：用户问题文本或数据库筛选条件。
-            count：当前统计或处理的记录数量。
+        参数：
+        index：当前记录在列表中的位置或索引序号。
+        query：用户问题文本或数据库筛选条件。
+        count：当前统计或处理的记录数量。
         """
         # 局部变量 vectors：文档或查询文本对应的数值向量集合。
         vectors = np.asarray(
@@ -855,8 +852,7 @@ class VectorStoreService(VectorStore):
         return scores[order][None, :], ids[order][None, :]
 
     def save(self) -> None:
-        """将当前向量索引和元数据持久化到磁盘。
-        """
+        """将当前向量索引和元数据持久化到磁盘。"""
         with self._lock:
             if self._index is None or self._meta is None:
                 raise VectorStoreNotInitialized("向量知识库尚未初始化")
@@ -869,9 +865,9 @@ class VectorStoreService(VectorStore):
     ) -> bool:
         """仅从数据库中已成功导入的文本块重新生成向量，并用新的嵌入签名构建完整索引；完成后原子替换旧索引，避免读到半成品。
 
-            参数：
-            chunks_with_vectors：已完成向量化并准备写入索引的文本分块。
-            signature：描述嵌入模型和向量维度的配置签名。
+        参数：
+        chunks_with_vectors：已完成向量化并准备写入索引的文本分块。
+        signature：描述嵌入模型和向量维度的配置签名。
         """
         with self._lock:
             if not chunks_with_vectors:

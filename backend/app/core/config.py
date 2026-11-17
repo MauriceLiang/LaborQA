@@ -20,43 +20,113 @@ class Settings(BaseSettings):
     )
 
     app_name: str = "劳动权益咨询问答台"  # API 文档及服务展示使用的应用名称。
+    app_env: Literal["development", "production"] = (
+        "production"  # 仅在显式开发环境中允许启用开发账号初始化。
+    )
     api_prefix: str = "/api"  # 所有业务 API 路由的统一前缀。
-    cors_origins: list[str] = ["http://127.0.0.1:5173", "http://localhost:5173"]  # 允许跨域访问的前端源地址。
+    cors_origins: list[str] = [
+        "http://127.0.0.1:5173",
+        "http://localhost:5173",
+    ]  # 允许跨域访问的前端源地址。
+    auth_cookie_secure: bool = False  # HTTPS 部署时必须开启的认证 Cookie 安全标记。
+    auth_session_max_age_seconds: int = Field(
+        default=604800, ge=3600, le=2592000
+    )  # 服务端登录会话最长有效期。
+    auth_session_idle_seconds: int = Field(
+        default=1800, ge=300, le=86400
+    )  # 登录会话的空闲过期时间。
+    auth_rate_limit_secret: str = (
+        ""  # 登录限流键的 HMAC 密钥；生产环境应设置稳定随机值。
+    )
+    auth_trust_proxy_client_ip: bool = (
+        False  # 仅当反向代理覆盖私有来源头时信任该头中的客户端 IP。
+    )
+    auth_dev_seed_admin_enabled: bool = (
+        False  # 是否在开发环境首次启动时创建本地测试管理员。
+    )
+    auth_dev_seed_admin_identifier: str = ""  # 开发测试管理员账号。
+    auth_dev_seed_admin_password: str = ""  # 开发测试管理员密码；生产环境禁止启用。
     log_level: str = "INFO"  # Python 日志系统的最低输出级别。
     database_url: str = "sqlite:///./data/app.db"  # SQLite 数据库连接 URL。
     upload_dir: Path = Path("./uploads")  # 用户上传原始文件的存储目录。
-    builtin_document_dir: Path = Path("./reference-data/documents")  # 项目内置劳动法律资料目录。
+    builtin_document_dir: Path = Path(
+        "./reference-data/documents"
+    )  # 项目内置劳动法律资料目录。
     faiss_dir: Path = Path("./data/faiss")  # FAISS 向量索引的持久化目录。
     max_upload_size_mb: int = Field(default=20, ge=1)  # 单个上传文件允许的最大 MB 数。
-    doc_parser_backend: Literal["package", "libreoffice"] = "package"  # DOC 文件解析或转换后端。
+    doc_parser_backend: Literal["package", "libreoffice"] = (
+        "package"  # DOC 文件解析或转换后端。
+    )
     doc_converter: str = "libreoffice"  # LibreOffice 可执行程序名称或路径。
-    chunk_size: int = Field(default=600, ge=100, le=2000)  # 文档切分时单个文本块的目标长度。
-    chunk_overlap: int = Field(default=100, ge=0, le=500)  # 相邻文本块之间保留的重叠长度。
+    chunk_size: int = Field(
+        default=600, ge=100, le=2000
+    )  # 文档切分时单个文本块的目标长度。
+    chunk_overlap: int = Field(
+        default=100, ge=0, le=500
+    )  # 相邻文本块之间保留的重叠长度。
     llm_api_key: str = ""  # 大语言模型服务鉴权密钥。
     llm_base_url: str = ""  # 大语言模型兼容 API 的基础地址。
     llm_model: str = ""  # 用于回答生成及相关任务的模型名称。
-    llm_rewrite_temperature: float = Field(default=0.1, ge=0.0, le=2.0)  # 查询改写阶段的采样温度。
-    llm_rewrite_top_p: float = Field(default=1.0, ge=0.0, le=1.0)  # 查询改写阶段的 nucleus 采样阈值。
-    llm_rewrite_max_tokens: int = Field(default=512, ge=1)  # 查询改写阶段允许生成的最大 token 数。
-    llm_evidence_temperature: float = Field(default=0.0, ge=0.0, le=2.0)  # 证据判断阶段的采样温度。
-    llm_evidence_top_p: float = Field(default=1.0, ge=0.0, le=1.0)  # 证据判断阶段的 nucleus 采样阈值。
-    llm_evidence_max_tokens: int = Field(default=1024, ge=1)  # 证据判断阶段允许生成的最大 token 数。
-    llm_answer_temperature: float = Field(default=0.2, ge=0.0, le=2.0)  # 最终答案生成阶段的采样温度。
-    llm_answer_top_p: float = Field(default=1.0, ge=0.0, le=1.0)  # 最终答案生成阶段的 nucleus 采样阈值。
-    llm_answer_max_tokens: int = Field(default=4096, ge=1)  # 最终答案生成阶段允许生成的最大 token 数。
-    rag_candidate_k: int = Field(default=20, ge=5, le=50)  # 向量检索阶段初筛的候选文本块数量。
-    rag_top_k: int = Field(default=5, ge=1, le=20)  # 重排后供回答流程使用的主要结果数量。
-    rag_score_threshold: float = Field(default=0.35, ge=0, le=1)  # 低于该相似度阈值的候选片段不作为有效检索结果。
+    llm_rewrite_temperature: float = Field(
+        default=0.1, ge=0.0, le=2.0
+    )  # 查询改写阶段的采样温度。
+    llm_rewrite_top_p: float = Field(
+        default=1.0, ge=0.0, le=1.0
+    )  # 查询改写阶段的 nucleus 采样阈值。
+    llm_rewrite_max_tokens: int = Field(
+        default=512, ge=1
+    )  # 查询改写阶段允许生成的最大 token 数。
+    llm_evidence_temperature: float = Field(
+        default=0.0, ge=0.0, le=2.0
+    )  # 证据判断阶段的采样温度。
+    llm_evidence_top_p: float = Field(
+        default=1.0, ge=0.0, le=1.0
+    )  # 证据判断阶段的 nucleus 采样阈值。
+    llm_evidence_max_tokens: int = Field(
+        default=1024, ge=1
+    )  # 证据判断阶段允许生成的最大 token 数。
+    llm_answer_temperature: float = Field(
+        default=0.2, ge=0.0, le=2.0
+    )  # 最终答案生成阶段的采样温度。
+    llm_answer_top_p: float = Field(
+        default=1.0, ge=0.0, le=1.0
+    )  # 最终答案生成阶段的 nucleus 采样阈值。
+    llm_answer_max_tokens: int = Field(
+        default=4096, ge=1
+    )  # 最终答案生成阶段允许生成的最大 token 数。
+    rag_candidate_k: int = Field(
+        default=20, ge=5, le=50
+    )  # 向量检索阶段初筛的候选文本块数量。
+    rag_top_k: int = Field(
+        default=5, ge=1, le=20
+    )  # 重排后供回答流程使用的主要结果数量。
+    rag_score_threshold: float = Field(
+        default=0.35, ge=0, le=1
+    )  # 低于该相似度阈值的候选片段不作为有效检索结果。
     lightweight_rerank_enabled: bool = True  # 是否启用内置轻量级重排。
-    rag_neighbor_expand_top_n: int = Field(default=3, ge=0, le=10)  # 对排名靠前的结果扩展相邻片段的最多锚点数。
-    rag_neighbor_radius: int = Field(default=1, ge=0, le=2)  # 每个锚点向前、向后扩展的相邻片段距离。
-    rag_evidence_limit: int = Field(default=10, ge=5, le=20)  # 送入证据判断阶段的片段数量上限。
+    rag_neighbor_expand_top_n: int = Field(
+        default=3, ge=0, le=10
+    )  # 对排名靠前的结果扩展相邻片段的最多锚点数。
+    rag_neighbor_radius: int = Field(
+        default=1, ge=0, le=2
+    )  # 每个锚点向前、向后扩展的相邻片段距离。
+    rag_evidence_limit: int = Field(
+        default=10, ge=5, le=20
+    )  # 送入证据判断阶段的片段数量上限。
     rerank_enabled: bool = False  # 是否启用配置的重排 Provider。
     rerank_top_n: int = Field(default=5, ge=1, le=20)  # 重排后保留的候选片段数。
-    default_answer_style: Literal["plain", "legal"] = "plain"  # 未指定时采用的答案表达风格。
-    embedding_provider: Literal["local", "api"] = "local"  # 选择本地嵌入模型或远程嵌入 API。
-    local_embedding_model: str = "BAAI/bge-small-zh-v1.5"  # 本地中文文本向量模型标识或缓存路径。
-    local_embedding_device: Literal["auto", "cpu", "cuda", "mps"] = "auto"  # 本地嵌入模型使用的计算设备。
+    default_answer_style: Literal["plain", "legal"] = (
+        "plain"  # 未指定时采用的答案表达风格。
+    )
+    embedding_provider: Literal["local", "api"] = (
+        "local"  # 选择本地嵌入模型或远程嵌入 API。
+    )
+    local_embedding_model: str = (
+        "BAAI/bge-small-zh-v1.5"  # 本地中文文本向量模型标识或缓存路径。
+    )
+    local_embedding_device: Literal["auto", "cpu", "cuda", "mps"] = (
+        "auto"  # 本地嵌入模型使用的计算设备。
+    )
     embedding_normalize: bool = True  # 是否对生成的向量执行归一化。
     embedding_batch_size: int = 32  # 本地嵌入模型每批处理的文本数量。
     embedding_api_key: str = ""  # 远程嵌入服务鉴权密钥。
@@ -92,12 +162,24 @@ class Settings(BaseSettings):
                 "EMBEDDING_API_KEY, EMBEDDING_BASE_URL and EMBEDDING_API_MODEL "
                 "are required when EMBEDDING_PROVIDER=api"
             )
+        if self.auth_dev_seed_admin_enabled:
+            if self.app_env != "development":
+                raise ValueError(
+                    "AUTH_DEV_SEED_ADMIN_ENABLED is only allowed in development"
+                )
+            if not self.auth_dev_seed_admin_identifier.strip():
+                raise ValueError(
+                    "AUTH_DEV_SEED_ADMIN_IDENTIFIER is required when dev admin seeding is enabled"
+                )
+            if not 6 <= len(self.auth_dev_seed_admin_password) <= 128:
+                raise ValueError(
+                    "Development seed password must be between 6 and 128 characters"
+                )
         return self
 
     @property
     def database_path(self) -> Path:
-        """将 SQLite URL 解析为数据库文件路径，保留内存数据库标记。
-        """
+        """将 SQLite URL 解析为数据库文件路径，保留内存数据库标记。"""
         # SQLite URL 中数据库路径之前的固定 scheme 前缀。
         prefix = "sqlite:///"
         if not self.database_url.startswith(prefix):
@@ -114,8 +196,7 @@ class Settings(BaseSettings):
 
     @property
     def embedding_model(self) -> str:
-        """返回当前 Provider 实际使用的嵌入模型名称。
-        """
+        """返回当前 Provider 实际使用的嵌入模型名称。"""
         return (
             self.local_embedding_model
             if self.embedding_provider == "local"
@@ -124,20 +205,17 @@ class Settings(BaseSettings):
 
     @property
     def faiss_path(self) -> Path:
-        """返回相对于项目根目录解析后的 FAISS 索引目录。
-        """
+        """返回相对于项目根目录解析后的 FAISS 索引目录。"""
         return self._project_path(self.faiss_dir)
 
     @property
     def upload_path(self) -> Path:
-        """返回相对于项目根目录解析后的上传文件目录。
-        """
+        """返回相对于项目根目录解析后的上传文件目录。"""
         return self._project_path(self.upload_dir)
 
     @property
     def builtin_document_path(self) -> Path:
-        """返回相对于项目根目录解析后的内置文档目录。
-        """
+        """返回相对于项目根目录解析后的内置文档目录。"""
         return self._project_path(self.builtin_document_dir)
 
     @staticmethod

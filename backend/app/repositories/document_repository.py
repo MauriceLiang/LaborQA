@@ -108,8 +108,7 @@ class DocumentRepository:
         with self._connection() as connection:
             # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
             rows = connection.execute(
-                "SELECT * FROM document WHERE file_name = ? "
-                "ORDER BY id",
+                "SELECT * FROM document WHERE file_name = ? ORDER BY id",
                 (file_name,),
             ).fetchall()
             # 局部变量 row：当前 SELECT 返回的一条 sqlite3.Row，可按列名读取所选字段；后续代码据此构建业务对象、判断状态或转换为字典。
@@ -118,8 +117,8 @@ class DocumentRepository:
     def delete_document(self, document_id: int) -> dict[str, Any] | None:
         """在一个 SQLite 事务中读取待删文档及其分块标识，显式移除引用和分块后再删除文档记录；返回删除前的文档与分块信息，供服务层清理向量和源文件。
 
-            参数：
-            document_id：文档记录的唯一标识。
+        参数：
+        document_id：文档记录的唯一标识。
         """
         # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
@@ -280,11 +279,7 @@ class DocumentRepository:
             if value is not None
         ]
         # 局部变量 values：待写入数据库或输出的字段值集合。
-        values = [
-            value
-            for value in values_by_column.values()
-            if value is not None
-        ]
+        values = [value for value in values_by_column.values() if value is not None]
         if not assignments:
             return self.get_document(document_id)
 
@@ -372,8 +367,8 @@ class DocumentRepository:
     def reset_document_content(self, document_id: int) -> list[int]:
         """清除指定文档旧的分块和引用记录，但保留文档主记录，以便重新导入流程继续更新其状态并写入新解析结果。
 
-            参数：
-            document_id：文档记录的唯一标识。
+        参数：
+        document_id：文档记录的唯一标识。
         """
         # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
@@ -433,8 +428,7 @@ class DocumentRepository:
             return [dict(row) for row in rows], total
 
     def list_success_chunks(self) -> list[dict[str, Any]]:
-        """读取成功处理文档的有效分块。
-        """
+        """读取成功处理文档的有效分块。"""
         # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
@@ -453,8 +447,8 @@ class DocumentRepository:
     def get_chunks_by_ids(self, chunk_ids: Sequence[int]) -> dict[int, dict[str, Any]]:
         """按给定分块 ID 批量读取数据库中状态为成功的文本块；过滤失效或尚未完成的记录，供检索结果映射回权威正文及来源元数据。
 
-            参数：
-            chunk_ids：需要查询或更新的文本分块标识列表。
+        参数：
+        chunk_ids：需要查询或更新的文本分块标识列表。
         """
         # 局部变量 normalized_ids：去重并规范化后的对象标识集合。
         # 局部变量 chunk_id：文本分块的唯一标识。
@@ -489,10 +483,10 @@ class DocumentRepository:
     ) -> list[dict[str, Any]]:
         """只从同一文档中读取指定锚点附近且导入成功的文本块；radius 控制前后扩展范围，避免把相邻文档内容混入证据上下文。
 
-            参数：
-            document_id：文档记录的唯一标识。
-            chunk_no：文档中从 1 开始的文本块序号。
-            radius：锚点前后需要读取的相邻文本块数量。
+        参数：
+        document_id：文档记录的唯一标识。
+        chunk_no：文档中从 1 开始的文本块序号。
+        radius：锚点前后需要读取的相邻文本块数量。
         """
         if radius < 0:
             raise ValueError("radius must not be negative")
@@ -515,8 +509,7 @@ class DocumentRepository:
             return [dict(row) for row in rows]
 
     def list_success_documents(self) -> list[dict[str, Any]]:
-        """读取处理成功且可用于检索的文档。
-        """
+        """读取处理成功且可用于检索的文档。"""
         # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         with self._connection() as connection:
             # 局部变量 rows：当前 SELECT 按筛选条件取回的 sqlite3.Row 列表；随后逐条提取所选字段，映射为接口响应或服务层使用的记录结构。
@@ -533,8 +526,7 @@ class DocumentRepository:
 
     @contextmanager
     def _connection(self) -> Iterator[sqlite3.Connection]:
-        """创建 SQLite 连接上下文并统一管理数据库连接。
-        """
+        """创建 SQLite 连接上下文并统一管理数据库连接。"""
         # 局部变量 connection：当前仓储操作使用的 SQLite Connection；上下文负责提交或回滚事务并在退出时关闭连接，查询行按 sqlite3.Row 映射。
         connection = sqlite3.connect(str(self.database_path), timeout=5)
         connection.row_factory = sqlite3.Row

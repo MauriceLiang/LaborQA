@@ -75,22 +75,20 @@ class DomainRetrievalService:
         self.retriever = self._build_domain_retriever()
 
     def _build_candidate_retriever(self) -> Runnable[Any, list[Document]]:
-        """构造初始向量候选检索器。
-        """
+        """构造初始向量候选检索器。"""
         return self.vector_store.as_retriever(
             search_kwargs={"k": self.config.rag_candidate_k}
         )
 
     def _build_domain_retriever(self) -> Runnable[Any, list[Document]]:
-        """构造按劳动领域优化的检索器。
-        """
+        """构造按劳动领域优化的检索器。"""
         return RunnableLambda(self._retrieve_documents)
 
     def retrieve(self, query: str) -> list[dict[str, Any]]:
         """同步执行查询改写后的证据检索 Runnable，并返回按业务规则整理的候选证据，供同步调用方使用。
 
-            参数：
-            query：用户问题文本或数据库筛选条件。
+        参数：
+        query：用户问题文本或数据库筛选条件。
         """
         self._ensure_ready()
         # 局部变量 documents：本次检索、解析或批量处理的文档集合。
@@ -101,8 +99,8 @@ class DomainRetrievalService:
     async def aretrieve(self, query: str) -> list[dict[str, Any]]:
         """异步执行与 retrieve 相同的证据检索 Runnable，避免异步问答和实验流程因同步等待阻塞事件循环。
 
-            参数：
-            query：用户问题文本或数据库筛选条件。
+        参数：
+        query：用户问题文本或数据库筛选条件。
         """
         self._ensure_ready()
         # 局部变量 documents：本次检索、解析或批量处理的文档集合。
@@ -111,8 +109,7 @@ class DomainRetrievalService:
         return [_evidence_from_document(document) for document in documents]
 
     def _ensure_ready(self) -> None:
-        """确认向量索引可用并在需要时触发初始化。
-        """
+        """确认向量索引可用并在需要时触发初始化。"""
         # 局部变量 status：当前业务对象或任务的处理状态。
         status = self.vector_store.status
         if status == "not_initialized":
@@ -436,9 +433,9 @@ def _merge_candidate_documents(
 ) -> list[Document]:
     """按分块 ID 合并原始召回与邻接扩展两组 LangChain Document；首次出现的记录决定输出位置，重复分块不会重复进入后续重排。
 
-        参数：
-        original_documents：重排或上下文扩展之前的原始检索结果。
-        expanded_documents：加入邻接文本块后的扩展结果。
+    参数：
+    original_documents：重排或上下文扩展之前的原始检索结果。
+    expanded_documents：加入邻接文本块后的扩展结果。
     """
 
     # 局部变量 merged：合并去重后的文本或结果集合。

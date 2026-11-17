@@ -14,7 +14,9 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 
 from app.api.dependencies import (
+    authorize_contract_access,
     get_chat_service,
+    get_current_user,
     get_document_service,
     get_evaluation_service,
     get_retrieval_experiment_service,
@@ -63,13 +65,16 @@ from app.schemas.contracts import (
     SessionItem,
     ToolExecutionItem,
 )
+from app.services.auth_service import UserAccount
 from app.services.chat_service import ChatService
 from app.services.document_service import DocumentService
 from app.services.evaluation_service import EvaluationService
 from app.services.retrieval_experiment_service import RetrievalExperimentService
 
 # 业务路由集合，负责注册劳动问答平台的 API 端点。
-router = APIRouter()
+router = APIRouter(
+    dependencies=[Depends(get_current_user), Depends(authorize_contract_access)]
+)
 
 # 统一声明错误响应的数据模型。
 _ERROR_RESPONSE = {"model": ApiResponse[None]}
@@ -398,9 +403,10 @@ def _schema_fields(model: type, source: dict) -> dict:
 def create_session(
     payload: CreateSessionRequest,
     service: Annotated[ChatService, Depends(get_chat_service)],
+    current_user: Annotated[UserAccount, Depends(get_current_user)],
 ) -> ApiResponse[SessionItem]:
     # 局部变量 session：当前聊天会话记录。
-    session = service.create_session(payload.title)
+    session = service.create_session(payload.title, owner_user_id=current_user.id)
     return ApiResponse(
         code=0,
         message="success",
@@ -424,10 +430,11 @@ def create_session(
 )
 def list_sessions(
     service: Annotated[ChatService, Depends(get_chat_service)],
+    current_user: Annotated[UserAccount, Depends(get_current_user)],
     limit: Annotated[int, Query(ge=1, le=100)] = 20,
 ) -> ApiResponse[list[SessionItem]]:
     # 局部变量 sessions：本次查询返回的聊天会话集合。
-    sessions = service.list_sessions(limit)
+    sessions = service.list_sessions(limit, owner_user_id=current_user.id)
     # 局部变量 session：当前聊天会话记录。
     return ApiResponse(
         code=0,
@@ -453,11 +460,12 @@ def list_sessions(
 def list_session_messages(
     id: UUID,
     service: Annotated[ChatService, Depends(get_chat_service)],
+    current_user: Annotated[UserAccount, Depends(get_current_user)],
 ) -> ApiResponse[list[MessageItem]]:
-    if service.get_session(id) is None:
+    if service.get_session(id, owner_user_id=current_user.id) is None:
         raise AppError(ErrorCode.SESSION_NOT_FOUND, "会话不存在", http_status=404)
     # 局部变量 messages：当前会话的消息记录集合。
-    messages = service.list_messages(id)
+    messages = service.list_messages(id, owner_user_id=current_user.id)
     # 局部变量 message：需要记录、保存或返回的消息文本。
     return ApiResponse(
         code=0,
@@ -495,11 +503,12 @@ async def stream_chat(
     payload: ChatRequest,
     request: Request,
     service: Annotated[ChatService, Depends(get_chat_service)],
+    current_user: Annotated[UserAccount, Depends(get_current_user)],
 ) -> StreamingResponse:
-    if service.get_session(payload.session_id) is None:
+    if service.get_session(payload.session_id, owner_user_id=current_user.id) is None:
         raise AppError(ErrorCode.SESSION_NOT_FOUND, "会话不存在", http_status=404)
     return StreamingResponse(
-        service.stream_chat(payload, request),
+        service.stream_chat(payload, request, owner_user_id=current_user.id),
         media_type="text/event-stream",
         headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )

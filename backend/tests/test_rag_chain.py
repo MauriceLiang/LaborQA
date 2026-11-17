@@ -118,9 +118,7 @@ def test_rag_chain_binds_separate_models_by_role() -> None:
     ]
 
     rewritten = asyncio.run(
-        chain.rewrite_question(
-            [{"role": "user", "content": "前一个问题"}], "当前问题"
-        )
+        chain.rewrite_question([{"role": "user", "content": "前一个问题"}], "当前问题")
     )
     judgement, refusal_reason = asyncio.run(
         chain.judge_evidence("当前问题", evidence, strict=True)

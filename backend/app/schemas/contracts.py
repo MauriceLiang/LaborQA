@@ -382,8 +382,7 @@ class EvaluationCasePayload(ApiModel):
 
     @model_validator(mode="after")
     def validate_expected_points(self) -> "EvaluationCasePayload":
-        """校验要求回答的评估用例至少包含一个预期答案要点。
-        """
+        """校验要求回答的评估用例至少包含一个预期答案要点。"""
         if (
             self.expected_type is EvaluationExpectedType.ANSWER
             and not self.expected_points
@@ -454,8 +453,7 @@ class EvaluationRunCreate(ApiModel):
 
     @model_validator(mode="after")
     def unique_case_ids(self) -> "EvaluationRunCreate":
-        """校验用例 ID 不重复，并推导和校验用例选择范围。
-        """
+        """校验用例 ID 不重复，并推导和校验用例选择范围。"""
         if self.case_ids is not None and len(set(self.case_ids)) != len(self.case_ids):
             raise ValueError("case_ids must not contain duplicates")
         if self.case_scope is None:
@@ -770,8 +768,7 @@ class ExperimentConfig(ApiModel):
 
     @model_validator(mode="after")
     def validate_relationships(self) -> "ExperimentConfig":
-        """校验检索实验配置中切分、检索、证据和重排参数之间的约束。
-        """
+        """校验检索实验配置中切分、检索、证据和重排参数之间的约束。"""
         if self.chunk_overlap >= self.chunk_size:
             raise ValueError("chunk_overlap must be less than chunk_size")
         if self.top_k > self.candidate_k:
@@ -783,9 +780,7 @@ class ExperimentConfig(ApiModel):
                 "neighbor_expand_top_n must be less than or equal to top_k"
             )
         if self.rerank_enabled and self.rerank_top_n > self.candidate_k:
-            raise ValueError(
-                "rerank_top_n must be less than or equal to candidate_k"
-            )
+            raise ValueError("rerank_top_n must be less than or equal to candidate_k")
         return self
 
 
@@ -808,8 +803,7 @@ class ExperimentCreate(ApiModel):
 
     @model_validator(mode="after")
     def unique_case_ids(self) -> "ExperimentCreate":
-        """校验用例 ID 不重复，并推导和校验用例选择范围。
-        """
+        """校验用例 ID 不重复，并推导和校验用例选择范围。"""
         if self.case_ids is not None and len(set(self.case_ids)) != len(self.case_ids):
             raise ValueError("case_ids must not contain duplicates")
         if self.case_scope is EvaluationCaseScope.SELECTED and not self.case_ids:
@@ -1069,9 +1063,7 @@ class RetrievalPreviewResponse(ApiModel):
     # 字段说明：回答是否因证据或合规原因拒绝生成。
     refused: bool
     # 字段说明：本次采用的回答、工具或拒答路径。
-    answer_mode: Literal[
-        "RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"
-    ]
+    answer_mode: Literal["RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"]
     # 字段说明：证据充分性判断结果。
     evidence_decision: Literal["SUFFICIENT", "PARTIAL", "INSUFFICIENT"]
     # 字段说明：说明证据判断结果的理由。

@@ -1,6 +1,6 @@
 // 文件作用：封装聊天请求、流式响应事件解析和聊天数据类型适配。
 import type { ChatRequest, ChatStreamHandlers } from '@/types/sse'
-import { ApiError, getErrorMessage, http } from '@/api/http'
+import { ApiError, getCsrfToken, getErrorMessage, http } from '@/api/http'
 
 /** 提交聊天请求并持续读取、分发服务端发送事件。
  * @param payload 聊天问题、会话及回答模式。
@@ -20,12 +20,17 @@ export async function streamChat(
     headers: {
       Accept: 'text/event-stream',
       'Content-Type': 'application/json',
+      'X-CSRF-Token': getCsrfToken(),
     },
+    credentials: 'include',
     body: JSON.stringify(payload),
     signal,
   })
 
   if (!response.ok) {
+    if (response.status === 401 && typeof window !== 'undefined') {
+      window.dispatchEvent(new Event('laborqa:auth-expired'))
+    }
     // body 暂存非成功响应的 JSON 内容；读取失败时置为 null。
     let body: unknown
     try {

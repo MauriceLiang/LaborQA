@@ -35,14 +35,12 @@ class BuiltinImportPlan:
 
     @property
     def tracked_document_ids(self) -> list[int]:
-        """返回本批次需要继续跟踪的排队中和处理中记录主键。
-        """
+        """返回本批次需要继续跟踪的排队中和处理中记录主键。"""
         return [*self.scheduled_ids, *self.processing_ids]
 
     @property
     def all_imported(self) -> bool:
-        """判断是否至少发现一份文档且全部已经导入。
-        """
+        """判断是否至少发现一份文档且全部已经导入。"""
         return self.total > 0 and self.already_imported == self.total
 
 

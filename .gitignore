@@ -1,4 +1,9 @@
 /docs
+!/docs/
+/docs/*
+!/docs/assessment/
+/docs/assessment/*
+!/docs/assessment/2026-11/
 /.idea
 /backend/.venv
 

@@ -18,12 +18,12 @@ from langchain_core.language_models.chat_models import BaseChatModel
 from app.core.config import Settings, settings
 from app.core.error_codes import ErrorCode
 from app.core.errors import AppError
+from app.rag.ai_modes import AI_MODE_PROFILES, DEFAULT_AI_MODE, ai_mode_profile
 from app.rag.chains import (
     ANSWER_STYLE_INSTRUCTIONS,
     REFUSAL_TEXT,
     RagChain,
 )
-from app.rag.ai_modes import AI_MODE_PROFILES, DEFAULT_AI_MODE, ai_mode_profile
 from app.rag.decision import AnswerMode, EvidenceDecision, EvidenceJudgement
 from app.rag.errors import EmbeddingUnavailableError, ModelUnavailableError
 from app.rag.providers import build_chat_model
@@ -111,8 +111,7 @@ class _UnavailableChatModel(BaseChatModel):
 
     @property
     def _llm_type(self) -> str:
-        """返回 LangChain 模型对象的运行时类型名称。
-        """
+        """返回 LangChain 模型对象的运行时类型名称。"""
         return "unavailable"
 
     def _generate(self, *args: Any, **kwargs: Any) -> Any:
@@ -238,9 +237,7 @@ class ChatService:
         )
 
     @staticmethod
-    def _model_key(
-        thinking_enabled: bool, reasoning_effort: str | None
-    ) -> str:
+    def _model_key(thinking_enabled: bool, reasoning_effort: str | None) -> str:
         """构造当前模型和生成配置的缓存键。
 
         参数：
@@ -259,37 +256,45 @@ class ChatService:
         """
         return self.rag_chains[AiMode(ai_mode)]
 
-    def create_session(self, title: str | None) -> dict[str, Any]:
+    def create_session(
+        self, title: str | None, owner_user_id: str | None = None
+    ) -> dict[str, Any]:
         """创建聊天会话并返回会话信息。
 
         参数：
         title：新建或更新会话的展示标题。
         """
-        return self.session_service.create_session(title)
+        return self.session_service.create_session(title, owner_user_id)
 
-    def get_session(self, session_id: UUID) -> dict[str, Any] | None:
+    def get_session(
+        self, session_id: UUID, owner_user_id: str | None = None
+    ) -> dict[str, Any] | None:
         """读取指定聊天会话。
 
         参数：
         session_id：目标聊天会话标识。
         """
-        return self.session_service.get_session(session_id)
+        return self.session_service.get_session(session_id, owner_user_id)
 
-    def list_sessions(self, limit: int = 20) -> list[dict[str, Any]]:
+    def list_sessions(
+        self, limit: int = 20, owner_user_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """列出最近聊天会话。
 
         参数：
         limit：返回记录数量上限。
         """
-        return self.session_service.list_sessions(limit)
+        return self.session_service.list_sessions(limit, owner_user_id)
 
-    def list_messages(self, session_id: UUID) -> list[dict[str, Any]]:
+    def list_messages(
+        self, session_id: UUID, owner_user_id: str | None = None
+    ) -> list[dict[str, Any]]:
         """读取指定会话的消息记录。
 
         参数：
         session_id：目标聊天会话标识。
         """
-        return self.session_service.list_messages(session_id)
+        return self.session_service.list_messages(session_id, owner_user_id)
 
     def execute_material_checklist(
         self, payload: MaterialChecklistInput
@@ -327,6 +332,7 @@ class ChatService:
         payload: ChatRequest,
         request: Request,
         *,
+        owner_user_id: str | None = None,
         execution_mode: ExecutionMode = ExecutionMode.PRODUCTION,
     ):
         """执行聊天请求并逐步产出状态、答案和引用事件。
@@ -377,10 +383,12 @@ class ChatService:
         session_started = perf_counter()
         try:
             # 局部变量 history：当前会话的历史消息集合。
-            history = self.session_service.get_recent_context(session_id, turns=3)
+            history = self.session_service.get_recent_context(
+                session_id, turns=3, owner_user_id=owner_user_id
+            )
             # 局部变量 user_message：持久化后的用户提问消息。
             user_message = self.session_service.create_user_message(
-                session_id, question, ai_mode
+                session_id, question, ai_mode, owner_user_id
             )
             session_ms = round((perf_counter() - session_started) * 1000)
         # 局部变量 exc：当前 except 分支捕获的异常实例，保留原始类型和消息；后续据此记录上下文、转换业务错误或通过 raise from 保留异常因果链。
@@ -404,7 +412,7 @@ class ChatService:
         rewrite_ms = round((perf_counter() - rewrite_started) * 1000)
         try:
             self.session_service.set_rewritten_question(
-                int(user_message["id"]), rewritten_question
+                int(user_message["id"]), rewritten_question, owner_user_id
             )
         except Exception:
             logger.exception("Could not persist the rewritten question")
@@ -423,9 +431,7 @@ class ChatService:
         )
         try:
             # 局部变量 tool_input：本次工具调用的参数数据。
-            tool_input = self.tool_decision_service.decide(
-                question, rewritten_question
-            )
+            tool_input = self.tool_decision_service.decide(question, rewritten_question)
             # 局部变量 evidence：支持或限制回答的检索证据。
             evidence, retrieval_ms = await self._retrieve_for_decision(
                 rewritten_question, rag_chain=rag_chain
@@ -439,13 +445,15 @@ class ChatService:
             )
             # 局部变量 judgement：模型对证据支持程度的结构化判断。
             # 局部变量 refusal_reason：模型拒答或策略拒答的具体原因。
-            judgement, refusal_reason, evidence_judge_ms = (
-                await self._judge_for_decision(
-                    rewritten_question,
-                    evidence,
-                    strict=False,
-                    rag_chain=rag_chain,
-                )
+            (
+                judgement,
+                refusal_reason,
+                evidence_judge_ms,
+            ) = await self._judge_for_decision(
+                rewritten_question,
+                evidence,
+                strict=False,
+                rag_chain=rag_chain,
             )
             # 局部变量 prepared：完成预处理并供后续流程使用的数据。
             prepared = PreparedAnswerDecision(
@@ -684,6 +692,7 @@ class ChatService:
                 citations=citations,
                 tool_executions=tool_executions,
                 ai_mode=ai_mode,
+                owner_user_id=owner_user_id,
             )
             persist_ms = round((perf_counter() - persist_started) * 1000)
         except Exception:
@@ -758,12 +767,12 @@ class ChatService:
     ) -> dict[str, Any]:
         """走与生产问答相同的检索、证据判断和回答决策路径，但不创建或写入用户会话；用于检索实验预览等需要得到一次性答案的场景。
 
-            参数：
-            question：用户提交或模型改写后的问题文本。
-            history：当前会话的历史消息集合。
-            answer_style：本次生成答案使用的表达风格。
-            mode：当前模型回答或请求处理所采用的模式。
-            ai_mode：本次回答生成使用的 AI 模式。
+        参数：
+        question：用户提交或模型改写后的问题文本。
+        history：当前会话的历史消息集合。
+        answer_style：本次生成答案使用的表达风格。
+        mode：当前模型回答或请求处理所采用的模式。
+        ai_mode：本次回答生成使用的 AI 模式。
         """
         if mode not in (ExecutionMode.EVALUATION, ExecutionMode.EXPERIMENT):
             raise ValueError("answer_once only supports non-production modes")

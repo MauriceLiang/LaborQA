@@ -132,7 +132,16 @@ cp deploy/.env.example deploy/.env
 LLM_API_KEY=你的_API_Key
 LLM_BASE_URL=https://你的服务地址/v1
 LLM_MODEL=你的模型名称
+CORS_ORIGINS=["https://mauriceliang.xyz"]
+AUTH_COOKIE_SECURE=true
+AUTH_RATE_LIMIT_SECRET=openssl_rand_hex_32_位输出
 ~~~
+
+生成 `AUTH_RATE_LIMIT_SECRET` 的命令：`openssl rand -hex 32`。请将输出保存到服务器本地 `deploy/.env`，不要写入 Git 或日志。
+
+生产配置必须保持 `APP_ENV=production` 和 `AUTH_DEV_SEED_ADMIN_ENABLED=false`。本地 `.env.example` 中的测试管理员不会在生产启动；生产系统管理员仍需通过前述离线命令创建。
+
+生产部署保持 `AUTH_TRUST_PROXY_CLIENT_IP=true`。Caddy 会覆盖 `X-Auth-Client-IP`，Nginx 只转发该头；后端不会采信客户端可伪造的 `X-Forwarded-For`。
 
 容器部署模板默认使用：
 
@@ -185,6 +194,14 @@ mkdir -p data uploads model-cache backups
 docker compose up -d --build
 docker compose ps
 ~~~
+
+首次部署完成后，在服务器容器内交互式创建唯一首位系统管理员。此命令会提示输入并确认密码，不会生成默认账号或默认密码：
+
+~~~bash
+docker compose exec backend python -m app.cli init-admin --login-identifier 你的管理员账号
+~~~
+
+普通账号和知识管理员由系统管理员在“账号管理”中创建。系统管理员如需重新初始化，只能使用此离线命令。
 
 预期状态：
 
@@ -243,10 +260,10 @@ SSL error
 ### 8.3 API 健康检查
 
 ~~~bash
-curl -fsS https://mauriceliang.xyz/api/health
+curl -fsS https://mauriceliang.xyz/api/health/live
 ~~~
 
-应返回 FastAPI 健康状态。请求链为：
+该公共探针只返回最小存活状态；数据库、索引、Embedding、DOC 转换器和模型配置详情由已登录系统管理员从“系统状态”查看。请求链为：
 
 ~~~text
 HTTPS 443 → Caddy → frontend:80 → /api → backend:8000
@@ -358,7 +375,7 @@ find backups -maxdepth 2 -type f
 ~~~bash
 ./deploy/restore.sh backups/<时间戳>/laborqa-runtime.tar.gz
 docker compose ps
-curl -fsS https://mauriceliang.xyz/api/health
+curl -fsS https://mauriceliang.xyz/api/health/live
 ~~~
 
 恢复操作会替换当前 data/ 和 uploads/，执行前确认备份路径正确；脚本不会使用 down -v，因此不会删除 Caddy 证书卷。
@@ -376,7 +393,7 @@ docker compose logs --tail=200 caddy
 docker compose logs --tail=200 backend
 ~~~
 
-升级后至少检查首页、HTTPS 证书、/api/health、资料上传和问答流式输出。
+升级后至少检查首页、HTTPS 证书、`/api/health/live`、资料上传和问答流式输出；详细健康信息需系统管理员登录。
 
 如果本次代码更新同时改变了 `reference-data/`：
 
@@ -435,8 +452,8 @@ docker compose logs --tail=200 caddy
 docker compose ps
 docker compose logs --tail=200 frontend
 docker compose logs --tail=200 backend
-curl -fsS https://mauriceliang.xyz/api/health
-docker compose exec frontend wget -qO- http://backend:8000/api/health
+curl -fsS https://mauriceliang.xyz/api/health/live
+docker compose exec frontend wget -qO- http://backend:8000/api/health/live
 ~~~
 
 如果 Compose 内部请求正常而公网请求失败，重点检查 Caddy 到 frontend 的代理链；如果内部请求也失败，检查 frontend 到 backend 的网络和 backend 健康状态。
@@ -458,7 +475,7 @@ Nginx 默认限制为 25 MB，后端业务限制默认为 20 MB。调整时需�
 
 ~~~bash
 docker compose exec backend which libreoffice
-curl -fsS https://mauriceliang.xyz/api/health
+curl -fsS https://mauriceliang.xyz/api/health/live
 ~~~
 
 确认 doc_converter 为 ready，并检查 backend 日志。
@@ -481,7 +498,7 @@ curl -fsS https://mauriceliang.xyz/api/health
 [ ] caddy running
 [ ] HTTP 自动跳转 HTTPS
 [ ] HTTPS 证书有效
-[ ] /api/health 正常
+[ ] /api/health/live 正常
 [ ] Vue 页面和路由刷新正常
 [ ] SSE 流式回答正常
 [ ] 文件上传和导入正常

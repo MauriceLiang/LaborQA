@@ -22,7 +22,9 @@ _MIME_TYPES_BY_SUFFIX = {
         {"application/vnd.openxmlformats-officedocument.wordprocessingml.document"}
     ),
     ".txt": frozenset({"text/plain"}),
-    ".md": frozenset({"text/markdown", "text/x-markdown", "text/plain", "application/octet-stream"}),
+    ".md": frozenset(
+        {"text/markdown", "text/x-markdown", "text/plain", "application/octet-stream"}
+    ),
 }
 # 保存上传内容时单次从输入流读取的最大字节数。
 _READ_CHUNK_SIZE = 64 * 1024
@@ -59,8 +61,7 @@ class UnsupportedFileTypeError(UploadValidationError):
     """上传文件的扩展名不受支持时抛出的校验异常。"""
 
     def __init__(self) -> None:
-        """初始化不支持文件类型异常及其业务错误码。
-        """
+        """初始化不支持文件类型异常及其业务错误码。"""
         super().__init__(
             "仅支持 PDF、DOC、DOCX、MD 和 TXT 文件",
             ErrorCode.UNSUPPORTED_FILE_TYPE,
@@ -72,8 +73,7 @@ class InvalidFileMimeTypeError(UploadValidationError):
     """上传内容的 MIME 类型与文件扩展名不匹配时抛出的异常。"""
 
     def __init__(self) -> None:
-        """初始化 MIME 类型与扩展名不匹配异常。
-        """
+        """初始化 MIME 类型与扩展名不匹配异常。"""
         super().__init__("文件 MIME 类型与扩展名不匹配", ErrorCode.INVALID_REQUEST, 400)
 
 
@@ -96,8 +96,7 @@ class EmptyFileError(UploadValidationError):
     """上传文件为空时抛出的校验异常。"""
 
     def __init__(self) -> None:
-        """初始化空文件校验异常及对应业务错误码。
-        """
+        """初始化空文件校验异常及对应业务错误码。"""
         super().__init__("上传文件为空", ErrorCode.EMPTY_FILE, 400)
 
 
@@ -135,7 +134,9 @@ class FileStorage:
         if max_size_bytes <= 0:
             raise ValueError("max_size_bytes must be positive")
         # 成员变量 upload_dir：用户上传文件保存目录。
-        self.upload_dir = Path(upload_dir).expanduser().resolve()  # 规范化后的文件存储根目录。
+        self.upload_dir = (
+            Path(upload_dir).expanduser().resolve()
+        )  # 规范化后的文件存储根目录。
         # 成员变量 max_size_bytes：文件上传允许的最大字节数。
         self.max_size_bytes = max_size_bytes  # 本实例允许保存的最大文件大小。
 

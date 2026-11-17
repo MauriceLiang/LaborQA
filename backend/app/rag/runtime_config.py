@@ -8,10 +8,10 @@ from importlib.metadata import version as package_version
 from typing import Any
 
 from app.core.config import Settings
-from app.rag.constants import CURRENT_SPLITTER_VERSION
 from app.rag.ai_modes import DEFAULT_AI_MODE, ai_mode_profile
-from app.services.rerank import DEFAULT_RERANK_MODEL
+from app.rag.constants import CURRENT_SPLITTER_VERSION
 from app.schemas.contracts import AiMode
+from app.services.rerank import DEFAULT_RERANK_MODEL
 
 # 聊天模型调用所使用的 LangChain Provider 标识。
 DEFAULT_CHAT_PROVIDER = "langchain_openai.ChatOpenAI"
@@ -27,8 +27,7 @@ DEFAULT_PROMPT_VERSION = "labor_langchain_v1"
 
 @lru_cache(maxsize=1)
 def langchain_version() -> str:
-    """读取 LangChain Core 版本，供运行配置和实验结果复现使用。
-    """
+    """读取 LangChain Core 版本，供运行配置和实验结果复现使用。"""
 
     try:
         return package_version("langchain-core")

@@ -21,9 +21,14 @@ import {
   type DocumentUploadAccepted,
 } from '@/api/documents'
 import { ApiError, getErrorMessage } from '@/api/http'
+import { useAuthStore } from '@/stores/auth'
 
 // 文档处理状态轮询的间隔，单位为毫秒。
 const POLL_INTERVAL_MS = 2000
+const authStore = useAuthStore()
+const canManageDocuments = computed(() =>
+  authStore.hasAnyRole(['KNOWLEDGE_ADMIN', 'SYSTEM_ADMIN']),
+)
 
 // 当前页文档记录列表。
 const documents = ref<DocumentItem[]>([])
@@ -552,6 +557,7 @@ onUnmounted(() => {
       </div>
       <div class="documents-page-actions">
         <ElButton
+          v-if="canManageDocuments"
           class="document-builtin-import-button"
           type="primary"
           :loading="builtinImportActive"
@@ -569,7 +575,7 @@ onUnmounted(() => {
     <ElAlert v-if="pageError" :title="pageError" type="error" show-icon :closable="false" />
     <ElAlert v-if="actionError" :title="actionError" type="error" show-icon :closable="true" @close="actionError = ''" />
 
-    <DocumentUpload @uploaded="onUpload" />
+    <DocumentUpload v-if="canManageDocuments" @uploaded="onUpload" />
 
     <DocumentList
       :documents="documents"
@@ -581,6 +587,7 @@ onUnmounted(() => {
       :deleting-id="deletingDocumentId"
       :keyword="keyword"
       :status="status"
+      :can-manage="canManageDocuments"
       @filter="onFilter"
       @page="onDocumentPage"
       @size="onDocumentSize"

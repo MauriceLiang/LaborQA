@@ -45,6 +45,7 @@ def register_exception_handlers(app: FastAPI) -> None:
 
     参数：app 为需要安装异常处理逻辑的 FastAPI 实例。
     """
+
     @app.exception_handler(AppError)
     async def handle_app_error(request: Request, exc: AppError) -> JSONResponse:
         """将 AppError 转换为包含业务错误码的 JSON 响应。

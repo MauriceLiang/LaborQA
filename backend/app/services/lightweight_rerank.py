@@ -93,8 +93,8 @@ _QUERY_KEYWORDS = (
 def normalize_text(value: str) -> str:
     """统一待比较文本的空白字符形式，以便后续子串匹配不受换行、连续空格或制表符差异影响；正文中的非空白字符保持原样。
 
-        参数：
-        value：需要用于劳动法律关键词匹配的原始文本；函数会转小写并移除空格、换行和制表符，但保留其他字符。
+    参数：
+    value：需要用于劳动法律关键词匹配的原始文本；函数会转小写并移除空格、换行和制表符，但保留其他字符。
     """
 
     return (
@@ -133,9 +133,7 @@ class LightweightRerankService:
         参数：
         query：用户问题文本或数据库筛选条件。
         """
-        return " ".join(
-            _dedupe([query.strip(), *self._expansion_terms(query)])
-        )
+        return " ".join(_dedupe([query.strip(), *self._expansion_terms(query)]))
 
     def terms_for_query(self, query: str) -> list[str]:
         """将问题拆分为用于词项匹配的标准词集合。
@@ -283,8 +281,8 @@ def _dedupe(values: Sequence[str] | Any) -> list[str]:
 def _conditional_expansions(normalized_query: str) -> list[str]:
     """仅在查询同时包含相关触发词时扩展可复用的法律概念词组，避免单个宽泛词触发过多无关匹配。
 
-        参数：
-        normalized_query：规范化后的检索关键词文本。
+    参数：
+    normalized_query：规范化后的检索关键词文本。
     """
 
     # 局部变量 terms：从问题或文本中提取的关键词集合。
@@ -324,8 +322,7 @@ def _conditional_expansions(normalized_query: str) -> list[str]:
 
     # 局部变量 has_arrears_marker：当前文本是否包含欠薪相关标记。
     has_arrears_marker = any(
-        token in normalized_query
-        for token in ("拖欠", "拖了", "欠薪", "未发", "没发")
+        token in normalized_query for token in ("拖欠", "拖了", "欠薪", "未发", "没发")
     )
     # 局部变量 has_wage_arrears：当前问题是否与工资拖欠有关。
     has_wage_arrears = has_arrears_marker and any(

@@ -1,5 +1,6 @@
 // 文件作用：创建统一 HTTP 客户端，处理 API 错误格式和健康检查请求。
 import axios from 'axios'
+import type { InternalAxiosRequestConfig } from 'axios'
 
 import type { paths } from '@/types/api.generated'
 
@@ -28,6 +29,19 @@ export class ApiError extends Error {
   }
 }
 
+// CSRF token 只保存在当前页面内存，不写入 localStorage 或可被脚本长期读取的存储。
+let csrfToken = ''
+
+/** 更新当前登录会话使用的 CSRF token。 */
+export function setCsrfToken(value: string) {
+  csrfToken = value
+}
+
+/** 读取当前页面内存中的 CSRF token，供原生流式 fetch 复用。 */
+export function getCsrfToken() {
+  return csrfToken
+}
+
 /** 将网络、超时和业务异常转换成适合界面展示的提示。
  * @param error 捕获到的任意异常对象。
  * @returns 中文错误提示文本。
@@ -53,6 +67,17 @@ export function getErrorMessage(error: unknown): string {
 export const http = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api',
   timeout: 8000,
+  withCredentials: true,
+})
+
+http.interceptors.request.use((config: InternalAxiosRequestConfig) => {
+  const method = (config.method || 'get').toUpperCase()
+  const isMutation = !['GET', 'HEAD', 'OPTIONS'].includes(method)
+  const isLogin = config.url?.replace(/\/+$/, '').endsWith('/auth/login')
+  if (isMutation && !isLogin && csrfToken) {
+    config.headers.set('X-CSRF-Token', csrfToken)
+  }
+  return config
 })
 
 http.interceptors.response.use(
@@ -68,6 +93,15 @@ http.interceptors.response.use(
   // error 是 Axios 请求失败时传入的原始异常。
   (error: unknown) => {
     if (axios.isAxiosError(error)) {
+      const requestUrl = error.config?.url || ''
+      if (
+        error.response?.status === 401 &&
+        !requestUrl.endsWith('/auth/login') &&
+        !requestUrl.endsWith('/auth/me') &&
+        typeof window !== 'undefined'
+      ) {
+        window.dispatchEvent(new Event('laborqa:auth-expired'))
+      }
       // requestId 用于将前端错误和后端请求日志关联起来。
       const requestId = error.response?.headers['x-request-id']
       if (requestId) console.error(`API request failed (X-Request-ID: ${requestId})`)
