@@ -153,6 +153,55 @@ class AuthService:
         )
         return True
 
+    def ensure_initial_admin(self) -> bool:
+        """已有管理员时不变更；空库按显式开发 seed 或一次性引导凭据创建首位管理员。"""
+        if self.repository.has_system_admin():
+            self._clear_bootstrap_admin_credentials()
+            return False
+        if settings.auth_dev_seed_admin_enabled:
+            return self.ensure_development_admin()
+
+        identifier = settings.auth_bootstrap_admin_identifier.strip()
+        password = settings.auth_bootstrap_admin_password
+        if not identifier or not password:
+            raise RuntimeError(
+                "No system administrator exists. Set "
+                "AUTH_BOOTSTRAP_ADMIN_IDENTIFIER and "
+                "AUTH_BOOTSTRAP_ADMIN_PASSWORD in the deployment environment "
+                "(deploy/.env for Docker Compose), then restart."
+            )
+
+        try:
+            user = self.create_user(
+                identifier,
+                password,
+                "SYSTEM_ADMIN",
+                initial_admin=True,
+            )
+        except AppError as exc:
+            if (
+                exc.code == ErrorCode.AUTH_CONFLICT
+                and self.repository.has_system_admin()
+            ):
+                self._clear_bootstrap_admin_credentials()
+                return False
+            raise RuntimeError(
+                f"Unable to initialize the first system administrator: {exc.message}"
+            ) from exc
+
+        self._clear_bootstrap_admin_credentials()
+        logger.warning(
+            "Automatically initialized the first system administrator account: %s",
+            user.login_identifier,
+        )
+        return True
+
+    @staticmethod
+    def _clear_bootstrap_admin_credentials() -> None:
+        """清除进程内设置对象中的一次性引导凭据。"""
+        settings.auth_bootstrap_admin_identifier = ""
+        settings.auth_bootstrap_admin_password = ""
+
     def login(
         self,
         identifier: str,

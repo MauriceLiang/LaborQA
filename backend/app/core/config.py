@@ -46,6 +46,8 @@ class Settings(BaseSettings):
     )
     auth_dev_seed_admin_identifier: str = ""  # 开发测试管理员账号。
     auth_dev_seed_admin_password: str = ""  # 开发测试管理员密码；生产环境禁止启用。
+    auth_bootstrap_admin_identifier: str = ""  # 首次生产启动时创建的系统管理员账号。
+    auth_bootstrap_admin_password: str = ""  # 首次生产启动时创建管理员的一次性密码。
     log_level: str = "INFO"  # Python 日志系统的最低输出级别。
     database_url: str = "sqlite:///./data/app.db"  # SQLite 数据库连接 URL。
     upload_dir: Path = Path("./uploads")  # 用户上传原始文件的存储目录。

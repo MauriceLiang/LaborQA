@@ -160,7 +160,7 @@ backend/.venv/bin/python -m pip install --upgrade pip
 backend/.venv/bin/python -m pip install -r backend/requirements.txt
 ```
 
-按上面的步骤复制根目录 `.env.example` 后，本地开发环境首次启动会自动创建测试管理员 `admin1 / 123456`。该账号仅用于本地开发；部署配置会关闭自动创建，生产管理员仍需通过离线命令初始化。
+按上面的步骤复制根目录 `.env.example` 后，本地开发环境首次启动会自动创建测试管理员 `admin1 / 123456`。该账号仅用于本地开发。生产环境使用 `deploy/.env` 中的一次性 `AUTH_BOOTSTRAP_ADMIN_IDENTIFIER` / `AUTH_BOOTSTRAP_ADMIN_PASSWORD`；应用仅在数据库没有系统管理员时创建首位管理员，成功后应删除这两项并运行 `docker compose up -d --force-recreate backend`。
 
 编辑根目录 `.env`，至少配置 LLM 服务：
 
@@ -354,7 +354,9 @@ FastAPI 会自动生成完整 OpenAPI 契约，启动后访问 `/docs` 或 `/ope
 | 知识缺口 | `/api/missing-knowledge*` | 查看和维护证据不足的问题 |
 | 检索实验 | `/api/retrieval-strategies*`、`/api/retrieval-experiments*` | 策略管理、快速试跑和正式实验 |
 
-应用不开放自助注册。若本地开发环境关闭了测试账号自动创建，或正在初始化生产环境，请在后端目录通过离线命令创建系统管理员：
+应用不开放自助注册。生产首次启动时，若数据库还没有系统管理员，后端读取 `deploy/.env` 中的 `AUTH_BOOTSTRAP_ADMIN_IDENTIFIER` 和 `AUTH_BOOTSTRAP_ADMIN_PASSWORD` 自动创建首位管理员；密码须为 12 至 128 位。创建成功并确认可登录后，应删除这两项并运行 `docker compose up -d --force-recreate backend`。若未配置引导凭据且数据库没有系统管理员，后端会停止启动并给出配置提示。
+
+本地开发环境若关闭测试账号自动创建，或需要离线恢复管理员，可在后端目录运行：
 
 ~~~bash
 cd backend
@@ -403,7 +405,7 @@ error    终止性错误事件
 cp deploy/.env.example deploy/.env
 mkdir -p data uploads model-cache backups
 
-# 编辑 deploy/.env，至少填写 LLM_API_KEY、LLM_BASE_URL、LLM_MODEL
+# 编辑 deploy/.env：填写模型 API、AUTH_RATE_LIMIT_SECRET 和首位管理员引导账号；详见 deploy/README.md
 docker compose config
 docker compose up -d --build
 docker compose ps

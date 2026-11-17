@@ -135,11 +135,17 @@ LLM_MODEL=你的模型名称
 CORS_ORIGINS=["https://mauriceliang.xyz"]
 AUTH_COOKIE_SECURE=true
 AUTH_RATE_LIMIT_SECRET=openssl_rand_hex_32_位输出
+AUTH_BOOTSTRAP_ADMIN_IDENTIFIER=你的管理员登录名
+AUTH_BOOTSTRAP_ADMIN_PASSWORD=至少12位的一次性强密码
 ~~~
 
 生成 `AUTH_RATE_LIMIT_SECRET` 的命令：`openssl rand -hex 32`。请将输出保存到服务器本地 `deploy/.env`，不要写入 Git 或日志。
 
-生产配置必须保持 `APP_ENV=production` 和 `AUTH_DEV_SEED_ADMIN_ENABLED=false`。本地 `.env.example` 中的测试管理员不会在生产启动；生产系统管理员仍需通过前述离线命令创建。
+建议用 `openssl rand -hex 24` 生成一次性管理员密码，再将输出填入 `AUTH_BOOTSTRAP_ADMIN_PASSWORD`；登录名填入 `AUTH_BOOTSTRAP_ADMIN_IDENTIFIER`。密码仅供首次引导，创建成功并确认能登录后应从文件删除。
+
+生产配置必须保持 `APP_ENV=production` 和 `AUTH_DEV_SEED_ADMIN_ENABLED=false`。本地 `.env.example` 中的测试管理员不会在生产启动。首次启动时，如果数据库没有任何系统管理员，应用会用 `AUTH_BOOTSTRAP_ADMIN_IDENTIFIER` 和 `AUTH_BOOTSTRAP_ADMIN_PASSWORD` 自动创建首位管理员；引导密码必须为 12 至 128 位。若缺少引导账号或密码，后端会明确报错并停止启动，不会创建默认凭据。
+
+管理员创建并确认登录成功后，从 `deploy/.env` 删除 `AUTH_BOOTSTRAP_ADMIN_IDENTIFIER` 和 `AUTH_BOOTSTRAP_ADMIN_PASSWORD`，再运行 `docker compose up -d --force-recreate backend` 让后端容器移除旧环境变量。数据库已有系统管理员时，应用不会重设其密码，也不会再使用引导凭据。
 
 生产部署保持 `AUTH_TRUST_PROXY_CLIENT_IP=true`。Caddy 会覆盖 `X-Auth-Client-IP`，Nginx 只转发该头；后端不会采信客户端可伪造的 `X-Forwarded-For`。
 
@@ -195,13 +201,13 @@ docker compose up -d --build
 docker compose ps
 ~~~
 
-首次部署完成后，在服务器容器内交互式创建唯一首位系统管理员。此命令会提示输入并确认密码，不会生成默认账号或默认密码：
+首位系统管理员由后端首次启动时自动创建。若此前未设置引导凭据导致服务停止启动，可临时补齐 `deploy/.env` 后重启；也可以从可信主机运行以下交互式离线恢复命令：
 
 ~~~bash
-docker compose exec backend python -m app.cli init-admin --login-identifier 你的管理员账号
+docker compose run --rm backend python -m app.cli init-admin --login-identifier 你的管理员账号
 ~~~
 
-普通账号和知识管理员由系统管理员在“账号管理”中创建。系统管理员如需重新初始化，只能使用此离线命令。
+离线命令会提示输入并确认密码。普通账号和知识管理员由系统管理员在“账号管理”中创建。
 
 预期状态：
 

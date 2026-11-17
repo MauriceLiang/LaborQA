@@ -127,7 +127,7 @@ SQLite 中的成功 Chunk 是索引重建依据。FAISS 负责向量召回，不
 - 会话具备空闲过期和绝对过期时间；服务端可撤销单个会话或某账号的全部会话。
 - 写请求同时检查可信来源和 CSRF Token；CSRF Token 在服务端保存摘要，前端只保存在页面内存。
 - 登录失败按账号和来源 IP 限流；登录、登出、账号变更等操作记录审计事件。
-- 提供开发环境管理员初始化开关；生产环境应通过交互式离线 CLI 初始化系统管理员。
+- 开发环境可创建本地测试管理员；生产首次启动时从 `deploy/.env` 的一次性引导凭据创建首位系统管理员，已有管理员时不重建。
 - 既有聊天会话增加所有者字段。无法归属到新用户的历史会话迁移为隔离状态，不自动暴露给新账号。
 - 资料、知识缺口、评测、检索实验和健康状态 API 在服务端进行角色校验，权限不只依赖前端隐藏菜单。
 
@@ -185,6 +185,7 @@ SQLite 中的成功 Chunk 是索引重建依据。FAISS 负责向量召回，不
 ### 7.1 已运行的自动化检查
 
 - 后端 pytest：`226 passed, 1 skipped, 1 warning`；新增密码修改回归覆盖 CSRF、密码替换、当前会话轮换和旧会话撤销。
+- 后续新增的“生产首次启动自动创建首位管理员”路径未包含在上述 pytest 结果中；本次只对相关 Python 文件运行 Ruff 静态检查，尚未在 Docker 候选中实启。
 - Ruff check：通过；Ruff format：91 个 Python 文件已格式化。
 - 前端 Vitest：11 个测试文件、63 项通过。
 - 前端生产构建：通过；有 JS 674.73 kB 和 CSS 470.24 kB 体积提示。
@@ -236,7 +237,7 @@ npm ci
 npm run dev
 ```
 
-认证开发配置在 `.env.example` 中启用了开发环境管理员 seed；该设置只允许 `APP_ENV=development`。生产环境示例关闭自动 seed，应在后端环境中通过以下命令交互式创建首位系统管理员：
+认证开发配置在 `.env.example` 中启用了开发环境管理员 seed；该设置只允许 `APP_ENV=development`。生产首次启动时，在服务器 `deploy/.env` 设置 `AUTH_BOOTSTRAP_ADMIN_IDENTIFIER` 和至少 12 位的 `AUTH_BOOTSTRAP_ADMIN_PASSWORD`。启动后会在管理员缺失时自动创建首位系统管理员；确认可登录后删除这两个变量并运行 `docker compose up -d --force-recreate backend`。离线初始化命令可用于恢复：
 
 ```bash
 cd backend

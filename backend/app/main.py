@@ -38,7 +38,7 @@ async def lifespan(app: FastAPI):
     initialize_database()
     # 认证服务与业务仓储共用同一数据库，统一验证账户、Cookie 会话和角色。
     app.state.auth_service = AuthService(database_path=settings.database_path)
-    app.state.auth_service.ensure_development_admin()
+    app.state.auth_service.ensure_initial_admin()
     # 文档业务服务，负责恢复未完成导入并提供文档、向量存储能力。
     document_service = DocumentService(settings)
     document_service.recover_interrupted_imports()
