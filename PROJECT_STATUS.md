@@ -205,7 +205,7 @@ SQLite 中的成功 Chunk 是索引重建依据。FAISS 负责向量召回，不
 - 当前环境没有 Docker、Podman、Nginx 或 Caddy CLI，因此未验证 Compose 配置渲染、容器启动、Caddy TLS、Nginx SSE/上传反代和 HTTPS Cookie。
 - 未操作或升级生产服务；也没有在考核设备完成彩排。
 - Baseline 是模型自动判分，不等于专业法律复核；#4、#17、#32、#36 是应回答但判分未通过的样例，需参考报告复核。
-- GitHub 远端分支、PR、tag / release 尚未发布；生产候选版不能宣布已就绪。
+- 分支已推送；草稿 PR [#46](https://github.com/MauriceLiang/LaborQA/pull/46) 待审查，尚未合并；没有创建 tag / release，也未部署生产。
 
 具体数据与截图见[考核验收矩阵](docs/assessment/2026-11/02_功能验收记录.md)、[Baseline 报告](docs/assessment/2026-11/03_基准评测报告.md)、[检索实验](docs/assessment/2026-11/04_检索策略对照实验.md)和[部署恢复记录](docs/assessment/2026-11/06_部署与恢复记录.md)。
 
