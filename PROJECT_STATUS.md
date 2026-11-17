@@ -175,7 +175,7 @@ SQLite 中的成功 Chunk 是索引重建依据。FAISS 负责向量召回，不
 ## 6. Git 与改动状态
 
 - 当前工作分支为 `feature/lab-assessment-20261117`，从原工作区 HEAD `45e28d397772e556cd0dda22000cd9321a480d61` 创建；原始本地工作未被清理或重置。
-- 认证主体、代码质量修复、测试和考核材料都在该分支进行审核。提交完成后在此更新 commit SHA、暂存范围、远端 PR 状态。
+- 认证主体、代码质量修复、测试和考核材料已纳入本地候选提交 `e667eda`（96 个明确暂存文件）；未暂存的原型、系统杂项及运行数据不属于该提交。
 - `.DS_Store`、`.agents/`、`frontend/prototypes/`、`frontend/src/prototypes/`、`LoginPrototype.vue`、`uv.lock` 和运行数据不属于预期发布内容。
 - `docs/` 默认仍被忽略；仅 `docs/assessment/2026-11/` 考核材料目录解除忽略。
 - 不直接合并 `main`、打发布 tag 或部署公网。当前 Docker / HTTPS 门禁未通过，详见第 7 节。
