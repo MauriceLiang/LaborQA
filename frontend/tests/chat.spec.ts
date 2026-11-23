@@ -94,6 +94,44 @@ describe('streamChat', () => {
     expect(handlers.onToken).toHaveBeenCalledTimes(1)
   })
 
+  it('accepts a direct response with empty sources and no retrieval status', async () => {
+    const stream = [
+      'event: status\ndata: {"stage":"understanding","message":"正在理解问题…"}\n\n',
+      'event: status\ndata: {"stage":"generating","message":"正在回复…"}\n\n',
+      'event: token\ndata: {"content":"你好，我是 LaborQA。"}\n\n',
+      'event: sources\ndata: {"items":[]}\n\n',
+      'event: done\ndata: {"message_id":31,"answer_style":"plain","refused":false,"timings":{"session_ms":0,"rewrite_ms":0,"retrieval_ms":0,"evidence_judge_ms":0,"pre_answer_ms":0,"ttft_ms":0,"answer_generation_ms":1,"persist_ms":0,"total_ms":1}}\n\n',
+    ].join('')
+    const bytes = new TextEncoder().encode(stream)
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(responseWithChunks([bytes])))
+
+    await streamChat(request, handlers)
+
+    expect(handlers.onStatus).toHaveBeenCalledTimes(2)
+    expect(handlers.onStatus).toHaveBeenNthCalledWith(2, {
+      stage: 'generating',
+      message: '正在回复…',
+    })
+    expect(handlers.onSources).toHaveBeenCalledWith({ items: [] })
+    expect(handlers.onToken).toHaveBeenCalledWith({ content: '你好，我是 LaborQA。' })
+    expect(handlers.onDone).toHaveBeenCalledWith({
+      message_id: 31,
+      answer_style: 'plain',
+      refused: false,
+      timings: {
+        session_ms: 0,
+        rewrite_ms: 0,
+        retrieval_ms: 0,
+        evidence_judge_ms: 0,
+        pre_answer_ms: 0,
+        ttft_ms: 0,
+        answer_generation_ms: 1,
+        persist_ms: 0,
+        total_ms: 1,
+      },
+    })
+  })
+
   it('treats error as terminal and never dispatches later frames', async () => {
     const stream = [
       'event: error\ndata: {"code":50302,"message":"模型服务暂不可用"}\n\n',

@@ -37,6 +37,8 @@ from app.schemas.contracts import (
     ToolExecutionItem,
 )
 from app.services.compliance import COMPLIANCE_NOTICE, ComplianceRuleService
+from app.services.interaction_responses import render_interaction_response
+from app.services.interaction_router import classify_interaction
 from app.services.material_checklist import (
     MaterialChecklistTool,
     ToolDecisionService,
@@ -93,6 +95,33 @@ async def _stream_local_text(
 
         if delay_seconds > 0 and start + chunk_size < len(text):
             await asyncio.sleep(delay_seconds)
+
+
+def _chat_timings(
+    *,
+    session_ms: int,
+    rewrite_ms: int,
+    retrieval_ms: int,
+    evidence_judge_ms: int,
+    pre_answer_ms: int,
+    ttft_ms: int | None,
+    answer_generation_ms: int,
+    persist_ms: int,
+    total_ms: int,
+) -> dict[str, int | None]:
+    """Build the stable nine-field latency payload shared by both answer paths."""
+
+    return {
+        "session_ms": session_ms,
+        "rewrite_ms": rewrite_ms,
+        "retrieval_ms": retrieval_ms,
+        "evidence_judge_ms": evidence_judge_ms,
+        "pre_answer_ms": pre_answer_ms,
+        "ttft_ms": ttft_ms,
+        "answer_generation_ms": answer_generation_ms,
+        "persist_ms": persist_ms,
+        "total_ms": total_ms,
+    }
 
 
 @dataclass(frozen=True)
@@ -368,9 +397,6 @@ class ChatService:
         question = payload.question
         # 局部变量 ai_mode：本次回答生成使用的 AI 模式。
         ai_mode = AiMode(payload.ai_mode)
-        # 局部变量 rag_chain：按运行配置创建或缓存的 RAG 链。
-        rag_chain = self._rag_chain_for(ai_mode)
-
         yield _sse(
             "status",
             {
@@ -402,6 +428,25 @@ class ChatService:
                 {"code": int(ErrorCode.INTERNAL_ERROR), "message": "会话消息保存失败"},
             )
             return
+
+        interaction = classify_interaction(question)
+        if interaction.is_direct and interaction.kind is not None:
+            async for event in self._stream_direct_response(
+                response_text=render_interaction_response(interaction.kind),
+                payload=payload,
+                request=request,
+                session_id=session_id,
+                owner_user_id=owner_user_id,
+                ai_mode=ai_mode,
+                history_turns=len(history),
+                session_ms=session_ms,
+                request_started=request_started,
+            ):
+                yield event
+            return
+
+        # 只在确认走原有法律 RAG 路径后选择对应运行模式的链。
+        rag_chain = self._rag_chain_for(ai_mode)
 
         # 局部变量 rewrite_started：问题改写流程开始时间。
         rewrite_started = perf_counter()
@@ -706,45 +751,29 @@ class ChatService:
         # 局部变量 total_ms：当前请求从开始到结束的总耗时。
         total_ms = round((perf_counter() - request_started) * 1000)
         # 局部变量 latency：当前请求或处理阶段的耗时。
-        latency = {
-            "session_ms": session_ms,
-            "rewrite_ms": rewrite_ms,
-            "retrieval_ms": retrieval_ms,
-            "evidence_judge_ms": evidence_judge_ms,
-            "pre_answer_ms": pre_answer_ms,
-            "ttft_ms": ttft_ms,
-            "answer_generation_ms": answer_generation_ms,
-            "persist_ms": persist_ms,
-            "total_ms": total_ms,
-        }
-        logger.info(
-            "chat_latency %s",
-            json.dumps(
-                {
-                    "session_id": str(session_id),
-                    "history_turns": len(history),
-                    "answer_mode": answer_mode.value,
-                    "delivery_mode": (
-                        "synthetic_stream"
-                        if answer_mode is AnswerMode.TOOL_ONLY
-                        else "llm_stream"
-                    ),
-                    "evidence_count": len(evidence),
-                    "ai_mode": ai_mode.value,
-                    "evidence_thinking": ai_mode_profile(ai_mode).evidence_thinking,
-                    "evidence_effort": ai_mode_profile(ai_mode).evidence_effort,
-                    "answer_thinking": ai_mode_profile(ai_mode).answer_thinking,
-                    "answer_effort": ai_mode_profile(ai_mode).answer_effort,
-                    "rewrite_temperature": self.config.llm_rewrite_temperature,
-                    "rewrite_max_tokens": self.config.llm_rewrite_max_tokens,
-                    "evidence_temperature": self.config.llm_evidence_temperature,
-                    "evidence_max_tokens": self.config.llm_evidence_max_tokens,
-                    "answer_temperature": self.config.llm_answer_temperature,
-                    "answer_max_tokens": self.config.llm_answer_max_tokens,
-                    **latency,
-                },
-                ensure_ascii=False,
+        latency = _chat_timings(
+            session_ms=session_ms,
+            rewrite_ms=rewrite_ms,
+            retrieval_ms=retrieval_ms,
+            evidence_judge_ms=evidence_judge_ms,
+            pre_answer_ms=pre_answer_ms,
+            ttft_ms=ttft_ms,
+            answer_generation_ms=answer_generation_ms,
+            persist_ms=persist_ms,
+            total_ms=total_ms,
+        )
+        self._log_chat_latency(
+            session_id=session_id,
+            history_turns=len(history),
+            answer_mode=answer_mode,
+            delivery_mode=(
+                "synthetic_stream"
+                if answer_mode is AnswerMode.TOOL_ONLY
+                else "llm_stream"
             ),
+            evidence_count=len(evidence),
+            ai_mode=ai_mode,
+            timings=latency,
         )
         yield _sse(
             "done",
@@ -754,6 +783,148 @@ class ChatService:
                 "refused": refused,
                 "timings": latency,
             },
+        )
+
+    async def _stream_direct_response(
+        self,
+        *,
+        response_text: str,
+        payload: ChatRequest,
+        request: Request,
+        session_id: UUID,
+        owner_user_id: str | None,
+        ai_mode: AiMode,
+        history_turns: int,
+        session_ms: int,
+        request_started: float,
+    ):
+        """Stream and persist a fixed ordinary-interaction reply without invoking RAG."""
+
+        rewrite_ms = 0
+        retrieval_ms = 0
+        evidence_judge_ms = 0
+        ttft_ms: int | None = None
+        answer_parts: list[str] = []
+        answer_started = perf_counter()
+        pre_answer_ms = round((answer_started - request_started) * 1000)
+
+        yield _sse(
+            "status",
+            {"stage": "generating", "message": "正在回复…"},
+        )
+        async for chunk in _stream_local_text(response_text):
+            if await request.is_disconnected():
+                return
+            if ttft_ms is None:
+                ttft_ms = round((perf_counter() - request_started) * 1000)
+            answer_parts.append(chunk)
+            yield _sse("token", {"content": chunk})
+
+        answer_generation_ms = round((perf_counter() - answer_started) * 1000)
+        if not answer_parts:
+            yield _sse(
+                "error",
+                {"code": int(ErrorCode.INTERNAL_ERROR), "message": "未能生成回复"},
+            )
+            return
+        if await request.is_disconnected():
+            return
+
+        citations: list[dict[str, Any]] = []
+        tool_executions: list[ToolExecutionItem] = []
+        yield _sse("sources", {"items": citations})
+        if await request.is_disconnected():
+            return
+
+        persist_started = perf_counter()
+        try:
+            assistant_message = self.session_service.persist_assistant(
+                session_id=session_id,
+                content="".join(answer_parts),
+                answer_style=payload.answer_style.value,
+                refused=False,
+                citations=citations,
+                tool_executions=tool_executions,
+                ai_mode=ai_mode,
+                owner_user_id=owner_user_id,
+            )
+            persist_ms = round((perf_counter() - persist_started) * 1000)
+        except Exception:
+            logger.exception("Could not persist completed direct assistant response")
+            yield _sse(
+                "error",
+                {"code": int(ErrorCode.INTERNAL_ERROR), "message": "回答保存失败"},
+            )
+            return
+
+        timings = _chat_timings(
+            session_ms=session_ms,
+            rewrite_ms=rewrite_ms,
+            retrieval_ms=retrieval_ms,
+            evidence_judge_ms=evidence_judge_ms,
+            pre_answer_ms=pre_answer_ms,
+            ttft_ms=ttft_ms,
+            answer_generation_ms=answer_generation_ms,
+            persist_ms=persist_ms,
+            total_ms=round((perf_counter() - request_started) * 1000),
+        )
+        self._log_chat_latency(
+            session_id=session_id,
+            history_turns=history_turns,
+            answer_mode=AnswerMode.DIRECT_RESPONSE,
+            delivery_mode="direct_template_stream",
+            evidence_count=0,
+            ai_mode=ai_mode,
+            timings=timings,
+        )
+        yield _sse(
+            "done",
+            {
+                "message_id": int(assistant_message["id"]),
+                "answer_style": payload.answer_style.value,
+                "refused": False,
+                "timings": timings,
+            },
+        )
+
+    def _log_chat_latency(
+        self,
+        *,
+        session_id: UUID,
+        history_turns: int,
+        answer_mode: AnswerMode,
+        delivery_mode: str,
+        evidence_count: int,
+        ai_mode: AiMode,
+        timings: Mapping[str, int | None],
+    ) -> None:
+        """Log the same privacy-safe latency diagnostics for both chat paths."""
+
+        profile = ai_mode_profile(ai_mode)
+        logger.info(
+            "chat_latency %s",
+            json.dumps(
+                {
+                    "session_id": str(session_id),
+                    "history_turns": history_turns,
+                    "answer_mode": answer_mode.value,
+                    "delivery_mode": delivery_mode,
+                    "evidence_count": evidence_count,
+                    "ai_mode": ai_mode.value,
+                    "evidence_thinking": profile.evidence_thinking,
+                    "evidence_effort": profile.evidence_effort,
+                    "answer_thinking": profile.answer_thinking,
+                    "answer_effort": profile.answer_effort,
+                    "rewrite_temperature": self.config.llm_rewrite_temperature,
+                    "rewrite_max_tokens": self.config.llm_rewrite_max_tokens,
+                    "evidence_temperature": self.config.llm_evidence_temperature,
+                    "evidence_max_tokens": self.config.llm_evidence_max_tokens,
+                    "answer_temperature": self.config.llm_answer_temperature,
+                    "answer_max_tokens": self.config.llm_answer_max_tokens,
+                    **timings,
+                },
+                ensure_ascii=False,
+            ),
         )
 
     async def answer_once(
@@ -779,6 +950,23 @@ class ChatService:
 
         # 局部变量 ai_mode：本次回答生成使用的 AI 模式。
         ai_mode = AiMode(ai_mode)
+        interaction = classify_interaction(question)
+        if interaction.is_direct and interaction.kind is not None:
+            return {
+                "answer": render_interaction_response(interaction.kind),
+                "refused": False,
+                "retrieved_sources": [],
+                "citations": [],
+                "rewritten_question": None,
+                "retrieval_ms": 0,
+                "compliance_shown": False,
+                "answer_mode": AnswerMode.DIRECT_RESPONSE.value,
+                "evidence_decision": None,
+                "evidence_reason": None,
+                "supported_points": [],
+                "missing_points": [],
+                "tool_execution": None,
+            }
         # 局部变量 rag_chain：按运行配置创建或缓存的 RAG 链。
         rag_chain = self._rag_chain_for(ai_mode)
         # 局部变量 rewritten_question：模型改写后的检索查询文本。

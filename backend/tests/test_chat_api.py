@@ -83,6 +83,68 @@ def test_session_and_chat_routes_use_the_frozen_contract_in_process() -> None:
             ) = original_values
 
 
+def test_direct_interaction_succeeds_when_the_knowledge_index_is_unavailable() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        database_path = Path(directory) / "direct-api.db"
+        original_values = (
+            settings.database_url,
+            settings.faiss_dir,
+            settings.upload_dir,
+        )
+        settings.database_url = f"sqlite:///{database_path}"
+        settings.faiss_dir = Path(directory) / "faiss"
+        settings.upload_dir = Path(directory) / "uploads"
+        config = Settings(
+            database_url=f"sqlite:///{database_path}",
+            llm_api_key="",
+            llm_base_url="",
+            llm_model="",
+        )
+        session_service = SessionService(database_path=database_path)
+        chat_service = ChatService(session_service, UnreadyRetrieval(), config)
+        app.dependency_overrides[get_chat_service] = lambda: chat_service
+
+        try:
+            with TestClient(app) as client:
+                created = client.post("/api/sessions", json={"title": None})
+                session_id = created.json()["data"]["id"]
+                response = client.post(
+                    "/api/chat/stream",
+                    json={
+                        "session_id": session_id,
+                        "question": "你好",
+                        "answer_style": "plain",
+                    },
+                )
+                messages = client.get(f"/api/sessions/{session_id}/messages")
+        finally:
+            app.dependency_overrides.pop(get_chat_service, None)
+            (
+                settings.database_url,
+                settings.faiss_dir,
+                settings.upload_dir,
+            ) = original_values
+
+        assert created.status_code == 201
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        assert '"stage":"understanding"' in response.text
+        assert '"stage":"generating"' in response.text
+        assert '"stage":"retrieving"' not in response.text
+        assert '"stage":"verifying"' not in response.text
+        assert "event: sources" in response.text
+        assert '"items":[]' in response.text
+        assert "event: done" in response.text
+        assert "event: error" not in response.text
+        assert messages.status_code == 200
+        assert [item["role"] for item in messages.json()["data"]] == [
+            "user",
+            "assistant",
+        ]
+        assert messages.json()["data"][1]["refused"] is False
+        assert messages.json()["data"][1]["citations"] == []
+
+
 def test_material_checklist_route_returns_shared_tool_execution_contract() -> None:
     with tempfile.TemporaryDirectory() as directory:
         database_path = Path(directory) / "tool-api.db"

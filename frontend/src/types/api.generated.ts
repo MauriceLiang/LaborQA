@@ -4,6 +4,26 @@
  */
 
 export interface paths {
+    "/api/health/live": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Liveness
+         * @description 提供不包含内部配置和组件详情的最小存活探针。
+         */
+        get: operations["get_liveness_api_health_live_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/health": {
         parameters: {
             query?: never;
@@ -11,10 +31,191 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Health */
+        /**
+         * Get Health
+         * @description 汇总数据库、向量索引、嵌入和文档转换器的健康状态。
+         */
         get: operations["get_health_api_health_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/login": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Login
+         * @description 验证账号密码并轮换浏览器收到的 HttpOnly 服务端会话 Cookie。
+         */
+        post: operations["login_api_auth_login_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/me": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Me
+         * @description 返回当前身份并轮换 CSRF token，供刷新后的页面重新建立安全请求状态。
+         */
+        get: operations["get_me_api_auth_me_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/logout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Logout
+         * @description 撤销当前服务端会话并删除浏览器 Cookie。
+         */
+        post: operations["logout_api_auth_logout_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/change-password": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Change Password
+         * @description 修改本人密码，撤销旧设备会话并为当前浏览器签发新会话。
+         */
+        post: operations["change_password_api_auth_change_password_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List My Sessions */
+        get: operations["list_my_sessions_api_auth_sessions_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/auth/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /** Revoke My Session */
+        delete: operations["revoke_my_session_api_auth_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Users
+         * @description 列出账号及当前角色，不返回密码或认证令牌字段。
+         */
+        get: operations["list_users_api_admin_users_get"];
+        put?: never;
+        /**
+         * Create User
+         * @description 创建普通账号或知识管理员；系统管理员只能通过离线命令初始化。
+         */
+        post: operations["create_user_api_admin_users_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/users/{user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Update User
+         * @description 更新普通账号的角色或启用状态，并立即撤销已有服务端会话。
+         */
+        patch: operations["update_user_api_admin_users__user_id__patch"];
+        trace?: never;
+    };
+    "/api/admin/users/{user_id}/revoke-sessions": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke User Sessions
+         * @description 撤销指定账号所有当前有效的设备登录会话。
+         */
+        post: operations["revoke_user_sessions_api_admin_users__user_id__revoke_sessions_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -573,6 +774,14 @@ export interface components {
          * @enum {string}
          */
         AnswerStyle: "plain" | "legal";
+        /** ApiResponse[AuthenticatedUser] */
+        ApiResponse_AuthenticatedUser_: {
+            /** Code */
+            code: number;
+            /** Message */
+            message: string;
+            data: components["schemas"]["AuthenticatedUser"] | null;
+        };
         /** ApiResponse[BuiltinDocumentImportAccepted] */
         ApiResponse_BuiltinDocumentImportAccepted_: {
             /** Code */
@@ -766,6 +975,34 @@ export interface components {
             message: string;
             data: components["schemas"]["ToolExecutionItem"] | null;
         };
+        /** ApiResponse[UserItem] */
+        ApiResponse_UserItem_: {
+            /** Code */
+            code: number;
+            /** Message */
+            message: string;
+            data: components["schemas"]["UserItem"] | null;
+        };
+        /** ApiResponse[dict[str, str]] */
+        ApiResponse_dict_str__str__: {
+            /** Code */
+            code: number;
+            /** Message */
+            message: string;
+            /** Data */
+            data: {
+                [key: string]: string;
+            } | null;
+        };
+        /** ApiResponse[list[AuthSessionItem]] */
+        ApiResponse_list_AuthSessionItem__: {
+            /** Code */
+            code: number;
+            /** Message */
+            message: string;
+            /** Data */
+            data: components["schemas"]["AuthSessionItem"][] | null;
+        };
         /** ApiResponse[list[MessageItem]] */
         ApiResponse_list_MessageItem__: {
             /** Code */
@@ -802,6 +1039,15 @@ export interface components {
             /** Data */
             data: components["schemas"]["SessionItem"][] | null;
         };
+        /** ApiResponse[list[UserItem]] */
+        ApiResponse_list_UserItem__: {
+            /** Code */
+            code: number;
+            /** Message */
+            message: string;
+            /** Data */
+            data: components["schemas"]["UserItem"][] | null;
+        };
         /** ApiResponse[str] */
         ApiResponse_str_: {
             /** Code */
@@ -810,6 +1056,30 @@ export interface components {
             message: string;
             /** Data */
             data: string | null;
+        };
+        /** AuthSessionItem */
+        AuthSessionItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Created At */
+            created_at: string;
+            /** Last Seen At */
+            last_seen_at: string;
+            /** Expires At */
+            expires_at: string;
+            /** Device Info */
+            device_info?: string | null;
+            /** Current */
+            current: boolean;
+        };
+        /** AuthenticatedUser */
+        AuthenticatedUser: {
+            user: components["schemas"]["UserItem"];
+            /** Csrf Token */
+            csrf_token: string;
         };
         /** Body_upload_document_api_documents_upload_post */
         Body_upload_document_api_documents_upload_post: {
@@ -867,6 +1137,13 @@ export interface components {
             state: components["schemas"]["BuiltinDocumentState"];
             /** Document Id */
             document_id: number | null;
+        };
+        /** ChangePasswordRequest */
+        ChangePasswordRequest: {
+            /** Current Password */
+            current_password: string;
+            /** New Password */
+            new_password: string;
         };
         /** ChatRequest */
         ChatRequest: {
@@ -944,6 +1221,18 @@ export interface components {
         CreateSessionRequest: {
             /** Title */
             title?: string | null;
+        };
+        /** CreateUserRequest */
+        CreateUserRequest: {
+            /** Login Identifier */
+            login_identifier: string;
+            /** Password */
+            password: string;
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "USER" | "KNOWLEDGE_ADMIN";
         };
         /** DocumentItem */
         DocumentItem: {
@@ -1135,7 +1424,7 @@ export interface components {
             /** Compliance Hit */
             compliance_hit: boolean | null;
             /** Answer Mode */
-            answer_mode: ("RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL") | null;
+            answer_mode: ("DIRECT_RESPONSE" | "RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL") | null;
             /** Evidence Decision */
             evidence_decision: ("SUFFICIENT" | "PARTIAL" | "INSUFFICIENT") | null;
             /** Judge Reason */
@@ -1164,14 +1453,36 @@ export interface components {
             /** Llm Model */
             llm_model: string;
             ai_mode: components["schemas"]["AiMode"];
+            /** Rewrite Thinking */
+            rewrite_thinking: boolean;
+            /** Rewrite Effort */
+            rewrite_effort: ("low" | "high" | "max") | null;
+            /** Rewrite Temperature */
+            rewrite_temperature: number;
+            /** Rewrite Top P */
+            rewrite_top_p: number;
+            /** Rewrite Max Tokens */
+            rewrite_max_tokens: number;
             /** Evidence Thinking */
             evidence_thinking: boolean;
             /** Evidence Effort */
             evidence_effort: ("low" | "high" | "max") | null;
+            /** Evidence Temperature */
+            evidence_temperature: number;
+            /** Evidence Top P */
+            evidence_top_p: number;
+            /** Evidence Max Tokens */
+            evidence_max_tokens: number;
             /** Answer Thinking */
             answer_thinking: boolean;
             /** Answer Effort */
             answer_effort: ("low" | "high" | "max") | null;
+            /** Answer Temperature */
+            answer_temperature: number;
+            /** Answer Top P */
+            answer_top_p: number;
+            /** Answer Max Tokens */
+            answer_max_tokens: number;
             /**
              * Embedding Provider
              * @enum {string}
@@ -1303,13 +1614,13 @@ export interface components {
             /** Question */
             question: string;
             /** Rewritten Question */
-            rewritten_question: string;
+            rewritten_question: string | null;
             /** Answer */
             answer: string;
             /** Refused */
             refused: boolean;
             /** Answer Mode */
-            answer_mode: ("RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL") | null;
+            answer_mode: ("DIRECT_RESPONSE" | "RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL") | null;
             /** Evidence Decision */
             evidence_decision: ("SUFFICIENT" | "PARTIAL" | "INSUFFICIENT") | null;
             /** Evidence Reason */
@@ -1494,6 +1805,11 @@ export interface components {
          * @enum {string}
          */
         FileType: "pdf" | "doc" | "docx" | "md" | "txt";
+        /** HTTPValidationError */
+        HTTPValidationError: {
+            /** Detail */
+            detail?: components["schemas"]["ValidationError"][];
+        };
         /** HealthData */
         HealthData: {
             /** Service */
@@ -1529,14 +1845,36 @@ export interface components {
             /** Llm Model */
             llm_model: string;
             ai_mode: components["schemas"]["AiMode"];
+            /** Rewrite Thinking */
+            rewrite_thinking: boolean;
+            /** Rewrite Effort */
+            rewrite_effort: ("low" | "high" | "max") | null;
+            /** Rewrite Temperature */
+            rewrite_temperature: number;
+            /** Rewrite Top P */
+            rewrite_top_p: number;
+            /** Rewrite Max Tokens */
+            rewrite_max_tokens: number;
             /** Evidence Thinking */
             evidence_thinking: boolean;
             /** Evidence Effort */
             evidence_effort: ("low" | "high" | "max") | null;
+            /** Evidence Temperature */
+            evidence_temperature: number;
+            /** Evidence Top P */
+            evidence_top_p: number;
+            /** Evidence Max Tokens */
+            evidence_max_tokens: number;
             /** Answer Thinking */
             answer_thinking: boolean;
             /** Answer Effort */
             answer_effort: ("low" | "high" | "max") | null;
+            /** Answer Temperature */
+            answer_temperature: number;
+            /** Answer Top P */
+            answer_top_p: number;
+            /** Answer Max Tokens */
+            answer_max_tokens: number;
             /**
              * Embedding Provider
              * @enum {string}
@@ -1558,6 +1896,13 @@ export interface components {
             rerank_model: string | null;
             /** Prompt Version */
             prompt_version: string;
+        };
+        /** LoginRequest */
+        LoginRequest: {
+            /** Login Identifier */
+            login_identifier: string;
+            /** Password */
+            password: string;
         };
         /** MaterialChecklistInput */
         MaterialChecklistInput: {
@@ -1737,7 +2082,7 @@ export interface components {
             /** Question */
             question: string;
             /** Rewritten Question */
-            rewritten_question: string;
+            rewritten_question: string | null;
             /** Answer */
             answer: string;
             /** Refused */
@@ -1746,14 +2091,11 @@ export interface components {
              * Answer Mode
              * @enum {string}
              */
-            answer_mode: "RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL";
-            /**
-             * Evidence Decision
-             * @enum {string}
-             */
-            evidence_decision: "SUFFICIENT" | "PARTIAL" | "INSUFFICIENT";
+            answer_mode: "DIRECT_RESPONSE" | "RAG_ANSWER" | "PARTIAL_ANSWER" | "TOOL_ONLY" | "REFUSAL";
+            /** Evidence Decision */
+            evidence_decision: ("SUFFICIENT" | "PARTIAL" | "INSUFFICIENT") | null;
             /** Evidence Reason */
-            evidence_reason: string;
+            evidence_reason: string | null;
             /** Supported Points */
             supported_points: string[];
             /** Missing Points */
@@ -1884,6 +2226,54 @@ export interface components {
             input: components["schemas"]["MaterialChecklistInput"];
             output: components["schemas"]["MaterialChecklistOutput"];
         };
+        /** UpdateUserRequest */
+        UpdateUserRequest: {
+            /**
+             * Role
+             * @enum {string}
+             */
+            role: "USER" | "KNOWLEDGE_ADMIN";
+            status: components["schemas"]["UserStatus"];
+        };
+        /** UserItem */
+        UserItem: {
+            /**
+             * Id
+             * Format: uuid
+             */
+            id: string;
+            /** Login Identifier */
+            login_identifier: string;
+            role: components["schemas"]["UserRole"];
+            status: components["schemas"]["UserStatus"];
+            /** Created At */
+            created_at: string;
+            /** Updated At */
+            updated_at: string;
+        };
+        /**
+         * UserRole
+         * @enum {string}
+         */
+        UserRole: "USER" | "KNOWLEDGE_ADMIN" | "SYSTEM_ADMIN";
+        /**
+         * UserStatus
+         * @enum {string}
+         */
+        UserStatus: "ACTIVE" | "DISABLED";
+        /** ValidationError */
+        ValidationError: {
+            /** Location */
+            loc: (string | number)[];
+            /** Message */
+            msg: string;
+            /** Error Type */
+            type: string;
+            /** Input */
+            input?: unknown;
+            /** Context */
+            ctx?: Record<string, never>;
+        };
     };
     responses: never;
     parameters: never;
@@ -1893,6 +2283,26 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+    get_liveness_api_health_live_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_dict_str__str__"];
+                };
+            };
+        };
+    };
     get_health_api_health_get: {
         parameters: {
             query?: never;
@@ -1909,6 +2319,282 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ApiResponse_HealthData_"];
+                };
+            };
+        };
+    };
+    login_api_auth_login_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["LoginRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_AuthenticatedUser_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_me_api_auth_me_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_AuthenticatedUser_"];
+                };
+            };
+        };
+    };
+    logout_api_auth_logout_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+        };
+    };
+    change_password_api_auth_change_password_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["ChangePasswordRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_AuthenticatedUser_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_my_sessions_api_auth_sessions_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_list_AuthSessionItem__"];
+                };
+            };
+        };
+    };
+    revoke_my_session_api_auth_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_users_api_admin_users_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_list_UserItem__"];
+                };
+            };
+        };
+    };
+    create_user_api_admin_users_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_UserItem_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    update_user_api_admin_users__user_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateUserRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_UserItem_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    revoke_user_sessions_api_admin_users__user_id__revoke_sessions_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                user_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ApiResponse_NoneType_"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

@@ -6,6 +6,7 @@ import json
 import sqlite3
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
@@ -23,9 +24,12 @@ from app.repositories.retrieval_experiment_repository import (
 )
 from app.schemas.contracts import (
     EmbeddingSignature,
+    EvaluationResultItem,
+    EvaluationTurnDiagnostic,
     ExperimentConfig,
     ExperimentCreate,
     RetrievalPreviewRequest,
+    RetrievalPreviewResponse,
     RetrievalStrategyCreate,
     RetrievalStrategyUpdate,
 )
@@ -46,6 +50,7 @@ from tests.support import AsyncClientChatModel
 class FakeEmbeddingService:
     def __init__(self, model: str) -> None:
         self.model = model
+        self.queries: list[str] = []
 
     def signature(self, dimension: int | None = None) -> EmbeddingSignature:
         return EmbeddingSignature(
@@ -59,6 +64,7 @@ class FakeEmbeddingService:
         return [[1.0, 0.0] for _ in texts]
 
     def embed_query(self, text: str) -> list[float]:
+        self.queries.append(text)
         return [1.0, 0.0]
 
 
@@ -266,6 +272,7 @@ def test_preview_loads_strategy_and_returns_identity(tmp_path: Path) -> None:
     assert result["evidence_decision"] == "SUFFICIENT"
     assert result["tool_execution"] is None
     assert [stage["stage"] for stage in result["trace"]] == [
+        "问题改写",
         "文本分块",
         "初步召回",
         "轻量重排",
@@ -277,6 +284,108 @@ def test_preview_loads_strategy_and_returns_identity(tmp_path: Path) -> None:
         "Tool 决策",
         "回答模式",
     ]
+
+
+def test_evaluation_turn_diagnostic_accepts_direct_response_without_rag_fields() -> (
+    None
+):
+    diagnostic = EvaluationTurnDiagnostic.model_validate(
+        {
+            "turn_no": 1,
+            "question": "你好",
+            "rewritten_question": None,
+            "answer": "你好，我是 LaborQA。",
+            "refused": False,
+            "answer_mode": "DIRECT_RESPONSE",
+            "evidence_decision": None,
+            "evidence_reason": None,
+            "supported_points": [],
+            "missing_points": [],
+            "retrieved_sources": [],
+            "citations": [],
+            "retrieval_ms": 0,
+        }
+    )
+
+    assert diagnostic.answer_mode == "DIRECT_RESPONSE"
+    assert diagnostic.rewritten_question is None
+    assert diagnostic.evidence_decision is None
+    assert diagnostic.evidence_reason is None
+    result = EvaluationResultItem.model_validate(
+        {
+            "case_id": 1,
+            "status": "COMPLETED",
+            "answer": diagnostic.answer,
+            "refused": False,
+            "correct": None,
+            "source_hit": None,
+            "retrieval_hit": None,
+            "context_retained": None,
+            "multi_turn_correct": None,
+            "compliance_hit": None,
+            "answer_mode": "DIRECT_RESPONSE",
+            "evidence_decision": None,
+            "judge_reason": None,
+            "matched_points": [],
+            "missing_points": [],
+            "contradictions": [],
+            "turn_diagnostics": [diagnostic.model_dump(mode="json")],
+            "citations": [],
+            "latency_ms": 0,
+            "error_message": None,
+        }
+    )
+    assert result.answer_mode == "DIRECT_RESPONSE"
+
+
+def test_preview_routes_direct_interaction_without_retrieval_or_evidence(
+    tmp_path: Path,
+) -> None:
+    service, _, _, _ = _make_environment(tmp_path)
+    strategy_id = _create_test_strategy_ids(service)[0]
+
+    with patch.object(
+        ChatService,
+        "_rag_chain_for",
+        side_effect=AssertionError("direct preview initialized a RAG chain"),
+    ) as rag_chain_for:
+        result = asyncio.run(
+            service.preview(
+                RetrievalPreviewRequest(
+                    question="你好",
+                    answer_style="plain",
+                    strategy_id=strategy_id,
+                )
+            )
+        )
+
+    validated = RetrievalPreviewResponse.model_validate(result)
+    assert validated.answer_mode == "DIRECT_RESPONSE"
+    assert validated.refused is False
+    assert validated.rewritten_question is None
+    assert validated.evidence_decision is None
+    assert validated.evidence_reason is None
+    assert validated.retrieval_ms == 0
+    assert validated.retrieved_sources == []
+    assert validated.citations == []
+    assert validated.index_mode == "NOT_APPLICABLE_DIRECT_RESPONSE"
+    assert service.embedding_service.queries == []
+    rag_chain_for.assert_not_called()
+
+    stages = {stage["stage"]: stage for stage in result["trace"]}
+    for stage_name in (
+        "问题改写",
+        "初步召回",
+        "轻量重排",
+        "重排",
+        "最终 Top-K",
+        "上下文扩展",
+        "相似度阈值",
+        "证据充分性",
+        "Tool 决策",
+    ):
+        assert stages[stage_name]["status"] == "skipped"
+    assert stages["回答模式"]["status"] == "completed"
 
 
 def test_preview_rejects_missing_inactive_and_archived_strategies(

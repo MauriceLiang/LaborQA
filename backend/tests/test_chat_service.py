@@ -3,6 +3,7 @@ import json
 import logging
 import sqlite3
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 from unittest.mock import Mock, patch
@@ -19,6 +20,8 @@ from app.schemas.contracts import (
 )
 from app.services.chat_service import ChatService, _stream_local_text
 from app.services.compliance import COMPLIANCE_NOTICE
+from app.services.interaction_responses import render_interaction_response
+from app.services.interaction_router import InteractionKind
 from app.services.material_checklist import render_material_checklist
 from app.services.missing_knowledge import ExecutionMode, MissingKnowledgeReason
 from app.services.session_service import SessionService
@@ -81,7 +84,7 @@ class EmptyStreamLlm(FakeLlm):
 
 def _create_database(path: Path) -> None:
     schema = Path(__file__).parents[1] / "app" / "core" / "schema.sql"
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.executescript(schema.read_text(encoding="utf-8"))
         connection.execute(
             """
@@ -351,6 +354,253 @@ def test_rag_stream_persists_answer_and_only_retrieved_citations(caplog) -> None
         assert "test-key" not in latency_logs[0]
 
 
+def test_direct_interaction_stream_skips_rag_and_persists_an_uncited_answer() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        service, sessions, retrieval, llm = _service(directory)
+        session = sessions.create_session()
+        service.missing_knowledge_service.record_refusal = Mock()
+        with (
+            patch.object(
+                service,
+                "_rag_chain_for",
+                side_effect=AssertionError("direct response initialized RAG"),
+            ) as rag_chain_for,
+            patch.object(
+                service.tool_decision_service,
+                "decide",
+                side_effect=AssertionError("direct response ran tool detection"),
+            ) as decide_tool,
+        ):
+            events = _events(service, session["id"], question="你好！")
+
+        event_types = _event_types(events)
+        assert event_types[:2] == ["event: status", "event: status"]
+        assert event_types[-2:] == ["event: sources", "event: done"]
+        assert event_types[2:-2]
+        assert all(event_type == "event: token" for event_type in event_types[2:-2])
+        status_payloads = [
+            _event_payload(event)
+            for event in events
+            if event.startswith("event: status")
+        ]
+        assert [payload["stage"] for payload in status_payloads] == [
+            "understanding",
+            "generating",
+        ]
+        assert "retrieving" not in {payload["stage"] for payload in status_payloads}
+        assert "verifying" not in {payload["stage"] for payload in status_payloads}
+        assert _event_payload(events[-2]) == {"items": []}
+        assert "".join(
+            _event_payload(event)["content"]
+            for event in events
+            if event.startswith("event: token")
+        ) == render_interaction_response(InteractionKind.GREETING)
+        _assert_done_timings(events)
+        timings = _event_payload(events[-1])["timings"]
+        assert timings["rewrite_ms"] == 0
+        assert timings["retrieval_ms"] == 0
+        assert timings["evidence_judge_ms"] == 0
+        assert timings["ttft_ms"] is not None
+        rag_chain_for.assert_not_called()
+        decide_tool.assert_not_called()
+        assert retrieval.queries == []
+        assert llm.completions == []
+        assert llm.streams == []
+        service.missing_knowledge_service.record_refusal.assert_not_called()
+
+        messages = sessions.list_messages(session["id"])
+        assert [message["role"] for message in messages] == ["user", "assistant"]
+        assert messages[0]["rewritten_question"] == "你好！"
+        assert messages[1]["content"] == render_interaction_response(
+            InteractionKind.GREETING
+        )
+        assert messages[1]["refused"] is False
+        assert messages[1]["citations"] == []
+        assert messages[1]["tool_executions"] == []
+
+
+def test_direct_interaction_answer_once_has_no_retrieval_or_evidence_diagnostics() -> (
+    None
+):
+    with tempfile.TemporaryDirectory() as directory:
+        database_path = Path(directory) / "unused.db"
+        sessions = SessionService(database_path=database_path)
+        retrieval = FakeRetrieval()
+        llm = FakeLlm()
+        service = ChatService(
+            sessions,
+            retrieval,
+            Settings(
+                database_url=f"sqlite:///{database_path}",
+                llm_api_key="test-key",
+                llm_base_url="https://llm.example.test/v1",
+                llm_model="test-model",
+            ),
+            chat_model=AsyncClientChatModel(llm),
+        )
+        with patch.object(
+            service,
+            "_rag_chain_for",
+            side_effect=AssertionError("direct response initialized RAG"),
+        ) as rag_chain_for:
+            result = asyncio.run(
+                service.answer_once(
+                    "你是谁？",
+                    [],
+                    AnswerStyle.PLAIN,
+                    mode=ExecutionMode.EVALUATION,
+                )
+            )
+
+        assert result["answer_mode"] == AnswerMode.DIRECT_RESPONSE.value
+        assert result["refused"] is False
+        assert result["rewritten_question"] is None
+        assert result["retrieval_ms"] == 0
+        assert result["retrieved_sources"] == []
+        assert result["citations"] == []
+        assert result["evidence_decision"] is None
+        assert result["evidence_reason"] is None
+        assert result["supported_points"] == []
+        assert result["missing_points"] == []
+        assert result["tool_execution"] is None
+        assert result["compliance_shown"] is False
+        rag_chain_for.assert_not_called()
+        assert retrieval.queries == []
+        assert llm.completions == []
+        assert llm.streams == []
+        assert not database_path.exists()
+
+
+def test_mixed_interaction_and_labor_question_stays_on_the_original_rag_path() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        service, sessions, retrieval, llm = _service(directory)
+        session = sessions.create_session()
+
+        events = _events(
+            service,
+            session["id"],
+            question="你好，我被辞退了怎么办？",
+        )
+
+        status_payloads = [
+            _event_payload(event)
+            for event in events
+            if event.startswith("event: status")
+        ]
+        assert [payload["stage"] for payload in status_payloads] == [
+            "understanding",
+            "retrieving",
+            "verifying",
+            "generating",
+        ]
+        assert retrieval.queries == ["你好，我被辞退了怎么办？"]
+        assert llm.completions
+        assert llm.streams
+
+
+def test_direct_interaction_preserves_session_for_a_later_labor_question() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        service, sessions, retrieval, _ = _service(directory)
+        session = sessions.create_session()
+
+        direct_events = _events(service, session["id"], question="你好")
+        labor_events = _events(
+            service,
+            session["id"],
+            question="我被辞退了怎么办？",
+        )
+
+        assert "event: done" in _event_types(direct_events)
+        assert "retrieving" in {
+            _event_payload(event)["stage"]
+            for event in labor_events
+            if event.startswith("event: status")
+        }
+        assert retrieval.queries == ["那公司以不符合录用条件解除劳动关系是否合法？"]
+        assert [
+            message["role"] for message in sessions.list_messages(session["id"])
+        ] == [
+            "user",
+            "assistant",
+            "user",
+            "assistant",
+        ]
+
+
+def test_direct_interaction_disconnect_does_not_persist_a_partial_assistant() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        service, sessions, retrieval, llm = _service(directory)
+        session = sessions.create_session()
+
+        events = _events(
+            service,
+            session["id"],
+            FakeRequest(disconnected=[False, True]),
+            question="你好",
+        )
+
+        assert _event_types(events) == [
+            "event: status",
+            "event: status",
+            "event: token",
+        ]
+        assert [
+            message["role"] for message in sessions.list_messages(session["id"])
+        ] == ["user"]
+        assert retrieval.queries == []
+        assert llm.completions == []
+        assert llm.streams == []
+
+
+def test_direct_interaction_does_not_bypass_session_ownership() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        service, sessions, _, _ = _service(directory)
+        with closing(sqlite3.connect(sessions.repository.database_path)) as connection:
+            connection.execute(
+                """INSERT INTO app_user (id, login_identifier, password_hash, role)
+                   VALUES ('owner-a', 'owner-a', 'test-hash', 'USER')"""
+            )
+            connection.commit()
+        session = sessions.create_session(owner_user_id="owner-a")
+        payload = ChatRequest(
+            session_id=UUID(session["id"]),
+            question="你好",
+            answer_style="plain",
+        )
+
+        events = asyncio.run(
+            _collect(
+                service.stream_chat(
+                    payload,
+                    FakeRequest(),
+                    owner_user_id="owner-b",
+                )
+            )
+        )
+
+        assert _event_types(events) == ["event: status", "event: error"]
+        assert "event: done" not in _event_types(events)
+        assert sessions.list_messages(session["id"], owner_user_id="owner-a") == []
+
+
+def test_direct_interaction_persistence_failure_emits_error_before_done() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        service, sessions, _, _ = _service(directory)
+        session = sessions.create_session()
+        with patch.object(
+            sessions,
+            "persist_assistant",
+            side_effect=RuntimeError("database unavailable"),
+        ):
+            events = _events(service, session["id"], question="谢谢")
+
+        assert _event_types(events)[-2:] == ["event: sources", "event: error"]
+        assert "event: done" not in _event_types(events)
+        assert [
+            message["role"] for message in sessions.list_messages(session["id"])
+        ] == ["user"]
+
+
 def test_evaluation_answer_once_reuses_rag_without_production_persistence() -> None:
     with tempfile.TemporaryDirectory() as directory:
         service, sessions, retrieval, _ = _service(directory)
@@ -369,7 +619,7 @@ def test_evaluation_answer_once_reuses_rag_without_production_persistence() -> N
         assert result["compliance_shown"] is True
         assert COMPLIANCE_NOTICE in result["answer"]
         assert retrieval.queries == ["劳动仲裁时效是多少？"]
-        with sqlite3.connect(sessions.repository.database_path) as connection:
+        with closing(sqlite3.connect(sessions.repository.database_path)) as connection:
             assert connection.execute("SELECT COUNT(*) FROM session").fetchone()[0] == 0
             assert connection.execute("SELECT COUNT(*) FROM message").fetchone()[0] == 0
             assert (

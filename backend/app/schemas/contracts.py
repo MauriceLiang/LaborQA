@@ -14,6 +14,10 @@ Score = Annotated[float, Field(ge=0, le=1)]
 NonEmptyText = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)]
 # 证据片段来源类别的字面量类型。
 EvidenceOrigin = Literal["RETRIEVED", "NEIGHBOR"]
+# 回答路径的公开 API 字面量类型；同时供评测和检索预览诊断复用。
+AnswerModeValue = Literal[
+    "DIRECT_RESPONSE", "RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"
+]
 
 
 # 类作用：上传文件扩展名的受支持枚举。
@@ -598,13 +602,13 @@ class EvaluationTurnDiagnostic(ApiModel):
     # 字段说明：用户提问或评估输入的问题文本。
     question: str
     # 字段说明：查询改写后用于检索的问题文本。
-    rewritten_question: str
+    rewritten_question: str | None
     # 字段说明：模型生成或评估使用的回答文本。
     answer: str
     # 字段说明：回答是否因证据或合规原因拒绝生成。
     refused: bool
     # 字段说明：本次采用的回答、工具或拒答路径。
-    answer_mode: Literal["RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"] | None
+    answer_mode: AnswerModeValue | None
     # 字段说明：证据充分性判断结果。
     evidence_decision: Literal["SUFFICIENT", "PARTIAL", "INSUFFICIENT"] | None
     # 字段说明：说明证据判断结果的理由。
@@ -644,7 +648,7 @@ class EvaluationResultItem(ApiModel):
     # 字段说明：是否命中预期合规提示。
     compliance_hit: bool | None
     # 字段说明：本次采用的回答、工具或拒答路径。
-    answer_mode: Literal["RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"] | None
+    answer_mode: AnswerModeValue | None
     # 字段说明：证据充分性判断结果。
     evidence_decision: Literal["SUFFICIENT", "PARTIAL", "INSUFFICIENT"] | None
     # 字段说明：评估器给出的评分理由。
@@ -1057,17 +1061,17 @@ class RetrievalPreviewResponse(ApiModel):
     # 字段说明：用户提问或评估输入的问题文本。
     question: str
     # 字段说明：查询改写后用于检索的问题文本。
-    rewritten_question: str
+    rewritten_question: str | None
     # 字段说明：模型生成或评估使用的回答文本。
     answer: str
     # 字段说明：回答是否因证据或合规原因拒绝生成。
     refused: bool
     # 字段说明：本次采用的回答、工具或拒答路径。
-    answer_mode: Literal["RAG_ANSWER", "PARTIAL_ANSWER", "TOOL_ONLY", "REFUSAL"]
+    answer_mode: AnswerModeValue
     # 字段说明：证据充分性判断结果。
-    evidence_decision: Literal["SUFFICIENT", "PARTIAL", "INSUFFICIENT"]
+    evidence_decision: Literal["SUFFICIENT", "PARTIAL", "INSUFFICIENT"] | None
     # 字段说明：说明证据判断结果的理由。
-    evidence_reason: str
+    evidence_reason: str | None
     # 字段说明：证据或回答已支持的要点。
     supported_points: list[str]
     # 字段说明：证据或回答尚未覆盖的要点。

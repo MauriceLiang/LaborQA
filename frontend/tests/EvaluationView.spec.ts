@@ -71,10 +71,21 @@ function runDetail(
       baseline_version: 2,
       llm_model: 'test-model',
       ai_mode: 'balanced',
+      rewrite_thinking: false,
+      rewrite_effort: null,
+      rewrite_temperature: 0.1,
+      rewrite_top_p: 0.95,
+      rewrite_max_tokens: 512,
       evidence_thinking: true,
       evidence_effort: 'low',
+      evidence_temperature: 0,
+      evidence_top_p: 1,
+      evidence_max_tokens: 1024,
       answer_thinking: false,
       answer_effort: null,
+      answer_temperature: 0.2,
+      answer_top_p: 0.95,
+      answer_max_tokens: 4096,
       evaluator_model: 'test-model',
       evaluator_prompt_version: 'evaluation_judge_v1',
       embedding_provider: 'local',
@@ -284,6 +295,44 @@ describe('EvaluationView', () => {
     await wrapper.get('.evaluation-link').trigger('click')
     expect(wrapper.find('.evaluation-detail-panel').exists()).toBe(false)
     expect(wrapper.get('.evaluation-link').attributes('aria-expanded')).toBe('false')
+    wrapper.unmount()
+  })
+
+  it('labels direct evaluation diagnostics without implying evidence was checked', async () => {
+    const detail = runDetail('COMPLETED')
+    const result = detail.results[0]
+    result.answer = '你好，我是 LaborQA。'
+    result.answer_mode = 'DIRECT_RESPONSE'
+    result.evidence_decision = null
+    result.citations = []
+    result.turn_diagnostics = [{
+      turn_no: 1,
+      question: '你好',
+      rewritten_question: null,
+      answer: result.answer,
+      refused: false,
+      answer_mode: 'DIRECT_RESPONSE',
+      evidence_decision: null,
+      evidence_reason: null,
+      supported_points: [],
+      missing_points: [],
+      retrieved_sources: [],
+      citations: [],
+      retrieval_ms: 0,
+    }]
+    vi.mocked(evaluationsApi.getEvaluationRuns).mockResolvedValue({
+      items: [runSummary('COMPLETED')], page: 1, size: 10, total: 1, pages: 1,
+    })
+    vi.mocked(evaluationsApi.getEvaluationRun).mockResolvedValue(detail)
+
+    const wrapper = shallowMount(EvaluationView, { global: { plugins: [createPinia()] } })
+    await flushPromises()
+    await wrapper.get('.evaluation-link').trigger('click')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('回答模式：直接回复')
+    expect(wrapper.text()).toContain('证据：未执行')
+    expect(wrapper.text()).toContain('未执行问题改写')
     wrapper.unmount()
   })
 

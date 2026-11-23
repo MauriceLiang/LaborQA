@@ -1,6 +1,7 @@
 import sqlite3
 import tempfile
 import unittest
+from contextlib import closing
 from pathlib import Path
 
 import httpx
@@ -333,7 +334,7 @@ class Phase1ContractTests(unittest.TestCase):
             finally:
                 settings.database_url = original_url
 
-            with sqlite3.connect(database_path) as connection:
+            with closing(sqlite3.connect(database_path)) as connection, connection:
                 actual_tables = {
                     row[0]
                     for row in connection.execute(
@@ -358,7 +359,7 @@ class Phase1ContractTests(unittest.TestCase):
                 )
 
     def test_database_migrates_old_citation_metadata_columns(self) -> None:
-        with sqlite3.connect(settings.database_path) as connection:
+        with closing(sqlite3.connect(settings.database_path)) as connection, connection:
             connection.execute(
                 """
                 CREATE TABLE citation (
@@ -376,7 +377,7 @@ class Phase1ContractTests(unittest.TestCase):
 
         initialize_database()
 
-        with sqlite3.connect(settings.database_path) as connection:
+        with closing(sqlite3.connect(settings.database_path)) as connection, connection:
             columns = {
                 row[1] for row in connection.execute("PRAGMA table_info('citation')")
             }
@@ -391,7 +392,7 @@ class Phase1ContractTests(unittest.TestCase):
 
     def test_database_migrates_old_document_file_type_constraint(self) -> None:
         database_path = settings.database_path
-        with sqlite3.connect(database_path) as connection:
+        with closing(sqlite3.connect(database_path)) as connection, connection:
             connection.execute(
                 """
                 CREATE TABLE document (
@@ -420,7 +421,7 @@ class Phase1ContractTests(unittest.TestCase):
 
         initialize_database()
 
-        with sqlite3.connect(database_path) as connection:
+        with closing(sqlite3.connect(database_path)) as connection, connection:
             connection.execute(
                 """
                 INSERT INTO document (

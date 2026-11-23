@@ -27,6 +27,7 @@ const router = useRouter()
 const authStore = useAuthStore()
 // 聊天会话仓库，提供历史记录、流式状态和会话操作。
 const sessionStore = useSessionStore()
+const brandMarkUrl = '/assets/brand-mark.png'
 
 // 侧栏导航项及其名称、路径和图标配置。
 const navItems: Array<{
@@ -109,7 +110,7 @@ async function handleLogout() {
     <aside class="app-sidebar" aria-label="应用导航">
       <div class="brand-lockup">
         <div class="brand-symbol" aria-hidden="true">
-          <img src="/assets/brand-mark.png" alt="" />
+          <img :src="brandMarkUrl" alt="" />
         </div>
         <div>
           <strong>劳动权益咨询问答台</strong>

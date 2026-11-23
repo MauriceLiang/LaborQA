@@ -13,6 +13,7 @@ from app.core.config import Settings, settings
 from app.core.error_codes import ErrorCode
 from app.core.errors import AppError
 from app.rag.ai_modes import DEFAULT_AI_MODE
+from app.rag.decision import AnswerMode
 from app.rag.embeddings import LangChainEmbeddingService
 from app.rag.errors import (
     EmbeddingDimensionUnknown,
@@ -657,10 +658,19 @@ class RetrievalExperimentService:
         refused = bool(output["refused"])
         # 局部变量 answer_mode：本次问题采用的回答处理路径。
         answer_mode = str(output["answer_mode"])
+        direct_response = answer_mode == AnswerMode.DIRECT_RESPONSE.value
         # 局部变量 evidence_decision：依据检索证据得到的回答路径判定。
-        evidence_decision = str(output["evidence_decision"])
+        evidence_decision = (
+            str(output["evidence_decision"])
+            if output["evidence_decision"] is not None
+            else None
+        )
         # 局部变量 evidence_reason：证据充分性判定的解释文本。
-        evidence_reason = str(output["evidence_reason"])
+        evidence_reason = (
+            str(output["evidence_reason"])
+            if output["evidence_reason"] is not None
+            else None
+        )
         # 局部变量 supported_points：已被证据或答案支持的预期要点。
         supported_points = [str(item) for item in output["supported_points"]]
         # 局部变量 missing_points：证据或答案尚未覆盖的预期要点列表。
@@ -685,15 +695,24 @@ class RetrievalExperimentService:
             )
             or "没有候选片段"
         )
+        limitations = (
+            ["普通交互使用固定模板，不执行改写、检索、重排或证据判断"]
+            if direct_response
+            else [
+                "快速试跑复用生产索引",
+                "Chunk Size 与 Chunk Overlap 不会重新切分",
+            ]
+        )
         return {
             "strategy_id": int(strategy["id"]),
             "strategy_name": strategy["name"],
             "strategy_version": int(strategy["version"]),
-            "index_mode": "PRODUCTION_INDEX_REUSE",
-            "limitations": [
-                "快速试跑复用生产索引",
-                "Chunk Size 与 Chunk Overlap 不会重新切分",
-            ],
+            "index_mode": (
+                "NOT_APPLICABLE_DIRECT_RESPONSE"
+                if direct_response
+                else "PRODUCTION_INDEX_REUSE"
+            ),
+            "limitations": limitations,
             "question": payload.question,
             "rewritten_question": output["rewritten_question"],
             "answer": output["answer"],
@@ -710,24 +729,49 @@ class RetrievalExperimentService:
             "config": strategy_config.model_dump(mode="json"),
             "trace": [
                 {
+                    "stage": "问题改写",
+                    "status": "skipped" if direct_response else "completed",
+                    "detail": (
+                        "普通交互直接使用固定回复，未改写问题"
+                        if direct_response
+                        else f"检索查询：{output['rewritten_question']}"
+                    ),
+                    "duration_ms": None,
+                },
+                {
                     "stage": "文本分块",
-                    "status": "completed",
-                    "detail": "试跑复用生产索引；正式实验会按策略重新分块",
+                    "status": "skipped" if direct_response else "completed",
+                    "detail": (
+                        "普通交互不涉及资料分块"
+                        if direct_response
+                        else "试跑复用生产索引；正式实验会按策略重新分块"
+                    ),
                     "duration_ms": None,
                 },
                 {
                     "stage": "初步召回",
-                    "status": "completed" if retrieved_sources else "skipped",
-                    "detail": f"FAISS 候选上限 {strategy_config.candidate_k} 个片段",
+                    "status": (
+                        "completed"
+                        if not direct_response and retrieved_sources
+                        else "skipped"
+                    ),
+                    "detail": (
+                        "普通交互未执行向量检索"
+                        if direct_response
+                        else f"FAISS 候选上限 {strategy_config.candidate_k} 个片段"
+                    ),
                     "duration_ms": output["retrieval_ms"],
                 },
                 {
                     "stage": "轻量重排",
                     "status": "completed"
-                    if strategy_config.lightweight_rerank_enabled
+                    if not direct_response
+                    and strategy_config.lightweight_rerank_enabled
                     else "skipped",
                     "detail": (
-                        "使用检索分、法律术语命中和资料来源优先级排序"
+                        "普通交互未执行重排"
+                        if direct_response
+                        else "使用检索分、法律术语命中和资料来源优先级排序"
                         if strategy_config.lightweight_rerank_enabled
                         else "当前策略未启用轻量重排"
                     ),
@@ -736,10 +780,12 @@ class RetrievalExperimentService:
                 {
                     "stage": "重排",
                     "status": "completed"
-                    if strategy_config.rerank_enabled
+                    if not direct_response and strategy_config.rerank_enabled
                     else "skipped",
                     "detail": (
-                        f"已启用旧 CrossEncoder，Top-N {strategy_config.rerank_top_n}"
+                        "普通交互未执行重排"
+                        if direct_response
+                        else f"已启用旧 CrossEncoder，Top-N {strategy_config.rerank_top_n}"
                         if strategy_config.rerank_enabled
                         else "未启用旧 CrossEncoder"
                     ),
@@ -747,15 +793,29 @@ class RetrievalExperimentService:
                 },
                 {
                     "stage": "最终 Top-K",
-                    "status": "completed" if primary_sources else "skipped",
-                    "detail": f"保留主证据 {len(primary_sources)} 个，目标 Top-K {strategy_config.top_k}",
+                    "status": (
+                        "completed"
+                        if not direct_response and primary_sources
+                        else "skipped"
+                    ),
+                    "detail": (
+                        "普通交互未执行 Top-K 筛选"
+                        if direct_response
+                        else f"保留主证据 {len(primary_sources)} 个，目标 Top-K {strategy_config.top_k}"
+                    ),
                     "duration_ms": None,
                 },
                 {
                     "stage": "上下文扩展",
-                    "status": "completed" if neighbor_sources else "skipped",
+                    "status": (
+                        "completed"
+                        if not direct_response and neighbor_sources
+                        else "skipped"
+                    ),
                     "detail": (
-                        f"扩展 {len(neighbor_sources)} 个同文档邻接片段，证据上限 "
+                        "普通交互未扩展检索上下文"
+                        if direct_response
+                        else f"扩展 {len(neighbor_sources)} 个同文档邻接片段，证据上限 "
                         f"{strategy_config.evidence_limit}"
                         if neighbor_sources
                         else "没有新增邻接片段"
@@ -764,9 +824,15 @@ class RetrievalExperimentService:
                 },
                 {
                     "stage": "相似度阈值",
-                    "status": "completed" if retrieved_sources else "skipped",
+                    "status": (
+                        "completed"
+                        if not direct_response and retrieved_sources
+                        else "skipped"
+                    ),
                     "detail": (
-                        f"候选分数：{score_summary}；最高分 {max_retrieval_score:.3f}，"
+                        "普通交互未计算检索相似度"
+                        if direct_response
+                        else f"候选分数：{score_summary}；最高分 {max_retrieval_score:.3f}，"
                         f"当前阈值 {strategy_config.score_threshold:.2f}；"
                         f"阈值{'通过' if threshold_passed else '未通过'}"
                     ),
@@ -774,9 +840,15 @@ class RetrievalExperimentService:
                 },
                 {
                     "stage": "证据充分性",
-                    "status": "completed" if threshold_passed else "skipped",
+                    "status": (
+                        "completed"
+                        if not direct_response and threshold_passed
+                        else "skipped"
+                    ),
                     "detail": (
-                        f"判定 {evidence_decision}；支持要点："
+                        "普通交互没有执行证据判断"
+                        if direct_response
+                        else f"判定 {evidence_decision}；支持要点："
                         f"{'、'.join(supported_points) or '无'}；缺失要点："
                         f"{'、'.join(missing_points) or '无'}；{evidence_reason}"
                         if threshold_passed
@@ -786,9 +858,15 @@ class RetrievalExperimentService:
                 },
                 {
                     "stage": "Tool 决策",
-                    "status": "completed" if tool_execution else "skipped",
+                    "status": (
+                        "completed"
+                        if not direct_response and tool_execution
+                        else "skipped"
+                    ),
                     "detail": (
-                        "命中材料清单工具，争议类型："
+                        "普通交互不执行业务工具"
+                        if direct_response
+                        else "命中材料清单工具，争议类型："
                         f"{tool_execution['input']['dispute_type']}"
                         if tool_execution
                         else "未命中材料清单工具"

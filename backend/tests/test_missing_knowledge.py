@@ -1,5 +1,6 @@
 import sqlite3
 import tempfile
+from contextlib import closing
 from pathlib import Path
 
 from app.core.error_codes import ErrorCode
@@ -17,7 +18,7 @@ from app.services.missing_knowledge import (
 
 def _service(path: Path) -> MissingKnowledgeService:
     schema = Path(__file__).parents[1] / "app" / "core" / "schema.sql"
-    with sqlite3.connect(path) as connection:
+    with closing(sqlite3.connect(path)) as connection, connection:
         connection.executescript(schema.read_text(encoding="utf-8"))
     return MissingKnowledgeService(database_path=path)
 

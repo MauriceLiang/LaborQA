@@ -1,5 +1,6 @@
 import sqlite3
 import tempfile
+from contextlib import closing
 from pathlib import Path
 
 from app.core.database import _migrate_evaluation_schema
@@ -9,7 +10,7 @@ from app.services.evaluation_cases import fixed_evaluation_cases
 
 def _create_database(database_path: Path) -> None:
     schema = Path(__file__).parents[1] / "app" / "core" / "schema.sql"
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection, connection:
         connection.executescript(schema.read_text(encoding="utf-8"))
 
 
@@ -36,7 +37,7 @@ def test_seed_new_baseline_archives_old_builtin_and_preserves_custom() -> None:
         repository.seed_cases(cases, baseline_version=2)
         repository.seed_cases(cases, baseline_version=2)
 
-        with sqlite3.connect(database_path) as connection:
+        with closing(sqlite3.connect(database_path)) as connection, connection:
             rows = connection.execute(
                 """
                 SELECT origin, status, builtin_key, archived_at
@@ -53,7 +54,7 @@ def test_seed_new_baseline_archives_old_builtin_and_preserves_custom() -> None:
         assert rows[0][3] is not None
         assert custom["origin"] == "CUSTOM"
 
-        with sqlite3.connect(database_path) as connection:
+        with closing(sqlite3.connect(database_path)) as connection, connection:
             assert (
                 connection.execute(
                     "SELECT COUNT(*) FROM evaluation_case WHERE builtin_key LIKE 'baseline-v2-%'"
@@ -70,7 +71,7 @@ def test_new_baseline_version_archives_previous_builtin_cases() -> None:
         cases = fixed_evaluation_cases()
 
         repository.seed_cases(cases, baseline_version=3)
-        with sqlite3.connect(database_path) as connection:
+        with closing(sqlite3.connect(database_path)) as connection, connection:
             assert (
                 connection.execute(
                     "SELECT COUNT(*) FROM evaluation_case "
@@ -81,7 +82,7 @@ def test_new_baseline_version_archives_previous_builtin_cases() -> None:
 
         repository.seed_cases(cases, baseline_version=4)
 
-        with sqlite3.connect(database_path) as connection:
+        with closing(sqlite3.connect(database_path)) as connection, connection:
             rows = connection.execute(
                 "SELECT builtin_key, status, archived_at "
                 "FROM evaluation_case ORDER BY id"
@@ -138,7 +139,7 @@ def test_result_round_trip_preserves_answer_mode_and_evidence_decision() -> None
 
 
 def test_old_evaluation_result_migration_adds_nullable_mode_columns() -> None:
-    with sqlite3.connect(":memory:") as connection:
+    with closing(sqlite3.connect(":memory:")) as connection, connection:
         connection.executescript(
             """
             CREATE TABLE evaluation_run (

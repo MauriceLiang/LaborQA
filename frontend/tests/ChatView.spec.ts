@@ -155,6 +155,27 @@ describe('ChatView', () => {
     wrapper.unmount()
   })
 
+  it('renders a direct interaction as a normal uncited assistant message', async () => {
+    vi.mocked(chatApi.streamChat).mockImplementation(async (_request, handlers) => {
+      handlers.onStatus?.({ stage: 'understanding', message: '正在理解问题…' })
+      handlers.onStatus?.({ stage: 'generating', message: '正在回复…' })
+      handlers.onToken({ content: '你好，我是 LaborQA 劳动权益咨询助手。' })
+      handlers.onSources({ items: [] })
+      handlers.onDone({ message_id: 31, answer_style: 'plain', refused: false })
+    })
+    const wrapper = mountView()
+
+    await wrapper.get('textarea').setValue('你好')
+    await wrapper.get('form').trigger('submit')
+    await flushPromises()
+
+    expect(wrapper.text()).toContain('你好，我是 LaborQA 劳动权益咨询助手。')
+    expect(wrapper.text()).not.toContain('证据不足')
+    expect(wrapper.find('.source-panel').exists()).toBe(false)
+    expect(wrapper.find('.message-refused').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('restores a saved session and its citations on mount', async () => {
     vi.mocked(sessionsApi.getSessionMessages).mockResolvedValue(history)
     const { wrapper } = mountViewWithStore(session.id)

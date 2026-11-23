@@ -102,12 +102,12 @@ export interface RetrievalPreview {
   index_mode: string
   limitations: string[]
   question: string
-  rewritten_question: string
+  rewritten_question: string | null
   answer: string
   refused: boolean
-  answer_mode: 'RAG_ANSWER' | 'PARTIAL_ANSWER' | 'TOOL_ONLY' | 'REFUSAL'
-  evidence_decision: 'SUFFICIENT' | 'PARTIAL' | 'INSUFFICIENT'
-  evidence_reason: string
+  answer_mode: 'DIRECT_RESPONSE' | 'RAG_ANSWER' | 'PARTIAL_ANSWER' | 'TOOL_ONLY' | 'REFUSAL'
+  evidence_decision: 'SUFFICIENT' | 'PARTIAL' | 'INSUFFICIENT' | null
+  evidence_reason: string | null
   supported_points: string[]
   missing_points: string[]
   tool_execution: components['schemas']['ToolExecutionItem'] | null

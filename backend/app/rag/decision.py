@@ -19,6 +19,7 @@ class EvidenceDecision(StrEnum):
 class AnswerMode(StrEnum):
     """聊天流程最终采用的回答或拒答路径。"""
 
+    DIRECT_RESPONSE = "DIRECT_RESPONSE"  # 使用普通交互固定模板直接回复。
     RAG_ANSWER = "RAG_ANSWER"  # 基于检索证据生成常规 RAG 回答。
     PARTIAL_ANSWER = "PARTIAL_ANSWER"  # 仅回答证据能够支持的部分。
     TOOL_ONLY = "TOOL_ONLY"  # 直接返回结构化工具生成的结果。

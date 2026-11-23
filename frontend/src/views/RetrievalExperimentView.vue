@@ -919,6 +919,7 @@ function formatDuration(value: number | null | undefined) {
 /** 将预览回答模式转换为中文展示文本。 */
 // 参数 value：预览接口返回的 answer_mode；把完整回答、部分回答、工具回答和拒答映射为中文说明。
 function formatPreviewMode(value: RetrievalPreview['answer_mode']) {
+  if (value === 'DIRECT_RESPONSE') return '直接回复'
   if (value === 'RAG_ANSWER') return '完整回答'
   if (value === 'PARTIAL_ANSWER') return '部分回答'
   if (value === 'TOOL_ONLY') return '工具回答'

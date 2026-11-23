@@ -616,11 +616,12 @@ function formatFlag(value: boolean | null) {
 /** 将回答模式转换为中文展示文本。 */
 // 参数 value：后端 answer_mode 枚举值；函数将 RAG、部分回答、工具回答和拒答路径映射为面向用户的中文标签。
 function formatAnswerMode(value: string | null | undefined) {
+  if (value === 'DIRECT_RESPONSE') return '直接回复'
   if (value === 'RAG_ANSWER') return '完整回答'
   if (value === 'PARTIAL_ANSWER') return '部分回答'
   if (value === 'TOOL_ONLY') return '工具回答'
   if (value === 'REFUSAL') return '拒答'
-  return '未记录'
+  return value === null ? '未执行' : '未记录'
 }
 
 /** 将证据判定结果转换为中文展示文本。 */
@@ -629,7 +630,7 @@ function formatEvidenceDecision(value: string | null | undefined) {
   if (value === 'SUFFICIENT') return '证据充分'
   if (value === 'PARTIAL') return '证据部分充分'
   if (value === 'INSUFFICIENT') return '证据不足'
-  return '未记录'
+  return value === null ? '未执行' : '未记录'
 }
 
 /** 格式化评估用例编号。 */
@@ -1100,7 +1101,7 @@ onBeforeUnmount(() => {
                   <span>证据：{{ formatEvidenceDecision(turn.evidence_decision) }}</span>
                 </div>
                 <p><b>原始问题：</b>{{ turn.question }}</p>
-                <p><b>独立检索问题：</b>{{ turn.rewritten_question }}</p>
+                <p><b>独立检索问题：</b>{{ turn.rewritten_question ?? '未执行问题改写' }}</p>
                 <p v-if="turn.evidence_reason"><b>证据理由：</b>{{ turn.evidence_reason }}</p>
                 <div class="evaluation-turn-points">
                   <span><b>Evidence supported：</b>{{ (turn.supported_points ?? []).join('；') || '无' }}</span>

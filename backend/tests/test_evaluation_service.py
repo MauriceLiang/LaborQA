@@ -2,6 +2,7 @@ import asyncio
 import json
 import sqlite3
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -190,7 +191,7 @@ def _service(database_path: Path, chat: FakeChat | None = None) -> EvaluationSer
 
 def _create_database(database_path: Path) -> None:
     schema = Path(__file__).parents[1] / "app" / "core" / "schema.sql"
-    with sqlite3.connect(database_path) as connection:
+    with closing(sqlite3.connect(database_path)) as connection, connection:
         connection.executescript(schema.read_text(encoding="utf-8"))
 
 
@@ -505,7 +506,7 @@ def test_run_executes_subset_calculates_metrics_and_does_not_write_chat_tables()
             "compliance_hit_rate": None,
         }
         assert chat.judge.calls[0]["temperature"] == 0
-        with sqlite3.connect(database_path) as connection:
+        with closing(sqlite3.connect(database_path)) as connection, connection:
             assert connection.execute("SELECT COUNT(*) FROM session").fetchone()[0] == 0
             assert connection.execute("SELECT COUNT(*) FROM message").fetchone()[0] == 0
             assert (
@@ -556,7 +557,7 @@ def test_delete_run_rejects_active_jobs_and_cascades_persisted_results() -> None
         service.delete_run(run["id"])
 
         assert service.repository.get_run(run["id"]) is None
-        with sqlite3.connect(database_path) as connection:
+        with closing(sqlite3.connect(database_path)) as connection, connection:
             assert (
                 connection.execute(
                     "SELECT COUNT(*) FROM evaluation_run_case WHERE run_id = ?",
